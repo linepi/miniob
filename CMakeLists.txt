@@ -3,59 +3,69 @@ set(CMAKE_CXX_STANDARD 20)
 
 project(minidb)
 
-MESSAGE(STATUS "This is Project source dir " ${PROJECT_SOURCE_DIR})
-MESSAGE(STATUS "This is PROJECT_BINARY_DIR dir " ${PROJECT_BINARY_DIR})
+if(NOT WIN32)
+  string(ASCII 27 Esc)
+  set(ColourReset "${Esc}[m")
+  set(ColourBold  "${Esc}[1m")
+  set(Red         "${Esc}[31m")
+  set(Green       "${Esc}[32m")
+  set(Yellow      "${Esc}[33m")
+  set(Blue        "${Esc}[34m")
+  set(Magenta     "${Esc}[35m")
+  set(Cyan        "${Esc}[36m")
+  set(White       "${Esc}[37m")
+  set(BoldRed     "${Esc}[1;31m")
+  set(BoldGreen   "${Esc}[1;32m")
+  set(BoldYellow  "${Esc}[1;33m")
+  set(BoldBlue    "${Esc}[1;34m")
+  set(BoldMagenta "${Esc}[1;35m")
+  set(BoldCyan    "${Esc}[1;36m")
+  set(BoldWhite   "${Esc}[1;37m")
+endif()
+
 
 SET(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
-
 SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/cmake)
 
-OPTION(ENABLE_ASAN "Enable build with address sanitizer" ON)
-OPTION(WITH_UNIT_TESTS "Compile miniob with unit tests" ON)
+OPTION(ENABLE_ASAN "Enable build with address sanitizer" OFF)
+OPTION(WITH_UNIT_TESTS "Compile miniob with unit tests" OFF)
 OPTION(CONCURRENCY "Support concurrency operations" OFF)
 OPTION(STATIC_STDLIB "Link std library static or dynamic, such as libgcc, libstdc++, libasan" OFF)
+OPTION(DEBUG "Debug mode" OFF)
 
-MESSAGE(STATUS "HOME dir: $ENV{HOME}")
-#SET(ENV{变量名} 值)
+MESSAGE(STATUS "${Yellow}PROJECT_SOURCE_DIR: ${ColourReset}" ${PROJECT_SOURCE_DIR} )
+MESSAGE(STATUS "${Yellow}PROJECT_BINARY_DIR: ${ColourReset}" ${PROJECT_BINARY_DIR} )
+MESSAGE(STATUS "${Yellow}ENABLE_ASAN: ${ColourReset}" ${ENABLE_ASAN} )
+MESSAGE(STATUS "${Yellow}WITH_UNIT_TESTS: ${ColourReset}" ${WITH_UNIT_TESTS} )
+MESSAGE(STATUS "${Yellow}CONCURRENCY: ${ColourReset}" ${CONCURRENCY} )
+MESSAGE(STATUS "${Yellow}STATIC_STDLIB: ${ColourReset}" ${STATIC_STDLIB} )
+MESSAGE(STATUS "${Yellow}DEBUG: ${ColourReset}" ${DEBUG} )
+
 IF(WIN32)
-    MESSAGE(STATUS "This is windows.")
     ADD_DEFINITIONS(-DWIN32)
 ELSEIF(WIN64)
-    MESSAGE(STATUS "This is windows.")
     ADD_DEFINITIONS(-DWIN64)
 ELSEIF(APPLE)
-    MESSAGE(STATUS "This is apple")
-    # normally __MACH__ has already been defined
     ADD_DEFINITIONS(-D__MACH__ )
 ELSEIF(UNIX)
-    MESSAGE(STATUS "This is UNIX")
     ADD_DEFINITIONS(-DUNIX -DLINUX)
 ELSE()
-    MESSAGE(STATUS "This is UNKNOW OS")
 ENDIF(WIN32)
 
-# This is for clangd plugin for vscode
 SET(CMAKE_COMMON_FLAGS "${CMAKE_COMMON_FLAGS} -Wall -Werror")
 IF(DEBUG)
-    MESSAGE(STATUS "DEBUG has been set as TRUE ${DEBUG}")
     SET(CMAKE_COMMON_FLAGS "${CMAKE_COMMON_FLAGS}  -O0 -g -DDEBUG ")
     ADD_DEFINITIONS(-DENABLE_DEBUG)
-ELSEIF(NOT DEFINED ENV{DEBUG})
-    MESSAGE(STATUS "Disable debug")
-    SET(CMAKE_COMMON_FLAGS "${CMAKE_COMMON_FLAGS}  -O2 -g ")
 ELSE()
-    MESSAGE(STATUS "Enable debug")
-    SET(CMAKE_COMMON_FLAGS "${CMAKE_COMMON_FLAGS}  -O0 -g -DDEBUG")
-    ADD_DEFINITIONS(-DENABLE_DEBUG)
-ENDIF(DEBUG)
+    SET(CMAKE_COMMON_FLAGS "${CMAKE_COMMON_FLAGS}  -O2")
+ENDIF()
 
 IF (CONCURRENCY)
-    MESSAGE(STATUS "CONCURRENCY is ON")
     SET(CMAKE_COMMON_FLAGS "${CMAKE_COMMON_FLAGS} -DCONCURRENCY")
     ADD_DEFINITIONS(-DCONCURRENCY)
 ENDIF (CONCURRENCY)
 
-MESSAGE(STATUS "CMAKE_CXX_COMPILER_ID is " ${CMAKE_CXX_COMPILER_ID})
+MESSAGE(STATUS "${Yellow}CMAKE_CXX_COMPILER_ID : ${ColourReset}" ${CMAKE_CXX_COMPILER_ID})
 IF ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" AND ${STATIC_STDLIB})
     ADD_LINK_OPTIONS(-static-libgcc -static-libstdc++)
 ENDIF()
@@ -67,15 +77,6 @@ IF (ENABLE_ASAN)
     ENDIF()
 ENDIF()
 
-IF (CMAKE_INSTALL_PREFIX)
-    MESSAGE(STATUS "CMAKE_INSTALL_PREFIX has been set as " ${CMAKE_INSTALL_PREFIX} )
-ELSEIF(DEFINED ENV{CMAKE_INSTALL_PREFIX})
-    SET(CMAKE_INSTALL_PREFIX $ENV{CMAKE_INSTALL_PREFIX})
-ELSE()
-    SET(CMAKE_INSTALL_PREFIX /tmp/${PROJECT_NAME})
-ENDIF()
-MESSAGE(STATUS "Install target dir is " ${CMAKE_INSTALL_PREFIX})
-
 IF (DEFINED ENV{LD_LIBRARY_PATH})
     SET(LD_LIBRARY_PATH_STR $ENV{LD_LIBRARY_PATH})
     string(REPLACE ":" ";" LD_LIBRARY_PATH_LIST ${LD_LIBRARY_PATH_STR})
@@ -83,14 +84,17 @@ IF (DEFINED ENV{LD_LIBRARY_PATH})
     LINK_DIRECTORIES(${LD_LIBRARY_PATH_LIST})
 ENDIF ()
 
-IF (EXISTS /usr/local/lib)
-    LINK_DIRECTORIES (/usr/local/lib)
-ENDIF ()
-IF (EXISTS /usr/local/lib64)
-    LINK_DIRECTORIES (/usr/local/lib64)
-ENDIF ()
+IF(WITH_UNIT_TESTS)
+    SET(CMAKE_COMMON_FLAGS "${CMAKE_COMMON_FLAGS} -fprofile-arcs -ftest-coverage")
+    enable_testing()
+    ADD_SUBDIRECTORY(unittest)
+ENDIF(WITH_UNIT_TESTS)
 
-INCLUDE_DIRECTORIES(. ${PROJECT_SOURCE_DIR}/deps /usr/local/include)
+INCLUDE_DIRECTORIES(. ${PROJECT_SOURCE_DIR}/deps)
+
+SET(CMAKE_CXX_FLAGS ${CMAKE_COMMON_FLAGS})
+SET(CMAKE_C_FLAGS ${CMAKE_COMMON_FLAGS})
+MESSAGE(STATUS "${Yellow}CMAKE_CXX_FLAGS: ${ColourReset}" ${CMAKE_CXX_FLAGS})
 
 # ADD_SUBDIRECTORY(src bin)  bin 为目标目录， 可以省略
 ADD_SUBDIRECTORY(deps)
@@ -100,35 +104,3 @@ ADD_SUBDIRECTORY(test/perf)
 ADD_SUBDIRECTORY(benchmark)
 ADD_SUBDIRECTORY(tools)
 
-IF(WITH_UNIT_TESTS)
-    SET(CMAKE_COMMON_FLAGS "${CMAKE_COMMON_FLAGS} -fprofile-arcs -ftest-coverage")
-    enable_testing()
-    ADD_SUBDIRECTORY(unittest)
-ENDIF(WITH_UNIT_TESTS)
-
-SET(CMAKE_CXX_FLAGS ${CMAKE_COMMON_FLAGS})
-SET(CMAKE_C_FLAGS ${CMAKE_COMMON_FLAGS})
-MESSAGE(STATUS "CMAKE_CXX_FLAGS is " ${CMAKE_CXX_FLAGS})
-
-INSTALL(DIRECTORY etc DESTINATION .
-		FILE_PERMISSIONS OWNER_WRITE OWNER_READ GROUP_READ WORLD_READ)
-
-#INSTALL([[SCRIPT <file>] [CODE <code>]] [...])
-# script 表示安装时，调用cmake 脚步
-# code 表示安装时，执行cmake 命令， 例如
-INSTALL(CODE "MESSAGE(\"Sample install message.\")")
-# EXEC_PROGRAM make时执行命令
-#EXEC_PROGRAM(Executable [directory in which to run]
-#        [ARGS <arguments to executable>]
-#        [OUTPUT_VARIABLE <var>]
-
-#EXEC_PROGRAM(Executable [directory in which to run]
-#        [ARGS <arguments to executable>]
-#        [OUTPUT_VARIABLE <var>]
-#        [RETURN_VALUE <var>])
-# 生产make时，执行
-#EXEC_PROGRAM(ls ARGS "*.c" OUTPUT_VARIABLE LS_OUTPUT RETURN_VALUE
-#        LS_RVALUE)
-#IF(not LS_RVALUE)
-#    MESSAGE(STATUS "ls result: " ${LS_OUTPUT})
-#ENDIF(not LS_RVALUE)

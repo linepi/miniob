@@ -34,7 +34,7 @@ public:
     return std_out_;
   }
 
-  void set_std_out(const std::string &std_out)
+  void set_std_out(const char *std_out)
   {
     ProcessParam::std_out_ = std_out;
   }
@@ -44,7 +44,7 @@ public:
     return std_err_;
   }
 
-  void set_std_err(const std::string &std_err)
+  void set_std_err(const char *std_err)
   {
     ProcessParam::std_err_ = std_err;
   }
@@ -54,7 +54,7 @@ public:
     return conf;
   }
 
-  void set_conf(const std::string &conf)
+  void set_conf(const char* conf)
   {
     ProcessParam::conf = conf;
   }

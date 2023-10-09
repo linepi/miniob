@@ -37,23 +37,7 @@ namespace common {
 
 std::string get_process_name(const char *prog_name)
 {
-  std::string process_name;
-
-  int buf_len = strlen(prog_name);
-
-  assert(buf_len);
-
-  char *buf = new char[buf_len + 1];
-  if (buf == NULL) {
-    std::cerr << "Failed to alloc memory for program name." << SYS_OUTPUT_FILE_POS << SYS_OUTPUT_ERROR << std::endl;
-    return "";
-  }
-  snprintf(buf, buf_len, "%s", prog_name);
-
-  process_name = basename(buf);
-
-  delete[] buf;
-  return process_name;
+  return basename(prog_name);
 }
 
 // Background the process by detaching it from the console and redirecting

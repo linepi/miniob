@@ -128,7 +128,11 @@ int Ini::load(const std::string &file_name)
 
     std::string line_entry;
 
-    ifs.open(file_name.c_str());
+    ifs.open(file_name);
+    if (!ifs.is_open()) {
+      std::cerr << "Failed to open " << file_name << ", error: " << strerror(errno) << std::endl;
+      return -1;
+    } 
     while (ifs.good()) {
 
       memset(line, 0, sizeof(line));
