@@ -26,6 +26,11 @@ endif()
 
 SET(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
 SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/cmake)
+find_program(CCACHE_FOUND ccache)
+if(CCACHE_FOUND)
+  set(CMAKE_CXX_COMPILER_LAUNCHER ccache)
+  set(CMAKE_C_COMPILER_LAUNCHER   ccache)
+endif(CCACHE_FOUND)
 
 OPTION(ENABLE_ASAN "Enable build with address sanitizer" OFF)
 OPTION(WITH_UNIT_TESTS "Compile miniob with unit tests" OFF)

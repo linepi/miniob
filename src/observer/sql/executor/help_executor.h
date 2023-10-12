@@ -15,6 +15,7 @@ See the Mulan PSL v2 for more details. */
 #pragma once
 
 #include "common/rc.h"
+#include "common/color.h"
 #include "sql/operator/string_list_physical_operator.h"
 #include "event/sql_event.h"
 #include "event/session_event.h"
@@ -34,14 +35,16 @@ public:
   RC execute(SQLStageEvent *sql_event)
   {
     const char *strings[] = {
-        "show tables;",
-        "desc `table name`;",
-        "create table `table name` (`column name` `column type`, ...);",
-        "create index `index name` on `table` (`column`);",
-        "insert into `table` values(`value1`,`value2`);",
-        "update `table` set column=value [where `column`=`value`];",
-        "delete from `table` [where `column`=`value`];",
-        "select [ * | `columns` ] from `table`;"
+        ANSI_FMT("  show    ",   ANSI_FG_GREEN) " tables;",
+        ANSI_FMT("  desc    ",   ANSI_FG_GREEN) " `table name`;",
+        ANSI_FMT("  create  ", ANSI_FG_GREEN) " table `table name` (`column name` `column type`, ...);",
+        ANSI_FMT("          ", ANSI_FG_GREEN) " index `index name` on `table` (`column`);",
+        ANSI_FMT("  drop    ",   ANSI_FG_GREEN) " table `table name`;",
+        ANSI_FMT("  insert  ", ANSI_FG_GREEN) " into `table` values(`value1`,`value2`);",
+        ANSI_FMT("  update  ", ANSI_FG_GREEN) " `table` set column=value [where `column`=`value`];",
+        ANSI_FMT("  delete  ", ANSI_FG_GREEN) " from `table` [where `column`=`value`];",
+        ANSI_FMT("  select  ", ANSI_FG_GREEN) " [ * | `columns` ] from `table`;",
+        "", 
       };
 
     auto oper = new StringListPhysicalOperator();
@@ -52,7 +55,7 @@ public:
     SqlResult *sql_result = sql_event->session_event()->sql_result();
 
     TupleSchema schema;
-    schema.append_cell("Commands");
+    schema.append_cell("\nCommands:");
 
     sql_result->set_tuple_schema(schema);
     sql_result->set_operator(std::unique_ptr<PhysicalOperator>(oper));

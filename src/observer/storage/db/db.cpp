@@ -101,6 +101,34 @@ RC Db::create_table(const char *table_name, int attribute_count, const AttrInfoS
   return RC::SUCCESS;
 }
 
+RC Db::drop_table(const char *table_name) {
+  RC rc = RC::SUCCESS;
+  Table *the_table = find_table(table_name);
+
+  if (the_table != nullptr) {
+    int32_t table_id = the_table->table_id();
+    assert(strcmp(the_table->name(), table_name) == 0);
+
+    if (opened_tables_.erase(table_name) == 1) {
+      rc = the_table->drop();
+      if (rc == RC::SUCCESS) {
+        delete the_table;
+        the_table = nullptr;
+        LOG_INFO("Drop table success. table name=%s, table_id:%d", table_name, table_id);
+      } else {
+        LOG_ERROR("Failed to drop table(%s %d) with rc: %s", table_name, table_id, strrc(rc));
+      }
+    } else {
+      LOG_ERROR("Failed to erase table(%s %d)", table_name, table_id);
+      rc = RC::UNIMPLENMENT;
+    }
+  } else {
+    LOG_INFO("Unknown table %s", table_name);
+    rc = RC::SCHEMA_TABLE_NOT_EXIST;
+  }
+  return rc;
+}
+
 Table *Db::find_table(const char *table_name) const
 {
   std::unordered_map<std::string, Table *>::const_iterator iter = opened_tables_.find(table_name);

@@ -126,6 +126,32 @@ RC Table::create(int32_t table_id,
   return rc;
 }
 
+RC Table::drop()
+{
+  RC rc = RC::SUCCESS;
+  std::string table_meta_path = table_meta_file(base_dir_.c_str(), table_meta_.name());
+  std::string table_data_path = table_data_file(base_dir_.c_str(), table_meta_.name()); 
+  if (::remove(table_meta_path.c_str()) != 0) {
+    LOG_ERROR(strerror(errno));
+    rc = RC::FILE_REMOVE;
+  }
+  if (::remove(table_data_path.c_str()) != 0) {
+    LOG_ERROR(strerror(errno));
+    rc = RC::FILE_REMOVE;
+  }
+
+  const int index_num = table_meta_.index_num();
+  for (int i = 0; i < index_num; i++) {
+    const IndexMeta *index_meta = table_meta_.index(i);
+    std::string index_path = table_index_file(base_dir_.c_str(), name(), index_meta->name());
+    if (::remove(index_path.c_str()) != 0) {
+      LOG_ERROR(strerror(errno));
+      rc = RC::FILE_REMOVE;
+    }
+  }
+  return rc;
+}
+
 RC Table::open(const char *meta_file, const char *base_dir)
 {
   // 加载元数据文件
@@ -181,6 +207,7 @@ RC Table::open(const char *meta_file, const char *base_dir)
 
   return rc;
 }
+
 
 RC Table::insert_record(Record &record)
 {
