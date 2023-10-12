@@ -44,7 +44,6 @@ public:
         ANSI_FMT("  update  ", ANSI_FG_GREEN) " `table` set column=value [where `column`=`value`];",
         ANSI_FMT("  delete  ", ANSI_FG_GREEN) " from `table` [where `column`=`value`];",
         ANSI_FMT("  select  ", ANSI_FG_GREEN) " [ * | `columns` ] from `table`;",
-        "", 
       };
 
     auto oper = new StringListPhysicalOperator();
@@ -55,7 +54,7 @@ public:
     SqlResult *sql_result = sql_event->session_event()->sql_result();
 
     TupleSchema schema;
-    schema.append_cell("\nCommands:");
+    schema.append_cell("Commands:");
 
     sql_result->set_tuple_schema(schema);
     sql_result->set_operator(std::unique_ptr<PhysicalOperator>(oper));

@@ -24,7 +24,7 @@ namespace common {
 
 DateTime::DateTime(std::string &xml_str)
 {
-  tm tmp;
+  tm tmp = {};
   sscanf(xml_str.c_str(),
       "%04d-%02d-%02dT%02d:%02d:%02dZ",
       &tmp.tm_year,

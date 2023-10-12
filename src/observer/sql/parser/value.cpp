@@ -16,14 +16,15 @@ See the Mulan PSL v2 for more details. */
 #include "sql/parser/value.h"
 #include "storage/field/field.h"
 #include "common/log/log.h"
+#include "common/time/datetime.h"
 #include "common/lang/comparator.h"
 #include "common/lang/string.h"
 
-const char *ATTR_TYPE_NAME[] = {"undefined", "chars", "ints", "floats", "booleans"};
+const char *ATTR_TYPE_NAME[] = {"undefined", "chars", "ints", "floats", "dates", "booleans"};
 
 const char *attr_type_to_string(AttrType type)
 {
-  if (type >= UNDEFINED && type <= FLOATS) {
+  if (type >= UNDEFINED && type <= DATES) {
     return ATTR_TYPE_NAME[type];
   }
   return "unknown";
@@ -58,6 +59,11 @@ Value::Value(const char *s, int len /*= 0*/)
   set_string(s, len);
 }
 
+Value::Value(const char *s, int len, int date)
+{
+  set_date(s, len);
+}
+
 void Value::set_data(char *data, int length)
 {
   switch (attr_type_) {
@@ -75,6 +81,9 @@ void Value::set_data(char *data, int length)
     case BOOLEANS: {
       num_value_.bool_value_ = *(int *)data != 0;
       length_ = length;
+    } break;
+    case DATES: {
+      set_date(data, length);
     } break;
     default: {
       LOG_WARN("unknown data type: %d", attr_type_);
@@ -111,6 +120,24 @@ void Value::set_string(const char *s, int len /*= 0*/)
   }
   length_ = str_value_.length();
 }
+void Value::set_date(const char *s, int len /*= 0*/)
+{
+  std::string str(s);
+  common::DateTime date_time(str);
+  tm tm_info = date_time.to_tm();
+  std::ostringstream oss;
+  oss << tm_info.tm_year + 1900 << "-";
+  if ((tm_info.tm_mon + 1) <= 9)
+    oss << "0";
+  oss << tm_info.tm_mon + 1 << "-";
+  if (tm_info.tm_mday <= 9)
+    oss << "0";
+  oss << tm_info.tm_mday;
+
+  attr_type_ = DATES;
+  str_value_ = oss.str();
+  length_ = str_value_.length();
+}
 
 void Value::set_value(const Value &value)
 {
@@ -124,6 +151,9 @@ void Value::set_value(const Value &value)
     case CHARS: {
       set_string(value.get_string().c_str());
     } break;
+    case DATES: {
+      set_date(value.get_string().c_str());
+    } break;
     case BOOLEANS: {
       set_boolean(value.get_boolean());
     } break;
@@ -136,7 +166,7 @@ void Value::set_value(const Value &value)
 const char *Value::data() const
 {
   switch (attr_type_) {
-    case CHARS: {
+    case CHARS: case DATES: {
       return str_value_.c_str();
     } break;
     default: {
@@ -158,7 +188,7 @@ std::string Value::to_string() const
     case BOOLEANS: {
       os << num_value_.bool_value_;
     } break;
-    case CHARS: {
+    case CHARS: case DATES: {
       os << str_value_;
     } break;
     default: {
@@ -187,6 +217,15 @@ int Value::compare(const Value &other) const
       case BOOLEANS: {
         return common::compare_int((void *)&this->num_value_.bool_value_, (void *)&other.num_value_.bool_value_);
       }
+      case DATES: {
+        std::string this_str = to_string();
+        std::string other_str = other.to_string();
+        common::DateTime this_date(this_str);
+        common::DateTime other_date(other_str);
+        if (this_date > other_date) return 1;
+        if (this_date == other_date) return 0;
+        if (this_date < other_date) return -1;
+      } break;
       default: {
         LOG_WARN("unsupported type: %d", this->attr_type_);
       }
@@ -222,6 +261,10 @@ int Value::get_int() const
     case BOOLEANS: {
       return (int)(num_value_.bool_value_);
     }
+    case DATES: {
+      LOG_WARN("cannot conver date to int.");
+      return 0;
+    }
     default: {
       LOG_WARN("unknown data type. type=%d", attr_type_);
       return 0;
@@ -249,6 +292,10 @@ float Value::get_float() const
     } break;
     case BOOLEANS: {
       return float(num_value_.bool_value_);
+    } break;
+    case DATES: {
+      LOG_WARN("cannot conver date to float.");
+      return 0;
     } break;
     default: {
       LOG_WARN("unknown data type. type=%d", attr_type_);
@@ -286,6 +333,10 @@ bool Value::get_boolean() const
     } break;
     case INTS: {
       return num_value_.int_value_ != 0;
+    } break;
+    case DATES: {
+      LOG_WARN("cannot conver date to boolean.");
+      return false;
     } break;
     case FLOATS: {
       float val = num_value_.float_value_;

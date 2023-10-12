@@ -65,6 +65,16 @@ DIGIT            [0-9]+
 ID               [A-Za-z_]+[A-Za-z0-9_]*
 DOT              \.
 QUOTE            [\'\"]
+
+/* 1970-01-1 <= date <= 2038-02 */
+YEAR_RANGE       (19[7-9][0-9]|20[0-2][0-9]|203[0-7])
+PING_2           (0?2-(0?[1-9]|1[0-9]|2[0-8]))
+BIG_MONTH        ((0?[13578]|1[02])-(0?[1-9]|[12][0-9]|3[01]))
+SMALL_MONTH      ((0?[469]|11)-(0?[1-9]|[12][0-9]|30))
+RUN_YEAR         (1972|1976|1980|1984|1988|1992|1996|2000|2004|2008|2012|2016|2020|2024|2028|2032|2036)
+YEAR_2038        (2038-0?1-(0?[1-9]|[12][0-9]|3[01]))
+DATE             {QUOTE}(({YEAR_RANGE}-({PING_2}|{BIG_MONTH}|{SMALL_MONTH}))|({RUN_YEAR}-0?2-29)|{YEAR_2038}){QUOTE}
+
 %x STR
 
 /* 规则匹配的优先级：*/
@@ -110,6 +120,7 @@ ROLLBACK                                RETURN_TOKEN(TRX_ROLLBACK);
 INT                                     RETURN_TOKEN(INT_T);
 CHAR                                    RETURN_TOKEN(STRING_T);
 FLOAT                                   RETURN_TOKEN(FLOAT_T);
+DATE                                    RETURN_TOKEN(DATE_T);
 LOAD                                    RETURN_TOKEN(LOAD);
 DATA                                    RETURN_TOKEN(DATA);
 INFILE                                  RETURN_TOKEN(INFILE);
@@ -131,6 +142,7 @@ EXPLAIN                                 RETURN_TOKEN(EXPLAIN);
 "-" |
 "*" |
 "/"                                     { return yytext[0]; }
+{DATE}                                  yylval->string = strdup(yytext); RETURN_TOKEN(DATE);
 \"[^"]*\"                               yylval->string = strdup(yytext); RETURN_TOKEN(SSS);
 '[^']*\'                                yylval->string = strdup(yytext); RETURN_TOKEN(SSS);
 

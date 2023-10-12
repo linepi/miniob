@@ -29,9 +29,11 @@ SET(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib)
 MESSAGE("Archive directory:" ${LIBRARY_OUTPUT_PATH})
 
 ADD_EXECUTABLE(observer ${MAIN_SRC})
-TARGET_LINK_LIBRARIES(observer observer_static)
+TARGET_LINK_LIBRARIES(observer observer_static sql_parser)
 
 ADD_LIBRARY(observer_static STATIC ${LIB_SRC})
+add_subdirectory(sql/parser)
+
 INCLUDE (readline)
 MINIOB_FIND_READLINE()
 IF (HAVE_READLINE)
@@ -39,8 +41,6 @@ IF (HAVE_READLINE)
     TARGET_INCLUDE_DIRECTORIES(observer_static PRIVATE ${READLINE_INCLUDE_DIR})
     ADD_DEFINITIONS(-DUSE_READLINE)
     MESSAGE ("observer_static use readline")
-ELSE ()
-    MESSAGE ("readline is not found")
 ENDIF()
 
 SET_TARGET_PROPERTIES(observer_static PROPERTIES OUTPUT_NAME observer)
