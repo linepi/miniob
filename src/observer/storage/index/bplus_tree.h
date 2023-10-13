@@ -75,6 +75,9 @@ public:
       case CHARS: {
         return common::compare_string((void *)v1, attr_length_, (void *)v2, attr_length_);
       }
+      case DATES: {
+        return common::compare_date(v1, v2);
+      }
       default: {
         ASSERT(false, "unknown attr type. %d", attr_type_);
         return 0;
@@ -148,7 +151,7 @@ public:
       case FLOATS: {
         return std::to_string(*(float *)v);
       }
-      case CHARS: {
+      case CHARS: case DATES: {
         std::string str;
         for (int i = 0; i < attr_length_; i++) {
           if (v[i] == 0) {

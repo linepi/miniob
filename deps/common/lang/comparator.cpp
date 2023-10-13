@@ -15,6 +15,7 @@ See the Mulan PSL v2 for more details. */
 #include <string.h>
 #include <algorithm>
 #include "common/defs.h"
+#include "common/time/datetime.h"
 
 namespace common {
 
@@ -58,6 +59,20 @@ int compare_string(void *arg1, int arg1_max_length, void *arg2, int arg2_max_len
     return 0 - s2[maxlen];
   }
   return 0;
+}
+
+int compare_date(const char *arg1, const char *arg2)
+{
+  int result = 0;
+  std::string this_str(arg1);
+  std::string other_str(arg2);
+  common::DateTime this_date(this_str);
+  common::DateTime other_date(other_str);
+  if (this_date > other_date) result = 1;
+  else if (this_date == other_date) result = 0;
+  else result = -1;
+
+  return result;
 }
 
 } // namespace common

@@ -19,6 +19,7 @@ See the Mulan PSL v2 for more details. */
 #include "common/time/datetime.h"
 #include "common/lang/comparator.h"
 #include "common/lang/string.h"
+#include "common/lang/comparator.h"
 
 const char *ATTR_TYPE_NAME[] = {"undefined", "chars", "ints", "floats", "dates", "booleans"};
 
@@ -219,13 +220,7 @@ RC Value::compare(const Value &other, int &result) const
         result = common::compare_int((void *)&this->num_value_.bool_value_, (void *)&other.num_value_.bool_value_);
       }
       case DATES: {
-        std::string this_str = to_string();
-        std::string other_str = other.to_string();
-        common::DateTime this_date(this_str);
-        common::DateTime other_date(other_str);
-        if (this_date > other_date) result = 1;
-        else if (this_date == other_date) result = 0;
-        else result = -1;
+        result = common::compare_date(this->str_value_.c_str(), other.str_value_.c_str());
       } break;
       default: {
         LOG_WARN("unsupported type: %d", this->attr_type_);
