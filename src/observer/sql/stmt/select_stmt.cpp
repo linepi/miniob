@@ -130,6 +130,39 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
     default_table = tables[0];
   }
 
+    // check condition id valid
+  for (size_t i = 0; i < select_sql.conditions.size(); i++) {
+    const ConditionSqlNode &node = select_sql.conditions[i];
+    AttrType left, right;
+
+    if (node.left_is_attr) {
+      Table *left_table = tables.size() == 1 
+        ? tables[0] 
+        : db->find_table(node.left_attr.relation_name.c_str()); 
+      const FieldMeta *left_field = left_table->table_meta().field(node.left_attr.attribute_name.c_str());
+      if (left_field == nullptr) continue;
+      left = left_field->type();
+    } else {
+      left = node.left_value.attr_type();
+    }
+
+    if (node.right_is_attr) {
+      Table *right_table = tables.size() == 1 
+        ? tables[0] 
+        : db->find_table(node.right_attr.relation_name.c_str()); 
+      const FieldMeta *right_field = right_table->table_meta().field(node.right_attr.attribute_name.c_str());
+      if (right_field == nullptr) continue;
+      right = right_field->type();
+    } else {
+      right = node.right_value.attr_type();
+    }
+
+    if (left != right) {
+      LOG_INFO("type mismatch: %s and %s", attr_type_to_string(left), attr_type_to_string(right));
+      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+    }
+  }
+
   // create filter statement in `where` statement
   FilterStmt *filter_stmt = nullptr;
   RC rc = FilterStmt::create(db,
