@@ -89,7 +89,13 @@ ComparisonExpr::~ComparisonExpr()
 RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &result) const
 {
   RC rc = RC::SUCCESS;
-  int cmp_result = left.compare(right);
+  int cmp_result;
+  rc = left.compare(right, cmp_result);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("compare value err: %s", strrc(rc));
+    return rc;
+  }
+
   result = false;
   switch (comp_) {
     case EQUAL_TO: {

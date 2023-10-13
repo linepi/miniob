@@ -15,6 +15,7 @@ See the Mulan PSL v2 for more details. */
 #pragma once
 
 #include <string>
+#include <common/rc.h>
 
 /**
  * @brief 属性的类型
@@ -74,7 +75,7 @@ public:
 
   std::string to_string() const;
 
-  int compare(const Value &other) const;
+  RC compare(const Value &other, int &result) const;
 
   const char *data() const;
   int length() const

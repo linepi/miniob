@@ -138,7 +138,8 @@ bool DefaultConditionFilter::filter(const Record &rec) const
     right_value.set_value(right_.value);
   }
 
-  int cmp_result = left_value.compare(right_value);
+  int cmp_result;
+  left_value.compare(right_value, cmp_result);
 
   switch (comp_op_) {
     case EQUAL_TO:

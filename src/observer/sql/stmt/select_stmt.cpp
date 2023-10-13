@@ -130,6 +130,15 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
     default_table = tables[0];
   }
 
+  // check condition id valid
+  for (size_t i = 0; i < select_sql.conditions.size(); i++) {
+    const ConditionSqlNode &node = select_sql.conditions[i];
+    if (node.left_value.attr_type() != node.right_value.attr_type()) {
+      LOG_INFO("type mismatch");
+      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+    }
+  }
+
   // create filter statement in `where` statement
   FilterStmt *filter_stmt = nullptr;
   RC rc = FilterStmt::create(db,
