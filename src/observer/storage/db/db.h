@@ -21,6 +21,7 @@ See the Mulan PSL v2 for more details. */
 
 #include "common/rc.h"
 #include "sql/parser/parse_defs.h"
+#include "storage/table/table_meta.h"
 
 class Table;
 class CLogManager;
@@ -47,7 +48,7 @@ public:
 
   RC create_table(const char *table_name, int attribute_count, const AttrInfoSqlNode *attributes);
   RC drop_table(const char *table_name);
-  RC show_index(const char *table_name);
+  RC show_index(const char *table_name, TableMeta &table_meta);
 
   Table *find_table(const char *table_name) const;
   Table *find_table(int32_t table_id) const;

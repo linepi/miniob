@@ -24,11 +24,41 @@ public:
   {
     Stmt *stmt = sql_event->stmt();
     Session *session = sql_event->session_event()->session();
+    SqlResult *sql_result = sql_event->session_event()->sql_result();
+
     ASSERT(stmt->type() == StmtType::SHOW_INDEX, 
           "show table index executor can not run this command: %d", static_cast<int>(stmt->type()));
     ShowIndexStmt *index_table_stmt = static_cast<ShowIndexStmt *>(stmt);
     const char *table_name = index_table_stmt->table_name().c_str();
-    RC rc = session->get_current_db()->show_index(table_name);
+
+
+    TableMeta table_meta;
+    std::vector<std::string>index_name;
+    std::vector<std::string>index_column;
+    std::vector<std::string>index_id;
+    RC rc = session->get_current_db()->show_index(table_name,table_meta);
+
+    const int index_num = table_meta.index_num();
+    for (int i = 0; i < index_num; i++) {
+      const IndexMeta *index_meta = table_meta.index(i);
+      index_name.push_back(index_meta->name());
+      index_column.push_back(index_meta->field());
+      index_id.push_back(std::to_string(i+1));
+    }
+
+    auto oper = new StringListPhysicalOperator;
+
+    TupleSchema schema;
+    schema.append_cell("Table | Non_unique | Key_name | Seq_in_index | Column_name");
+    sql_result->set_tuple_schema(schema);
+
+    for (int i=0; i < index_num; i++)
+    {
+      std::string ss = std::string(table_name) + std::string(" | 1 | ") + index_name[i] + std::string(" | ") + index_id[i] + std::string(" | ")  + index_column[i];
+      oper->append(ss);
+    }
+
+    sql_result->set_operator(std::unique_ptr<PhysicalOperator>(oper));
     return rc;
   }
 };

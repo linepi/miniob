@@ -295,6 +295,11 @@ const TableMeta &Table::table_meta() const
   return table_meta_;
 }
 
+const char * Table::table_dir()
+{
+  return base_dir_.c_str();
+}
+
 RC Table::make_record(int value_num, const Value *values, Record &record)
 {
   // 检查字段类型是否一致

@@ -105,6 +105,7 @@ public:
   const char *name() const;
 
   const TableMeta &table_meta() const;
+  const char * table_dir();
 
   RC sync();
 

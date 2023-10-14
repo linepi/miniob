@@ -26,6 +26,10 @@ See the Mulan PSL v2 for more details. */
 #include "storage/common/meta_util.h"
 #include "storage/trx/trx.h"
 #include "storage/clog/clog.h"
+#include "storage/index/index.h"
+#include "storage/index/index_meta.h"
+#include "storage/index/bplus_tree.h"
+#include "storage/index/bplus_tree_index.h"
 
 Db::~Db()
 {
@@ -129,18 +133,12 @@ RC Db::drop_table(const char *table_name) {
   return rc;
 }
 
-RC Db::show_index(const char *table_name)
+RC Db::show_index(const char *table_name, TableMeta &table_meta)
 {
   RC rc = RC::SUCCESS;
   Table *the_table = find_table(table_name);
 
-  //输出固定为表名、是否唯一索引、索引名称、列名和列在索引中的序号（针对多列索引）
-  std::vector<Index *> indices = the_table->indexes();
-
-  for (Index *idx : indices) {
-      cout<<idx;
-  }
-
+  table_meta = the_table->table_meta();
   return rc;
 }
 
