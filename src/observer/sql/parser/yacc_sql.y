@@ -111,6 +111,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
   Expression *                      expression;
   std::vector<Expression *> *       expression_list;
   std::vector<Value> *              value_list;
+  std::vector<std::vector<Value>> * values_list;
   std::vector<ConditionSqlNode> *   condition_list;
   std::vector<RelAttrSqlNode> *     rel_attr_list;
   std::vector<std::string> *        relation_list;
@@ -136,6 +137,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <attr_infos>          attr_def_list
 %type <attr_info>           attr_def
 %type <value_list>          value_list
+%type <value_list>          insert_data
+%type <values_list>         insert_data_list
 %type <condition_list>      where
 %type <condition_list>      condition_list
 %type <rel_attr_list>       select_attr
@@ -150,7 +153,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <sql_node>            delete_stmt
 %type <sql_node>            create_table_stmt
 %type <sql_node>            drop_table_stmt
-%type <sql_node>            show_tables_stmt
+%type <sql_node>            show_table_stmt
+%type <sql_node>            show_index_stmt
 %type <sql_node>            desc_table_stmt
 %type <sql_node>            create_index_stmt
 %type <sql_node>            drop_index_stmt
@@ -187,7 +191,8 @@ command_wrapper:
   | delete_stmt
   | create_table_stmt
   | drop_table_stmt
-  | show_tables_stmt
+  | show_table_stmt
+  | show_index_stmt
   | desc_table_stmt
   | create_index_stmt
   | drop_index_stmt
@@ -244,11 +249,21 @@ drop_table_stmt:    /*drop table 语句的语法解析树*/
       free($3);
     };
 
-show_tables_stmt:
+show_index_stmt:
+    SHOW INDEX FROM ID {
+      $$ = new ParsedSqlNode(SCF_SHOW_INDEX);
+      $$->show_index.relation_name = $4;
+      free($4);
+    }
+    ;
+
+    
+show_table_stmt:
     SHOW TABLES {
       $$ = new ParsedSqlNode(SCF_SHOW_TABLES);
     }
     ;
+
 
 desc_table_stmt:
     DESC ID  {
@@ -344,20 +359,51 @@ type:
     | FLOAT_T  { $$=FLOATS; }
     | DATE_T   { $$=DATES; }
     ;
+
 insert_stmt:        /*insert   语句的语法解析树*/
-    INSERT INTO ID VALUES LBRACE value value_list RBRACE 
+    INSERT INTO ID VALUES insert_data insert_data_list
     {
       $$ = new ParsedSqlNode(SCF_INSERT);
       $$->insertion.relation_name = $3;
-      if ($7 != nullptr) {
-        $$->insertion.values.swap(*$7);
+      if ($6 != nullptr) {
+        $6->insert($6->begin(), *$5);
+        $$->insertion.values_list = *$6;
+      } else {
+        $$->insertion.values_list.emplace_back(*$5);
       }
-      $$->insertion.values.emplace_back(*$6);
-      std::reverse($$->insertion.values.begin(), $$->insertion.values.end());
-      delete $6;
-      free($3);
+
+      free($5);
     }
     ;
+
+insert_data_list: 
+    {
+      $$ = nullptr;
+    }
+    | COMMA insert_data insert_data_list {
+      if ($3 != nullptr) {
+        $3->emplace_back(*$2);
+        std::reverse($3->begin(), $3->end());
+        $$ = $3;
+      } else {
+        $$ = new std::vector<vector<Value>>;
+        $$->emplace_back(*$2);
+      }
+    }
+    ;
+
+insert_data:
+    LBRACE value value_list RBRACE {
+      if ($3 != nullptr) {
+        $3->emplace_back(*$2);
+        std::reverse($3->begin(), $3->end());
+        $$ = $3;
+      } else {
+        $$ = new std::vector<Value>;
+        $$->emplace_back(*$2);
+      }   
+      delete $2;
+    }
 
 value_list:
     /* empty */

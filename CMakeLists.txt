@@ -40,7 +40,7 @@ OPTION(ENABLE_ASAN "Enable build with address sanitizer" OFF)
 OPTION(WITH_UNIT_TESTS "Compile miniob with unit tests" OFF)
 OPTION(CONCURRENCY "Support concurrency operations" OFF)
 OPTION(STATIC_STDLIB "Link std library static or dynamic, such as libgcc, libstdc++, libasan" OFF)
-OPTION(DEBUG "Debug mode" OFF)
+
 
 MESSAGE(STATUS "${Yellow}PROJECT_SOURCE_DIR: ${ColourReset}" ${PROJECT_SOURCE_DIR} )
 MESSAGE(STATUS "${Yellow}PROJECT_BINARY_DIR: ${ColourReset}" ${PROJECT_BINARY_DIR} )

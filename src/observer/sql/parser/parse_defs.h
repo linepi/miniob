@@ -113,7 +113,7 @@ struct CalcSqlNode
 struct InsertSqlNode
 {
   std::string        relation_name;  ///< Relation to insert into
-  std::vector<Value> values;         ///< 要插入的值
+  std::vector<std::vector<Value>> values_list;         ///< 要插入的值
 };
 
 /**
@@ -170,6 +170,15 @@ struct CreateTableSqlNode
 struct DropTableSqlNode
 {
   std::string relation_name;  ///< 要删除的表名
+};
+
+/**
+ * @brief 描述一个show index语句
+ * @ingroup SQLParser
+ */
+struct ShowIndexSqlNode
+{
+  std::string relation_name;  ///< 要显示的表名
 };
 
 /**
@@ -271,6 +280,7 @@ enum SqlCommandFlag
   SCF_DROP_INDEX,
   SCF_SYNC,
   SCF_SHOW_TABLES,
+  SCF_SHOW_INDEX,
   SCF_DESC_TABLE,
   SCF_BEGIN,        ///< 事务开始语句，可以在这里扩展只读事务
   SCF_COMMIT,
@@ -304,6 +314,7 @@ public:
   LoadDataSqlNode           load_data;
   ExplainSqlNode            explain;
   SetVariableSqlNode        set_variable;
+  ShowIndexSqlNode          show_index;
 
 public:
   ParsedSqlNode();

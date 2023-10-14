@@ -86,6 +86,8 @@ public:
   RC visit_record(const RID &rid, bool readonly, std::function<void(Record &)> visitor);
   RC get_record(const RID &rid, Record &record);
 
+  std::vector<Index *> indexes();
+
   RC recover_insert_record(Record &record);
 
   // TODO refactor
