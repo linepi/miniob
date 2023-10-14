@@ -60,9 +60,9 @@ Value::Value(const char *s, int len /*= 0*/)
   set_string(s, len);
 }
 
-Value::Value(const char *s, int len, int date)
+Value::Value(const char *s, bool isdate)
 {
-  set_date(s, len);
+  set_date(s);
 }
 
 void Value::set_data(char *data, int length)
@@ -84,7 +84,7 @@ void Value::set_data(char *data, int length)
       length_ = length;
     } break;
     case DATES: {
-      set_date(data, length);
+      set_date(data);
     } break;
     default: {
       LOG_WARN("unknown data type: %d", attr_type_);
@@ -121,7 +121,7 @@ void Value::set_string(const char *s, int len /*= 0*/)
   }
   length_ = str_value_.length();
 }
-void Value::set_date(const char *s, int len /*= 0*/)
+void Value::set_date(const char *s)
 {
   std::string str(s);
   common::DateTime date_time(str);

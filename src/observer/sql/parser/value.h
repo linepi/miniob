@@ -52,7 +52,7 @@ public:
   explicit Value(float val);
   explicit Value(bool val);
   explicit Value(const char *s, int len = 0);
-  explicit Value(const char *s, int len, int date);
+  explicit Value(const char *s, bool isdate);
 
   Value(const Value &other) = default;
   Value &operator=(const Value &other) = default;
@@ -70,7 +70,7 @@ public:
   void set_float(float val);
   void set_boolean(bool val);
   void set_string(const char *s, int len = 0);
-  void set_date(const char *s, int len = 0);
+  void set_date(const char *s);
   void set_value(const Value &value);
 
   std::string to_string() const;

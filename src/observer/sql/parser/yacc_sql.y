@@ -347,6 +347,7 @@ attr_def:
       $$->type = (AttrType)$2;
       $$->name = $1;
       $$->length = 4;
+      if ($$->type == DATES) $$->length = 10;
       free($1);
     }
     ;
@@ -431,7 +432,7 @@ value:
     }
     |DATE {
       char *tmp = common::substr($1,1,strlen($1)-2);
-      $$ = new Value(tmp, strlen(tmp), true);
+      $$ = new Value(tmp, true);
       free(tmp);
     }
     |SSS {
