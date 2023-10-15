@@ -8,12 +8,29 @@
 #include "sql/stmt/show_index_stmt.h"
 #include "session/session.h"
 #include "storage/db/db.h"
+#include <string>
+#include <algorithm>
+#include <cctype>
 
 /**
  * @brief 显示所有表的执行器
  * @ingroup Executor
  * @note 与CreateIndex类似，不处理并发
  */
+
+
+char* toUpperCase(const char* input) {
+    size_t length = strlen(input);
+    char* result = new char[length + 1]; 
+    for (size_t i = 0; i < length; i++) {
+        result[i] = std::toupper(input[i]);
+    }
+    result[length] = '\0';
+
+    return result;
+}
+
+
 class ShowIndexExecutor
 {
 public:
@@ -38,12 +55,30 @@ public:
     std::vector<std::string>index_id;
     RC rc = session->get_current_db()->show_index(table_name,table_meta);
 
+    if (rc != RC::SUCCESS)
+    {
+      return rc;
+    }
+
     const int index_num = table_meta.index_num();
-    for (int i = 0; i < index_num; i++) {
-      const IndexMeta *index_meta = table_meta.index(i);
-      index_name.push_back(index_meta->name());
-      index_column.push_back(index_meta->field());
-      index_id.push_back(std::to_string(i+1));
+
+    if(index_num !=0){
+      int num =1;
+      std::string last = table_meta.index(0)->name();
+      for (int i = 0; i < index_num; i++) {
+        const IndexMeta *index_meta = table_meta.index(i);
+        index_name.push_back(toUpperCase(index_meta->name()));
+        index_column.push_back(toUpperCase(index_meta->field()));
+        if(last == index_name[i]) {
+          index_id.push_back(std::to_string(num++));
+          last = index_name[i];
+        }else
+        {
+          num = 1;
+          index_id.push_back(std::to_string(num));
+          last = index_name[i];
+        }
+      }
     }
 
     auto oper = new StringListPhysicalOperator;
@@ -52,13 +87,17 @@ public:
     schema.append_cell("Table | Non_unique | Key_name | Seq_in_index | Column_name");
     sql_result->set_tuple_schema(schema);
 
-    for (int i=0; i < index_num; i++)
-    {
-      std::string ss = std::string(table_name) + std::string(" | 1 | ") + index_name[i] + std::string(" | ") + index_id[i] + std::string(" | ")  + index_column[i];
-      oper->append(ss);
+    if(index_num !=0){
+      for (int i=0; i < index_num; i++)
+      {
+        std::string ss = toUpperCase(std::string(table_name).c_str()) + std::string(" | 1 | ") + index_name[i] + std::string(" | ") + index_id[i] + std::string(" | ")  + index_column[i];
+        oper->append(ss);
+      }
     }
 
     sql_result->set_operator(std::unique_ptr<PhysicalOperator>(oper));
+
     return rc;
   }
 };
+

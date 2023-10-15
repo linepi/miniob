@@ -137,8 +137,12 @@ RC Db::show_index(const char *table_name, TableMeta &table_meta)
 {
   RC rc = RC::SUCCESS;
   Table *the_table = find_table(table_name);
-
-  table_meta = the_table->table_meta();
+  if (the_table != nullptr) {
+    table_meta = the_table->table_meta();
+  }
+  else {
+    rc = RC::FILE_NOT_EXIST;
+  }
   return rc;
 }
 
