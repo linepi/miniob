@@ -367,13 +367,15 @@ insert_stmt:        /*insert   语句的语法解析树*/
       $$ = new ParsedSqlNode(SCF_INSERT);
       $$->insertion.relation_name = $3;
       if ($6 != nullptr) {
-        $6->insert($6->begin(), *$5);
+        $6->emplace_back(*$5);
+        std::reverse($6->begin(), $6->end());
         $$->insertion.values_list = *$6;
       } else {
         $$->insertion.values_list.emplace_back(*$5);
       }
 
       free($5);
+      free($6);
     }
     ;
 
@@ -384,7 +386,6 @@ insert_data_list:
     | COMMA insert_data insert_data_list {
       if ($3 != nullptr) {
         $3->emplace_back(*$2);
-        std::reverse($3->begin(), $3->end());
         $$ = $3;
       } else {
         $$ = new std::vector<vector<Value>>;

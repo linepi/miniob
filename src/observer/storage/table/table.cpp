@@ -237,6 +237,11 @@ RC Table::insert_record(Record &record)
 RC Table::update_record(const FieldMeta *field_meta, Value *value, Record &record)
 {
   RC rc = RC::SUCCESS;
+
+  rc = delete_entry_of_indexes(record.data(), record.rid(), true);
+  ASSERT(RC::SUCCESS == rc, "");
+
+  Record record_bak = record;
   Record updated_record = record;
   memcpy(updated_record.data() + field_meta->offset(), value->data(), value->length());
 
@@ -246,19 +251,14 @@ RC Table::update_record(const FieldMeta *field_meta, Value *value, Record &recor
   rc = record_handler_->visit_record(record.rid(), false/*write*/, copier);
   if (rc != RC::SUCCESS) {
     LOG_WARN("failed to visit record. rid=%s, table=%s, rc=%s", record.rid().to_string().c_str(), name(), strrc(rc));
+    rc = insert_entry_of_indexes(record_bak.data(), record_bak.rid());
+    ASSERT(RC::SUCCESS == rc, "");
     return rc;
   }
 
-  for (Index *index : indexes_) {
-    rc = index->delete_entry(record.data(), &record.rid());
-    ASSERT(RC::SUCCESS == rc, 
-           "failed to delete entry from index. table name=%s, index name=%s, rid=%s, rc=%s",
-           name(), index->index_meta().name(), record.rid().to_string().c_str(), strrc(rc));
-    rc = index->insert_entry(updated_record.data(), &updated_record.rid());
-    ASSERT(RC::SUCCESS == rc, 
-           "failed to insert entry into index. table name=%s, index name=%s, rid=%s, rc=%s",
-           name(), index->index_meta().name(), record.rid().to_string().c_str(), strrc(rc));
-  }
+  rc = insert_entry_of_indexes(updated_record.data(), updated_record.rid());
+  ASSERT(RC::SUCCESS == rc, "");
+
   return rc;
 }
 
