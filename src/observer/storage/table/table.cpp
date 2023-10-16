@@ -234,6 +234,35 @@ RC Table::insert_record(Record &record)
   return rc;
 }
 
+RC Table::update_record(const FieldMeta *field_meta, Value *value, Record &record)
+{
+  RC rc = RC::SUCCESS;
+  Record updated_record = record;
+  memcpy(updated_record.data() + field_meta->offset(), value->data(), value->length());
+
+  auto copier = [&updated_record](Record &record_src) {
+    record_src = updated_record;
+  };
+  rc = record_handler_->visit_record(record.rid(), false/*write*/, copier);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("failed to visit record. rid=%s, table=%s, rc=%s", record.rid().to_string().c_str(), name(), strrc(rc));
+    return rc;
+  }
+
+  for (Index *index : indexes_) {
+    rc = index->delete_entry(record.data(), &record.rid());
+    ASSERT(RC::SUCCESS == rc, 
+           "failed to delete entry from index. table name=%s, index name=%s, rid=%s, rc=%s",
+           name(), index->index_meta().name(), record.rid().to_string().c_str(), strrc(rc));
+    rc = index->insert_entry(updated_record.data(), &updated_record.rid());
+    ASSERT(RC::SUCCESS == rc, 
+           "failed to insert entry into index. table name=%s, index name=%s, rid=%s, rc=%s",
+           name(), index->index_meta().name(), record.rid().to_string().c_str(), strrc(rc));
+  }
+  return rc;
+}
+
+
 RC Table::visit_record(const RID &rid, bool readonly, std::function<void(Record &)> visitor)
 {
   return record_handler_->visit_record(rid, readonly, visitor);
@@ -327,7 +356,7 @@ RC Table::make_record(int value_num, const Value *values, Record &record)
     const FieldMeta *field = table_meta_.field(i + normal_field_start_index);
     const Value &value = values[i];
     size_t copy_len = field->len();
-    if (field->type() == CHARS || field->type() == DATES) {
+    if (field->type() == CHARS) {
       const size_t data_len = value.length();
       if (copy_len > data_len) {
         copy_len = data_len + 1;

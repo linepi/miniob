@@ -85,6 +85,7 @@ void Value::set_data(char *data, int length)
     } break;
     case DATES: {
       set_date(data);
+      length_ = length;
     } break;
     default: {
       LOG_WARN("unknown data type: %d", attr_type_);
