@@ -77,6 +77,11 @@ int FieldMeta::len() const
   return attr_len_;
 }
 
+void FieldMeta::set_len(int len) 
+{
+  attr_len_ = len;
+}
+
 bool FieldMeta::visible() const
 {
   return visible_;

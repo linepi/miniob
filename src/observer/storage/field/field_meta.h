@@ -41,6 +41,7 @@ public:
   AttrType type() const;
   int offset() const;
   int len() const;
+  void set_len(int len);
   bool visible() const;
 
 public:

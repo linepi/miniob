@@ -238,25 +238,21 @@ RC Table::update_record(const FieldMeta *field_meta, Value *value, Record &recor
 {
   RC rc = RC::SUCCESS;
 
-  rc = delete_entry_of_indexes(record.data(), record.rid(), true);
-  ASSERT(RC::SUCCESS == rc, "");
-
   Record record_bak = record;
-  Record updated_record = record;
-  memcpy(updated_record.data() + field_meta->offset(), value->data(), value->length());
+  memcpy(record.data() + field_meta->offset(), value->data(), min(value->length(), field_meta->len()));
 
-  auto copier = [&updated_record](Record &record_src) {
-    record_src = updated_record;
+  auto copier = [&record](Record &record_src) {
+    record_src = record;
   };
   rc = record_handler_->visit_record(record.rid(), false/*write*/, copier);
   if (rc != RC::SUCCESS) {
     LOG_WARN("failed to visit record. rid=%s, table=%s, rc=%s", record.rid().to_string().c_str(), name(), strrc(rc));
-    rc = insert_entry_of_indexes(record_bak.data(), record_bak.rid());
-    ASSERT(RC::SUCCESS == rc, "");
     return rc;
   }
 
-  rc = insert_entry_of_indexes(updated_record.data(), updated_record.rid());
+  rc = delete_entry_of_indexes(record_bak.data(), record_bak.rid(), true);
+  ASSERT(RC::SUCCESS == rc, "");
+  rc = insert_entry_of_indexes(record.data(), record.rid());
   ASSERT(RC::SUCCESS == rc, "");
 
   return rc;

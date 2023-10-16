@@ -26,7 +26,6 @@ endif()
 
 SET(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
 SET(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-SET(DEBUG ON)
 SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/cmake)
 
 find_program(CCACHE_FOUND ccache)
@@ -39,6 +38,7 @@ endif(CCACHE_FOUND)
 OPTION(ENABLE_ASAN "Enable build with address sanitizer" OFF)
 OPTION(WITH_UNIT_TESTS "Compile miniob with unit tests" OFF)
 OPTION(CONCURRENCY "Support concurrency operations" OFF)
+OPTION(DEBUG "Debug mode" OFF)
 OPTION(STATIC_STDLIB "Link std library static or dynamic, such as libgcc, libstdc++, libasan" OFF)
 
 

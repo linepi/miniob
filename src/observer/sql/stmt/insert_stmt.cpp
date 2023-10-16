@@ -17,7 +17,7 @@ See the Mulan PSL v2 for more details. */
 #include "storage/db/db.h"
 #include "storage/table/table.h"
 
-InsertStmt::InsertStmt(Table *table,  std::vector<std::vector<Value>> values_list)
+InsertStmt::InsertStmt(Table *table,  std::vector<std::vector<Value>> * values_list)
     : table_(table), values_list_(values_list)
 {}
 
@@ -37,8 +37,8 @@ RC InsertStmt::create(Db *db, const InsertSqlNode &inserts, Stmt *&stmt)
     return RC::INVALID_ARGUMENT;
   }
 
-  for (size_t i = 0; i < inserts.values_list.size(); i++) {
-    std::vector<Value> values = inserts.values_list[i];
+  for (size_t i = 0; i < inserts.values_list->size(); i++) {
+    std::vector<Value> values = (*inserts.values_list)[i];
     if (values.empty()) {
       LOG_WARN("invalid argument. %dth values: db=%p, table_name=%p, value_num=%d",
           i + 1, db, table_name, static_cast<int>(values.size()));
@@ -55,7 +55,9 @@ RC InsertStmt::create(Db *db, const InsertSqlNode &inserts, Stmt *&stmt)
     // check fields type
     const int sys_field_num = table_meta.sys_field_num();
     for (int i = 0; i < value_num; i++) {
-      const FieldMeta *field_meta = table_meta.field(i + sys_field_num);
+      FieldMeta *field_meta = const_cast<FieldMeta *>(table_meta.field(i + sys_field_num));
+      // if (field_meta->len() > values[i].length())
+      //   field_meta->set_len(values[i].length());
       const AttrType field_type = field_meta->type();
       const AttrType value_type = values[i].attr_type();
       if (field_type != value_type) {  // TODO try to convert the value type to field type

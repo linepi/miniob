@@ -42,11 +42,19 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt)
     return RC::SCHEMA_TABLE_NOT_EXIST;
   }
 
-  const FieldMeta *field_meta = table->table_meta().field(update_sql.attribute_name.c_str());
+  FieldMeta *field_meta = const_cast<FieldMeta *>(table->table_meta().field(update_sql.attribute_name.c_str()));
   if (nullptr == field_meta) {
     LOG_WARN("no such field. field=%s.%s.%s", db->name(), table->name(), update_sql.attribute_name.c_str());
     return RC::SCHEMA_FIELD_MISSING;
   }
+  if (field_meta->type() != update_sql.value.attr_type()) {
+    LOG_WARN("attrtype mismatch. field=%s.%s.%s, type %d != %d", 
+      db->name(), table->name(), update_sql.attribute_name.c_str(), field_meta->type(), update_sql.value.attr_type());
+    return RC::SCHEMA_FIELD_TYPE_MISMATCH;;
+  }
+  // if (field_meta->len() > update_sql.value.length())
+  //   field_meta->set_len(update_sql.value.length());
+
 
   // create filter statement in `where` statement
   FilterStmt *filter_stmt = nullptr;

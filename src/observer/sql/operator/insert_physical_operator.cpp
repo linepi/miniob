@@ -19,14 +19,14 @@ See the Mulan PSL v2 for more details. */
 
 using namespace std;
 
-InsertPhysicalOperator::InsertPhysicalOperator(Table *table, vector<vector<Value>> values_list)
-    : table_(table), values_list_(std::move(values_list))
+InsertPhysicalOperator::InsertPhysicalOperator(Table *table, std::vector<std::vector<Value>> *values_list)
+    : table_(table), values_list_(values_list)
 {}
 
 RC InsertPhysicalOperator::open(Trx *trx)
 {
   RC rc = RC::SUCCESS;
-  for (vector<Value> values : values_list_) {
+  for (vector<Value> &values : *values_list_) {
     Record record;
     RC rc = table_->make_record(static_cast<int>(values.size()), values.data(), record);
     if (rc != RC::SUCCESS) {

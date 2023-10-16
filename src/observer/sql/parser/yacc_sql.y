@@ -369,13 +369,11 @@ insert_stmt:        /*insert   语句的语法解析树*/
       if ($6 != nullptr) {
         $6->emplace_back(*$5);
         std::reverse($6->begin(), $6->end());
-        $$->insertion.values_list = *$6;
+        $$->insertion.values_list = $6;
       } else {
-        $$->insertion.values_list.emplace_back(*$5);
+        $$->insertion.values_list = new std::vector<vector<Value>>;
+        $$->insertion.values_list->emplace_back(*$5);
       }
-
-      free($5);
-      free($6);
     }
     ;
 
@@ -391,6 +389,7 @@ insert_data_list:
         $$ = new std::vector<vector<Value>>;
         $$->emplace_back(*$2);
       }
+      delete $2;
     }
     ;
 
