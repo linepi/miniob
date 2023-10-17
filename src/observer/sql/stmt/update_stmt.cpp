@@ -52,8 +52,11 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt)
       db->name(), table->name(), update_sql.attribute_name.c_str(), field_meta->type(), update_sql.value.attr_type());
     return RC::SCHEMA_FIELD_TYPE_MISMATCH;;
   }
-  // if (field_meta->len() > update_sql.value.length())
-  //   field_meta->set_len(update_sql.value.length());
+  if (field_meta->len() < update_sql.value.length()) {
+    LOG_WARN("field len overload. table=%s, field=%s, len: %d, %d",
+            table_name, field_meta->name(), field_meta->len(), update_sql.value.length());
+    return RC::SCHEMA_FIELD_SIZE;
+  }
 
 
   // create filter statement in `where` statement

@@ -102,6 +102,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 /** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
 %union {
   ParsedSqlNode *                   sql_node;
+  std::vector<ParsedSqlNode *> *    sql_nodes;
   ConditionSqlNode *                condition;
   Value *                           value;
   enum CompOp                       comp;
@@ -170,16 +171,39 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <sql_node>            command_wrapper
 // commands should be a list but I use a single command instead
 %type <sql_node>            commands
+%type <sql_nodes>           command_list
 
 %left '+' '-'
 %left '*' '/'
 %nonassoc UMINUS
 %%
 
-commands: command_wrapper opt_semicolon  //commands or sqls. parser starts here.
+commands: command_wrapper opt_semicolon command_list //commands or sqls. parser starts here.
   {
     std::unique_ptr<ParsedSqlNode> sql_node = std::unique_ptr<ParsedSqlNode>($1);
     sql_result->add_sql_node(std::move(sql_node));
+    if ($3 != nullptr) {
+      for (auto node : *$3) {
+        std::unique_ptr<ParsedSqlNode> thenode = std::unique_ptr<ParsedSqlNode>(node);
+        sql_result->add_sql_node(std::move(thenode));
+      }
+      delete $3;
+    }
+  }
+  ;
+
+command_list: 
+  {
+    $$ = nullptr;
+  }
+  | command_wrapper opt_semicolon command_list {
+    if ($3 == nullptr) {
+      $$ = new std::vector<ParsedSqlNode *>;
+      $$->emplace_back($1);
+    } else {
+      $3->emplace_back($1);
+      $$ = $3;
+    }
   }
   ;
 
@@ -374,6 +398,8 @@ insert_stmt:        /*insert   语句的语法解析树*/
         $$->insertion.values_list = new std::vector<vector<Value>>;
         $$->insertion.values_list->emplace_back(*$5);
       }
+      delete $5;
+      free($3);
     }
     ;
 
@@ -467,6 +493,7 @@ update_stmt:      /*  update 语句的语法解析树*/
       }
       free($2);
       free($4);
+      delete $6;
     }
     ;
 select_stmt:        /*  select 语句的语法解析树*/
