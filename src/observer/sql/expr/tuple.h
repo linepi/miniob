@@ -51,6 +51,7 @@ class Table;
 class TupleSchema 
 {
 public:
+  TupleSchema() {}
   void append_cell(const TupleCellSpec &cell)
   {
     cells_.push_back(cell);
@@ -72,6 +73,7 @@ public:
     return cells_[i];
   }
 
+  std::vector<AggregationFunc *> * aggregation_funcs_ = nullptr;
 private:
   std::vector<TupleCellSpec> cells_;
 };
@@ -268,6 +270,15 @@ public:
 
     const TupleCellSpec *spec = speces_[index];
     return tuple_->find_cell(*spec, cell);
+  }
+
+  RC cell_at_field(std::string &field_name, Value &cell) {
+    for (const TupleCellSpec *spec : speces_) {
+      if (strcasecmp(field_name.c_str(), spec->field_name()) == 0) {
+        return tuple_->find_cell(*spec, cell);
+      }
+    }
+    assert(0);
   }
 
   RC find_cell(const TupleCellSpec &spec, Value &cell) const override

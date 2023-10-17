@@ -239,7 +239,13 @@ RC Table::update_record(const FieldMeta *field_meta, Value *value, Record &recor
   RC rc = RC::SUCCESS;
 
   Record record_bak = record;
-  memcpy(record.data() + field_meta->offset(), value->data(), min(value->length(), field_meta->len()));
+  int len;
+  if (value->attr_type() == CHARS) {
+    len = min(value->length() + 1, field_meta->len());
+  } else {
+    len = min(value->length(), field_meta->len());
+  }
+  memcpy(record.data() + field_meta->offset(), value->data(), len);
 
   auto copier = [&record](Record &record_src) {
     record_src = record;

@@ -177,6 +177,37 @@ const char *Value::data() const
   }
 }
 
+Value Value::operator+(const Value &other) {
+  Value result;
+  if (this->attr_type_ == other.attr_type_) {
+    switch (this->attr_type_) {
+      case INTS: {
+        result.set_int(this->num_value_.int_value_ + other.num_value_.int_value_);
+      } break;
+      case FLOATS: {
+        result.set_float(this->num_value_.float_value_ + other.num_value_.float_value_);
+      } break;
+      case CHARS: {
+        LOG_PANIC("cannot add two chars value");
+      } break;
+      default: {
+        LOG_PANIC("unsupported type: %d + %d", 
+          attr_type_to_string(this->attr_type_), 
+          attr_type_to_string(other.attr_type_));
+      }
+    }
+  } else if (this->attr_type_ == INTS && other.attr_type_ == FLOATS) {
+    result.set_float(this->num_value_.int_value_ + other.num_value_.float_value_);
+  } else if (this->attr_type_ == FLOATS && other.attr_type_ == INTS) {
+    result.set_float(this->num_value_.float_value_ + other.num_value_.int_value_);
+  } else {
+    LOG_PANIC("unsupported type: %d + %d", 
+      attr_type_to_string(this->attr_type_), 
+      attr_type_to_string(other.attr_type_));
+  }
+  return result;
+}
+
 std::string Value::to_string() const
 {
   std::stringstream os;

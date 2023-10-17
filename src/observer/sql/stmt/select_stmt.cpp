@@ -65,47 +65,71 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
 
   // collect query fields in `select` statement
   std::vector<Field> query_fields;
-  for (int i = static_cast<int>(select_sql.attributes.size()) - 1; i >= 0; i--) {
-    const RelAttrSqlNode &relation_attr = select_sql.attributes[i];
+  if (select_sql.attributes.size() == 0) {
+    LOG_WARN("select attribute size is zero");
+    return RC::INVALID_ARGUMENT;
+  }
+
+  int has_agg = 0, has_common = 0;
+  for (const SelectAttr &select_attr : select_sql.attributes) {
+    if (select_attr.agg_type != AGG_UNDEFINED) has_agg = 1;
+    if (select_attr.agg_type == AGG_UNDEFINED) has_common = 1;
+    if (has_agg && has_common) {
+      LOG_WARN("invalid argument.");
+      return RC::INVALID_ARGUMENT;
+    }
+    if (select_attr.nodes.size() != 1) {
+      LOG_WARN("invalid argument.");
+      return RC::INVALID_ARGUMENT;
+    }
+  }
+  // select id, name
+  // select min(id), max(*)
+  std::vector<AggregationFunc *> aggregation_funcs;
+
+  for (const SelectAttr &select_attr : select_sql.attributes) {
+    const RelAttrSqlNode &relation_attr = select_attr.nodes.front();
+    const char *table_name = relation_attr.relation_name.c_str();
+    const char *field_name = relation_attr.attribute_name.c_str();
 
     if (common::is_blank(relation_attr.relation_name.c_str()) &&
         0 == strcmp(relation_attr.attribute_name.c_str(), "*")) {
+      if (select_attr.agg_type != AGG_UNDEFINED) {
+        if (select_attr.agg_type == AGG_MIN || 
+          select_attr.agg_type == AGG_MAX || 
+          select_attr.agg_type == AGG_SUM || 
+          select_attr.agg_type == AGG_AVG) {
+          LOG_WARN("no %s(*) in syntax", AGG_TYPE_NAME[select_attr.agg_type]);
+          return RC::INVALID_ARGUMENT;
+        }
+        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, true, std::string()));
+      }
       for (Table *table : tables) {
         wildcard_fields(table, query_fields);
       }
-
     } else if (!common::is_blank(relation_attr.relation_name.c_str())) {
-      const char *table_name = relation_attr.relation_name.c_str();
-      const char *field_name = relation_attr.attribute_name.c_str();
-
-      if (0 == strcmp(table_name, "*")) {
-        if (0 != strcmp(field_name, "*")) {
-          LOG_WARN("invalid field name while table is *. attr=%s", field_name);
-          return RC::SCHEMA_FIELD_MISSING;
-        }
-        for (Table *table : tables) {
-          wildcard_fields(table, query_fields);
-        }
-      } else {
-        auto iter = table_map.find(table_name);
-        if (iter == table_map.end()) {
-          LOG_WARN("no such table in from list: %s", table_name);
-          return RC::SCHEMA_FIELD_MISSING;
-        }
-
-        Table *table = iter->second;
-        if (0 == strcmp(field_name, "*")) {
-          wildcard_fields(table, query_fields);
-        } else {
-          const FieldMeta *field_meta = table->table_meta().field(field_name);
-          if (nullptr == field_meta) {
-            LOG_WARN("no such field. field=%s.%s.%s", db->name(), table->name(), field_name);
-            return RC::SCHEMA_FIELD_MISSING;
-          }
-
-          query_fields.push_back(Field(table, field_meta));
-        }
+      auto iter = table_map.find(table_name);
+      if (iter == table_map.end()) {
+        LOG_WARN("no such table in from list: %s", table_name);
+        return RC::SCHEMA_FIELD_MISSING;
       }
+
+      Table *table = iter->second;
+      const FieldMeta *field_meta = table->table_meta().field(field_name);
+      if (nullptr == field_meta) {
+        LOG_WARN("no such field. field=%s.%s.%s", db->name(), table->name(), field_name);
+        return RC::SCHEMA_FIELD_MISSING;
+      }
+      if (select_attr.agg_type != AGG_UNDEFINED) {
+        if ((field_meta->type() == CHARS || field_meta->type() == DATES) &&
+            (select_attr.agg_type == AGG_AVG || select_attr.agg_type == AGG_SUM)) 
+        {
+          LOG_WARN("avg and sum can not be used on chars and dates");
+          return RC::INVALID_ARGUMENT;
+        }
+        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, false, field_meta->name()));
+      }
+      query_fields.push_back(Field(table, field_meta));
     } else {
       if (tables.size() != 1) {
         LOG_WARN("invalid. I do not know the attr's table. attr=%s", relation_attr.attribute_name.c_str());
@@ -118,7 +142,15 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
         LOG_WARN("no such field. field=%s.%s.%s", db->name(), table->name(), relation_attr.attribute_name.c_str());
         return RC::SCHEMA_FIELD_MISSING;
       }
-
+      if (select_attr.agg_type != AGG_UNDEFINED) {
+        if ((field_meta->type() == CHARS || field_meta->type() == DATES) &&
+            (select_attr.agg_type == AGG_AVG || select_attr.agg_type == AGG_SUM)) 
+        {
+          LOG_WARN("avg and sum can not be used on chars and dates");
+          return RC::INVALID_ARGUMENT;
+        }
+        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, false, field_meta->name()));
+      }
       query_fields.push_back(Field(table, field_meta));
     }
   }
@@ -130,7 +162,7 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
     default_table = tables[0];
   }
 
-    // check condition id valid
+  // check condition id valid
   for (size_t i = 0; i < select_sql.conditions.size(); i++) {
     const ConditionSqlNode &node = select_sql.conditions[i];
     AttrType left, right;
@@ -182,6 +214,7 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
   select_stmt->tables_.swap(tables);
   select_stmt->query_fields_.swap(query_fields);
   select_stmt->filter_stmt_ = filter_stmt;
+  select_stmt->aggregation_funcs_.swap(aggregation_funcs);
   stmt = select_stmt;
   return RC::SUCCESS;
 }

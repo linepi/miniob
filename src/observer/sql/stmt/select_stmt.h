@@ -57,9 +57,14 @@ public:
   {
     return filter_stmt_;
   }
+  std::vector<AggregationFunc *> * aggregation_funcs()
+  {
+    return &aggregation_funcs_;
+  }
 
 private:
   std::vector<Field> query_fields_;
   std::vector<Table *> tables_;
   FilterStmt *filter_stmt_ = nullptr;
+  std::vector<AggregationFunc *> aggregation_funcs_;
 };

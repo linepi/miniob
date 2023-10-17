@@ -98,6 +98,12 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         LE
         GE
         NE
+        MIN
+        MAX
+        AVG
+        COUNT
+        SUM
+        LIKE
 
 /** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
 %union {
@@ -106,7 +112,6 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
   ConditionSqlNode *                condition;
   Value *                           value;
   enum CompOp                       comp;
-  RelAttrSqlNode *                  rel_attr;
   std::vector<AttrInfoSqlNode> *    attr_infos;
   AttrInfoSqlNode *                 attr_info;
   Expression *                      expression;
@@ -114,7 +119,10 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
   std::vector<Value> *              value_list;
   std::vector<std::vector<Value>> * values_list;
   std::vector<ConditionSqlNode> *   condition_list;
+  RelAttrSqlNode *                  rel_attr;
   std::vector<RelAttrSqlNode> *     rel_attr_list;
+  SelectAttr *                      select_attr;
+  std::vector<SelectAttr> *         select_attr_list;
   std::vector<std::string> *        relation_list;
   char *                            string;
   int                               number;
@@ -130,11 +138,11 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 
 /** type 定义了各种解析后的结果输出的是什么类型。类型对应了 union 中的定义的成员变量名称 **/
 %type <number>              type
+%type <number>              aggregation_func
 %type <condition>           condition
 %type <value>               value
 %type <number>              number
 %type <comp>                comp_op
-%type <rel_attr>            rel_attr
 %type <attr_infos>          attr_def_list
 %type <attr_info>           attr_def
 %type <value_list>          value_list
@@ -142,9 +150,15 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <values_list>         insert_data_list
 %type <condition_list>      where
 %type <condition_list>      condition_list
-%type <rel_attr_list>       select_attr
-%type <relation_list>       rel_list
+
+%type <rel_attr>            rel_attr
+%type <select_attr>         select_attr_impl
+%type <select_attr_list>    select_attr
+%type <select_attr_list>    select_attr_impl_list
+%type <rel_attr_list>       select_attr_impl_piece
 %type <rel_attr_list>       attr_list
+
+%type <relation_list>       id_list
 %type <expression>          expression
 %type <expression_list>     expression_list
 %type <sql_node>            calc_stmt
@@ -378,12 +392,20 @@ attr_def:
 number:
     NUMBER {$$ = $1;}
     ;
+
 type:
     INT_T      { $$=INTS; }
     | STRING_T { $$=CHARS; }
     | FLOAT_T  { $$=FLOATS; }
     | DATE_T   { $$=DATES; }
     ;
+
+aggregation_func:
+    MIN { $$ = AGG_MIN; }
+    | MAX { $$ = AGG_MAX; }
+    | AVG { $$ = AGG_AVG; }
+    | COUNT { $$ = AGG_COUNT; }
+    | SUM { $$ = AGG_SUM; }
 
 insert_stmt:        /*insert   语句的语法解析树*/
     INSERT INTO ID VALUES insert_data insert_data_list
@@ -496,28 +518,6 @@ update_stmt:      /*  update 语句的语法解析树*/
       delete $6;
     }
     ;
-select_stmt:        /*  select 语句的语法解析树*/
-    SELECT select_attr FROM ID rel_list where
-    {
-      $$ = new ParsedSqlNode(SCF_SELECT);
-      if ($2 != nullptr) {
-        $$->selection.attributes.swap(*$2);
-        delete $2;
-      }
-      if ($5 != nullptr) {
-        $$->selection.relations.swap(*$5);
-        delete $5;
-      }
-      $$->selection.relations.push_back($4);
-      std::reverse($$->selection.relations.begin(), $$->selection.relations.end());
-
-      if ($6 != nullptr) {
-        $$->selection.conditions.swap(*$6);
-        delete $6;
-      }
-      free($4);
-    }
-    ;
 calc_stmt:
     CALC expression_list
     {
@@ -571,15 +571,77 @@ expression:
     }
     ;
 
-select_attr:
-    '*' {
-      $$ = new std::vector<RelAttrSqlNode>;
-      RelAttrSqlNode attr;
-      attr.relation_name  = "";
-      attr.attribute_name = "*";
-      $$->emplace_back(attr);
+select_stmt:        /*  select 语句的语法解析树*/
+    SELECT select_attr FROM ID id_list where
+    {
+      $$ = new ParsedSqlNode(SCF_SELECT);
+      if ($2 != nullptr) {
+        std::reverse($2->begin(), $2->end());
+        $$->selection.attributes.swap(*$2);
+        delete $2;
+      }
+      if ($5 != nullptr) {
+        $$->selection.relations.swap(*$5);
+        delete $5;
+      }
+      $$->selection.relations.push_back($4);
+      std::reverse($$->selection.relations.begin(), $$->selection.relations.end());
+
+      if ($6 != nullptr) {
+        $$->selection.conditions.swap(*$6);
+        delete $6;
+      }
+      free($4);
     }
-    | rel_attr attr_list {
+    ;
+
+select_attr:
+  select_attr_impl select_attr_impl_list {
+    if ($2 == nullptr) {
+      $$ = new std::vector<SelectAttr>;
+      $$->emplace_back(*$1);
+    } else {
+      $$ = $2;
+      $$->emplace_back(*$1);
+    }
+    delete $1;
+  }
+
+select_attr_impl_list: 
+  {
+    $$ = nullptr;
+  }
+  | COMMA select_attr_impl select_attr_impl_list {
+    if ($3 == nullptr) {
+      $$ = new std::vector<SelectAttr>;
+    } else {
+      $$ = $3;
+    }
+    $$->emplace_back(*$2);
+    delete $2;
+  }
+
+select_attr_impl:
+  rel_attr {
+    $$ = new SelectAttr();
+    $$->nodes.emplace_back(*$1);
+    $$->agg_type = AGG_UNDEFINED;
+    delete $1;
+  }
+  | aggregation_func LBRACE RBRACE {
+    $$ = new SelectAttr();
+    $$->agg_type = (AggType)$1;
+  }
+  | aggregation_func LBRACE select_attr_impl_piece RBRACE {
+    $$ = new SelectAttr();
+    $$->nodes = *$3;
+    $$->agg_type = (AggType)$1;
+    delete $3;
+  }
+  ;
+
+select_attr_impl_piece:
+    rel_attr attr_list {
       if ($2 != nullptr) {
         $$ = $2;
       } else {
@@ -591,7 +653,12 @@ select_attr:
     ;
 
 rel_attr:
-    ID {
+    '*' {
+      $$ = new RelAttrSqlNode;
+      $$->relation_name  = "";
+      $$->attribute_name = "*";
+    }
+    | ID {
       $$ = new RelAttrSqlNode;
       $$->attribute_name = $1;
       free($1);
@@ -622,12 +689,12 @@ attr_list:
     }
     ;
 
-rel_list:
+id_list:
     /* empty */
     {
       $$ = nullptr;
     }
-    | COMMA ID rel_list {
+    | COMMA ID id_list {
       if ($3 != nullptr) {
         $$ = $3;
       } else {
@@ -721,6 +788,7 @@ comp_op:
     | LE { $$ = LESS_EQUAL; }
     | GE { $$ = GREAT_EQUAL; }
     | NE { $$ = NOT_EQUAL; }
+    | LIKE { $$ = LIKE_OP; }
     ;
 
 load_data_stmt:

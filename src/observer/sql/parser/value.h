@@ -56,6 +56,8 @@ public:
 
   Value(const Value &other) = default;
   Value &operator=(const Value &other) = default;
+  Value operator+(const Value &other);
+  
 
   void set_type(AttrType type)
   {
