@@ -63,6 +63,28 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
     table_map.insert(std::pair<std::string, Table *>(table_name, table));
   }
 
+  // collect tables and conditions in 'join' statement
+  std::vector<ConditionSqlNode> conditions = select_sql.conditions;
+  for (const JoinNode &jnode : select_sql.joins) {
+    const char *table_name = jnode.relation_name.c_str();
+    if (nullptr == table_name) {
+      LOG_WARN("invalid argument. relation name is null. ");
+      return RC::INVALID_ARGUMENT;
+    }
+
+    Table *table = db->find_table(table_name);
+    if (nullptr == table) {
+      LOG_WARN("no such table. db=%s, table_name=%s", db->name(), table_name);
+      return RC::SCHEMA_TABLE_NOT_EXIST;
+    }
+
+    tables.push_back(table);
+    table_map.insert(std::pair<std::string, Table *>(table_name, table));
+    for (const ConditionSqlNode &cnode : jnode.on) {
+      conditions.emplace_back(cnode);
+    }
+  }
+
   if (select_sql.attributes.size() == 0) {
     LOG_WARN("select attribute size is zero");
     return RC::INVALID_ARGUMENT;
@@ -152,8 +174,8 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
   RC rc = FilterStmt::create(db,
       default_table,
       &table_map,
-      select_sql.conditions.data(),
-      static_cast<int>(select_sql.conditions.size()),
+      conditions.data(),
+      static_cast<int>(conditions.size()),
       filter_stmt);
   if (rc != RC::SUCCESS) {
     LOG_WARN("cannot construct filter stmt");

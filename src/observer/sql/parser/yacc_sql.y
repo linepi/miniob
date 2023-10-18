@@ -763,8 +763,14 @@ where:
     {
       $$ = nullptr;
     }
-    | WHERE condition_list {
-      $$ = $2;  
+    | WHERE condition condition_list {
+      if ($3 != nullptr) {
+        $$ = $3;
+      } else {
+        $$ = new std::vector<ConditionSqlNode>;
+      }
+      $$->emplace_back(*$2);  
+      delete $2;
     }
     ;
 condition_list:
@@ -772,15 +778,14 @@ condition_list:
     {
       $$ = nullptr;
     }
-    | condition {
-      $$ = new std::vector<ConditionSqlNode>;
-      $$->emplace_back(*$1);
-      delete $1;
-    }
-    | condition AND condition_list {
-      $$ = $3;
-      $$->emplace_back(*$1);
-      delete $1;
+    | condition_list AND condition {
+      if ($1 != nullptr) {
+        $$ = $1;
+      } else {
+        $$ = new std::vector<ConditionSqlNode>;
+      }
+      $$->emplace_back(*$3);
+      delete $3;
     }
     ;
 condition:
