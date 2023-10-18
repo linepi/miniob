@@ -35,6 +35,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/stmt/insert_stmt.h"
 #include "sql/stmt/delete_stmt.h"
 #include "sql/stmt/explain_stmt.h"
+#include "storage/table/table.h"
 
 using namespace std;
 

@@ -26,7 +26,6 @@ public:
   static RC create(Db *db, const ShowIndexSqlNode &show_index_table, Stmt *&stmt)
   {
     stmt = new ShowIndexStmt(show_index_table.relation_name);
-    sql_debug("show index table statement: table name %s", show_index_table.relation_name.c_str());
     return RC::SUCCESS;
   }
 private:

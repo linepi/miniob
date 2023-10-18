@@ -272,9 +272,10 @@ public:
     return tuple_->find_cell(*spec, cell);
   }
 
-  RC cell_at_field(std::string &field_name, Value &cell) {
+  RC cell_at_field(Field &field, Value &cell) {
     for (const TupleCellSpec *spec : speces_) {
-      if (strcasecmp(field_name.c_str(), spec->field_name()) == 0) {
+      if (strcasecmp(field.field_name(), spec->field_name()) == 0
+        && strcasecmp(field.table_name(), spec->table_name()) == 0) {
         return tuple_->find_cell(*spec, cell);
       }
     }

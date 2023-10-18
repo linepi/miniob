@@ -25,6 +25,8 @@ std::string physical_operator_type_name(PhysicalOperatorType type)
       return "NESTED_LOOP_JOIN";
     case PhysicalOperatorType::EXPLAIN:
       return "EXPLAIN";
+    case PhysicalOperatorType::UPDATE:
+      return "UPDATE";
     case PhysicalOperatorType::PREDICATE:
       return "PREDICATE";
     case PhysicalOperatorType::INSERT:

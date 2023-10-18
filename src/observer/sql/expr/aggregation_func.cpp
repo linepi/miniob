@@ -1,5 +1,4 @@
 #include <sql/expr/aggregation_func.h>
-#include <sql/parser/value.h>
 #include <cfloat>
 
 const char *AGG_TYPE_NAME[] = {
@@ -11,15 +10,22 @@ const char *AGG_TYPE_NAME[] = {
   "COUNT",       
 };
 
-AggregationFunc::AggregationFunc(AggType agg_type, bool star, std::string field_name) 
-  : agg_type_(agg_type), star_(star), field_name_(std::move(field_name))
+AggregationFunc::~AggregationFunc() {
+  if (field_ != nullptr) {
+    delete field_;
+    field_ = nullptr;
+  }
+}
+
+AggregationFunc::AggregationFunc(AggType agg_type, bool star, Field *field, bool multi_table) 
+  : agg_type_(agg_type), star_(star), field_(field), multi_table_(multi_table)
 { 
   switch (agg_type_) {
     case AGG_MIN:
       result_.set_float(FLT_MAX); 
       break;
     case AGG_MAX:
-      result_.set_float(FLT_MIN); 
+      result_.set_float(-FLT_MAX); 
       break;
     default:
       result_.set_float(0.0); 

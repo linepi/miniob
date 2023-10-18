@@ -13,6 +13,7 @@ See the Mulan PSL v2 for more details. */
 //
 
 #include "storage/field/field.h"
+#include "storage/table/table.h"
 #include "sql/parser/value.h"
 #include "storage/record/record.h"
 #include "common/log/log.h"
@@ -35,4 +36,36 @@ int Field::get_int(const Record &record)
 const char *Field::get_data(const Record &record)
 {
   return record.data() + field_->offset();
+}
+
+const Table *Field::table() const
+{
+  return table_;
+}
+const FieldMeta *Field::meta() const
+{
+  return field_;
+}
+
+AttrType Field::attr_type() const
+{
+  return field_->type();
+}
+
+const char *Field::table_name() const
+{
+  return table_->name();
+}
+const char *Field::field_name() const
+{
+  return field_->name();
+}
+
+void Field::set_table(const Table *table)
+{
+  this->table_ = table;
+}
+void Field::set_field(const FieldMeta *field)
+{
+  this->field_ = field;
 }

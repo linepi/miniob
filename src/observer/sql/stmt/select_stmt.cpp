@@ -101,7 +101,7 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
           LOG_WARN("no %s(*) in syntax", AGG_TYPE_NAME[select_attr.agg_type]);
           return RC::INVALID_ARGUMENT;
         }
-        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, true, std::string()));
+        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, true, new Field(), tables.size() > 1));
       }
       for (Table *table : tables) {
         wildcard_fields(table, query_fields);
@@ -134,7 +134,7 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
           LOG_WARN("avg and sum can not be used on chars and dates");
           return RC::INVALID_ARGUMENT;
         }
-        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, false, field_meta->name()));
+        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, false, new Field(table, field_meta), tables.size() > 1));
       }
       query_fields.push_back(Field(table, field_meta));
     }

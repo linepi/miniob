@@ -87,6 +87,19 @@ struct ConditionSqlNode
   Value           right_value;     ///< right-hand side value if right_is_attr = FALSE
 };
 
+enum JoinType
+{
+  JOIN_INNER,
+  JOIN_UNDEFINED,
+};
+
+struct JoinNode 
+{
+  JoinType type;
+  std::string relation_name;
+  std::vector<ConditionSqlNode> on;
+};
+
 /**
  * @brief 描述一个select语句
  * @ingroup SQLParser
@@ -103,6 +116,7 @@ struct SelectSqlNode
   std::vector<SelectAttr>         attributes;    ///< attributes in select clause
   std::vector<std::string>        relations;     ///< 查询的表
   std::vector<ConditionSqlNode>   conditions;    ///< 查询条件，使用AND串联起来多个条件
+  std::vector<JoinNode>           joins;
 };
 
 /**

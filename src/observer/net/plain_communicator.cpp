@@ -180,7 +180,7 @@ static RC with_aggregation_func(Tuple *tuple, std::vector<AggregationFunc *> * a
     } else {
       ProjectTuple *pt = static_cast<ProjectTuple *>(tuple);
       Value value;
-      rc = pt->cell_at_field(aggregation_func->field_name_, value);
+      rc = pt->cell_at_field(*(aggregation_func->field_), value);
       if (rc != RC::SUCCESS) {
         return rc;
       }
@@ -289,11 +289,17 @@ RC PlainCommunicator::write_result_internal(SessionEvent *event, bool &need_disc
         rc = writer_->writen(delim, strlen(delim));
       }
       std::string out;
-      out += AGG_TYPE_NAME[func->agg_type_] + std::string("(");
+      out += AGG_TYPE_NAME[func->agg_type_];
+      out += std::string("(");
       if (func->star_) {
         out += "*)";
       } else {
-        out += func->field_name_ + ")";
+        if (func->multi_table_) {
+          out += func->field_->table_name();
+          out += ".";
+        }
+        out += func->field_->field_name(); 
+        out += ")";
       }
       writer_->writen(out.c_str(), out.size());
       i++;
@@ -301,7 +307,6 @@ RC PlainCommunicator::write_result_internal(SessionEvent *event, bool &need_disc
   } else {
     for (int i = 0; i < cell_num; i++) {
       const TupleCellSpec &spec = schema.cell_at(i);
-      std::string alias_s;
       const char *alias = spec.alias();
       if (nullptr != alias || alias[0] != 0) {
         if (0 != i) {

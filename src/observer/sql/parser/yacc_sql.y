@@ -105,6 +105,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         SUM
         NOT
         LIKE
+        INNER 
+        JOIN
 
 /** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
 %union {
@@ -125,6 +127,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
   SelectAttr *                      select_attr;
   std::vector<SelectAttr> *         select_attr_list;
   std::vector<std::string> *        relation_list;
+  std::vector<JoinNode> *           join_list;
+  JoinNode *                        join_node;
   char *                            string;
   int                               number;
   float                             floats;
@@ -139,11 +143,13 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 
 /** type 定义了各种解析后的结果输出的是什么类型。类型对应了 union 中的定义的成员变量名称 **/
 %type <number>              type
+%type <number>              join_type
 %type <number>              aggregation_func
 %type <condition>           condition
 %type <value>               value
 %type <number>              number
 %type <comp>                comp_op
+
 %type <attr_infos>          attr_def_list
 %type <attr_info>           attr_def
 %type <value_list>          value_list
@@ -157,11 +163,14 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <select_attr_list>    select_attr
 %type <select_attr_list>    select_attr_impl_list
 %type <rel_attr_list>       select_attr_impl_piece
-%type <rel_attr_list>       attr_list
+%type <rel_attr_list>       rel_attr_list
+%type <join_list>           joins
+%type <join_node>           join 
 
 %type <relation_list>       id_list
 %type <expression>          expression
 %type <expression_list>     expression_list
+
 %type <sql_node>            calc_stmt
 %type <sql_node>            select_stmt
 %type <sql_node>            insert_stmt
@@ -572,8 +581,46 @@ expression:
     }
     ;
 
+joins:
+  {
+    $$ = nullptr;
+  }
+  | join joins {
+    if ($2 != nullptr) {
+      $$ = $2;
+    } else {
+      $$ = new std::vector<JoinNode>;
+    }
+    $$->emplace_back(*$1);
+    free($1);
+  }
+
+join: 
+  join_type ID {
+    $$ = new JoinNode();
+    $$->type = (JoinType)$1;
+    $$->relation_name = $2;
+    free($2);
+  }
+  | join_type ID ON condition condition_list {
+    $$ = new JoinNode();
+    $$->type = (JoinType)$1;
+    $$->relation_name = $2;
+    if ($5 != nullptr) {
+      $$->on.swap(*$5);
+      delete $5;
+    }
+    $$->on.emplace_back(*$4);
+    delete $4;
+    free($2);
+  }
+
+join_type:
+    JOIN { $$ = (JoinType)JOIN_INNER; }
+  | INNER JOIN { $$ = (JoinType)JOIN_INNER; }
+
 select_stmt:        /*  select 语句的语法解析树*/
-    SELECT select_attr FROM ID id_list where
+    SELECT select_attr FROM ID id_list joins where 
     {
       $$ = new ParsedSqlNode(SCF_SELECT);
       if ($2 != nullptr) {
@@ -588,8 +635,13 @@ select_stmt:        /*  select 语句的语法解析树*/
       $$->selection.relations.push_back($4);
       std::reverse($$->selection.relations.begin(), $$->selection.relations.end());
 
+      if ($7 != nullptr) {
+        $$->selection.conditions.swap(*$7);
+        delete $7;
+      }
       if ($6 != nullptr) {
-        $$->selection.conditions.swap(*$6);
+        $$->selection.joins.swap(*$6);
+        std::reverse($$->selection.joins.begin(), $$->selection.joins.end());
         delete $6;
       }
       free($4);
@@ -642,7 +694,7 @@ select_attr_impl:
   ;
 
 select_attr_impl_piece:
-    rel_attr attr_list {
+    rel_attr rel_attr_list {
       if ($2 != nullptr) {
         $$ = $2;
       } else {
@@ -673,12 +725,12 @@ rel_attr:
     }
     ;
 
-attr_list:
+rel_attr_list:
     /* empty */
     {
       $$ = nullptr;
     }
-    | COMMA rel_attr attr_list {
+    | COMMA rel_attr rel_attr_list {
       if ($3 != nullptr) {
         $$ = $3;
       } else {

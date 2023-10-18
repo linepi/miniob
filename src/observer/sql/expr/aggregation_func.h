@@ -1,5 +1,4 @@
 #pragma once
-#include <sql/parser/value.h>
 
 /**
  * @brief 聚合函数类型
@@ -13,16 +12,17 @@ enum AggType {
   AGG_COUNT,       
 };
 
+#include <sql/parser/value.h>
+#include <storage/field/field.h>
+
 extern const char *AGG_TYPE_NAME[];
 
+class Field;
 class AggregationFunc {
 public:
-	AggregationFunc(AggType agg_type, bool star, std::string field_name); 
-	AggregationFunc() {
-		agg_type_ = AGG_UNDEFINED;
-	} 
-	~AggregationFunc() = default;
-
+	AggregationFunc(AggType agg_type, bool star, Field *field, bool multi_table); 
+	AggregationFunc(); 
+	~AggregationFunc(); 
 
 	RC aggregate(Value *value);
 
@@ -38,9 +38,10 @@ private:
 	void sum(Value *value);
 
 public:
-	AggType agg_type_;
+	AggType agg_type_ = AGG_UNDEFINED;
 	bool star_ = false;
-	std::string field_name_;
+	Field *field_ = nullptr;
+	bool multi_table_ = false;
 	Value result_;
 	Value sum_;
 	int cnt_ = 0;
