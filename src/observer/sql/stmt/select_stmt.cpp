@@ -63,8 +63,6 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
     table_map.insert(std::pair<std::string, Table *>(table_name, table));
   }
 
-  // collect query fields in `select` statement
-  std::vector<Field> query_fields;
   if (select_sql.attributes.size() == 0) {
     LOG_WARN("select attribute size is zero");
     return RC::INVALID_ARGUMENT;
@@ -86,7 +84,8 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
   // select id, name
   // select min(id), max(*)
   std::vector<AggregationFunc *> aggregation_funcs;
-
+  // collect query fields in `select` statement
+  std::vector<Field> query_fields;
   for (const SelectAttr &select_attr : select_sql.attributes) {
     const RelAttrSqlNode &relation_attr = select_attr.nodes.front();
     const char *table_name = relation_attr.relation_name.c_str();
@@ -107,39 +106,25 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
       for (Table *table : tables) {
         wildcard_fields(table, query_fields);
       }
-    } else if (!common::is_blank(relation_attr.relation_name.c_str())) {
-      auto iter = table_map.find(table_name);
-      if (iter == table_map.end()) {
-        LOG_WARN("no such table in from list: %s", table_name);
-        return RC::SCHEMA_FIELD_MISSING;
+    } else {
+      Table *table = nullptr; 
+      if (!common::is_blank(relation_attr.relation_name.c_str())) {
+        auto iter = table_map.find(table_name);
+        if (iter == table_map.end()) {
+          LOG_WARN("no such table in from list: %s", table_name);
+          return RC::SCHEMA_FIELD_MISSING;
+        }
+        table = iter->second;
+      } else {
+        if (tables.size() != 1) {
+          LOG_WARN("invalid. I do not know the attr's table. attr=%s", relation_attr.attribute_name.c_str());
+          return RC::SCHEMA_FIELD_MISSING;
+        }
+        table = tables[0];
       }
-
-      Table *table = iter->second;
       const FieldMeta *field_meta = table->table_meta().field(field_name);
       if (nullptr == field_meta) {
         LOG_WARN("no such field. field=%s.%s.%s", db->name(), table->name(), field_name);
-        return RC::SCHEMA_FIELD_MISSING;
-      }
-      if (select_attr.agg_type != AGG_UNDEFINED) {
-        if ((field_meta->type() == CHARS || field_meta->type() == DATES) &&
-            (select_attr.agg_type == AGG_AVG || select_attr.agg_type == AGG_SUM)) 
-        {
-          LOG_WARN("avg and sum can not be used on chars and dates");
-          return RC::INVALID_ARGUMENT;
-        }
-        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, false, field_meta->name()));
-      }
-      query_fields.push_back(Field(table, field_meta));
-    } else {
-      if (tables.size() != 1) {
-        LOG_WARN("invalid. I do not know the attr's table. attr=%s", relation_attr.attribute_name.c_str());
-        return RC::SCHEMA_FIELD_MISSING;
-      }
-
-      Table *table = tables[0];
-      const FieldMeta *field_meta = table->table_meta().field(relation_attr.attribute_name.c_str());
-      if (nullptr == field_meta) {
-        LOG_WARN("no such field. field=%s.%s.%s", db->name(), table->name(), relation_attr.attribute_name.c_str());
         return RC::SCHEMA_FIELD_MISSING;
       }
       if (select_attr.agg_type != AGG_UNDEFINED) {
@@ -160,39 +145,6 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
   Table *default_table = nullptr;
   if (tables.size() == 1) {
     default_table = tables[0];
-  }
-
-  // check condition id valid
-  for (size_t i = 0; i < select_sql.conditions.size(); i++) {
-    const ConditionSqlNode &node = select_sql.conditions[i];
-    AttrType left, right;
-
-    if (node.left_is_attr) {
-      Table *left_table = tables.size() == 1 
-        ? tables[0] 
-        : db->find_table(node.left_attr.relation_name.c_str()); 
-      const FieldMeta *left_field = left_table->table_meta().field(node.left_attr.attribute_name.c_str());
-      if (left_field == nullptr) continue;
-      left = left_field->type();
-    } else {
-      left = node.left_value.attr_type();
-    }
-
-    if (node.right_is_attr) {
-      Table *right_table = tables.size() == 1 
-        ? tables[0] 
-        : db->find_table(node.right_attr.relation_name.c_str()); 
-      const FieldMeta *right_field = right_table->table_meta().field(node.right_attr.attribute_name.c_str());
-      if (right_field == nullptr) continue;
-      right = right_field->type();
-    } else {
-      right = node.right_value.attr_type();
-    }
-
-    if (left != right) {
-      LOG_INFO("type mismatch: %s and %s", attr_type_to_string(left), attr_type_to_string(right));
-      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
-    }
   }
 
   // create filter statement in `where` statement

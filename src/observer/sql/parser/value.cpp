@@ -256,6 +256,7 @@ RC Value::compare(const Value &other, int &result) const
       } break;
       default: {
         LOG_WARN("unsupported type: %d", this->attr_type_);
+        rc = RC::VALUE_COMPERR;
       }
     }
   } else if (this->attr_type_ == INTS && other.attr_type_ == FLOATS) {
@@ -267,6 +268,45 @@ RC Value::compare(const Value &other, int &result) const
   } else {
     rc = RC::VALUE_COMPERR;
   }
+  return rc;
+}
+
+bool Value::like(const std::string &column, const std::string &pattern) {
+  int m = column.length();
+  int n = pattern.length();
+
+  // dp[i][j] 表示 column 的前 i 个字符与 pattern 的前 j 个字符是否匹配
+  std::vector<std::vector<bool>> dp(m + 1, std::vector<bool>(n + 1, false));
+
+  // 两个空字符串是匹配的
+  dp[0][0] = true;
+
+  // 初始化第一行
+  for (int j = 1; j <= n; ++j) {
+      if (pattern[j-1] == '%') {
+          dp[0][j] = dp[0][j-1];
+      }
+  }
+
+  for (int i = 1; i <= m; ++i) {
+      for (int j = 1; j <= n; ++j) {
+          if (pattern[j-1] == column[i-1] || pattern[j-1] == '_') {
+              dp[i][j] = dp[i-1][j-1];
+          } else if (pattern[j-1] == '%') {
+              dp[i][j] = dp[i-1][j] || dp[i][j-1];
+          }
+      }
+  }
+
+  return dp[m][n];
+}
+
+RC Value::like(const Value &other, bool &result) const {
+  RC rc = RC::SUCCESS;
+  if (this->attr_type_ != CHARS || other.attr_type_ != CHARS) {
+    result = false;
+  }
+  result = like(this->to_string(), other.to_string());
   return rc;
 }
 

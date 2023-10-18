@@ -127,5 +127,31 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
   filter_unit->set_comp(comp);
 
   // 检查两个类型是否能够比较
+  AttrType left, right;
+  if (filter_unit->left().is_attr) left = filter_unit->left().field.attr_type();
+  else left = filter_unit->left().value.attr_type();
+
+  if (filter_unit->right().is_attr) right = filter_unit->right().field.attr_type();
+  else right = filter_unit->right().value.attr_type();
+
+  if (left != right) {
+    char buf[4] = {'.','.','.','.'};
+    Value left_value(left, buf, 4);
+    Value right_value(right, buf, 4);
+    int result;
+    RC ret = left_value.compare(right_value, result);
+    if (ret != RC::SUCCESS) {
+      LOG_INFO("type mismatch: %s and %s", attr_type_to_string(left), attr_type_to_string(right));
+      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+    }
+  }
+
+  if (comp == LIKE_OP || comp == NOT_LIKE_OP) {
+    if (!(filter_unit->left().is_attr && !(filter_unit->right().is_attr))) {
+      LOG_INFO("only `column name` like `pattern`");
+      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+    }
+  }
+
   return rc;
 }

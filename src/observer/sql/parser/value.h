@@ -78,6 +78,9 @@ public:
   std::string to_string() const;
 
   RC compare(const Value &other, int &result) const;
+  RC like(const Value &other, bool &result) const;
+  static bool like(const std::string &column, const std::string &pattern);
+  
 
   const char *data() const;
   int length() const

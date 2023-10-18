@@ -138,7 +138,17 @@ bool DefaultConditionFilter::filter(const Record &rec) const
     right_value.set_value(right_.value);
   }
 
+
   int cmp_result;
+  if (comp_op_ == LIKE_OP) {
+    bool likeres;
+    left_value.like(right_value, likeres);
+    return likeres == true;
+  } else if (comp_op_ == NOT_LIKE_OP) {
+    bool likeres;
+    left_value.like(right_value, likeres);
+    return likeres == false;
+  }
   left_value.compare(right_value, cmp_result);
 
   switch (comp_op_) {

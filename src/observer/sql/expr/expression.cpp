@@ -90,6 +90,15 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
 {
   RC rc = RC::SUCCESS;
   int cmp_result;
+  if (comp_ == LIKE_OP) {
+    left.like(right, result);
+    return rc;
+  } else if (comp_ == NOT_LIKE_OP) {
+    left.like(right, result);
+    result = !result;
+    return rc;
+  }
+
   rc = left.compare(right, cmp_result);
   if (rc != RC::SUCCESS) {
     LOG_WARN("compare value err: %s", strrc(rc));
