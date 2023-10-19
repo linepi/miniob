@@ -63,6 +63,14 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
     table_map.insert(std::pair<std::string, Table *>(table_name, table));
   }
 
+  std::vector<ConditionSqlNode> conditions = select_sql.conditions;
+  // collect tables and conditions in 'join' statement
+  for (JoinNode jnode : select_sql.joins) {
+    for (ConditionSqlNode cnode : jnode.on) {
+      conditions.emplace_back(cnode);
+    }
+  }
+
   if (select_sql.attributes.size() == 0) {
     LOG_WARN("select attribute size is zero");
     return RC::INVALID_ARGUMENT;
@@ -152,8 +160,8 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
   RC rc = FilterStmt::create(db,
       default_table,
       &table_map,
-      select_sql.conditions.data(),
-      static_cast<int>(select_sql.conditions.size()),
+      conditions.data(),
+      static_cast<int>(conditions.size()),
       filter_stmt);
   if (rc != RC::SUCCESS) {
     LOG_WARN("cannot construct filter stmt");

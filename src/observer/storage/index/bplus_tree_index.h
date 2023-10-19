@@ -27,8 +27,8 @@ public:
   BplusTreeIndex() = default;
   virtual ~BplusTreeIndex() noexcept;
 
-  RC create(const char *file_name, const IndexMeta &index_meta, const FieldMeta &field_meta);
-  RC open(const char *file_name, const IndexMeta &index_meta, const FieldMeta &field_meta);
+  RC create(const char *file_name, const IndexMeta &index_meta, const std::vector<FieldMeta> &field_meta);
+  RC open(const char *file_name, const IndexMeta &index_meta, const std::vector<FieldMeta> &field_meta);
   RC close();
 
   RC insert_entry(const char *record, const RID *rid) override;
@@ -45,6 +45,8 @@ public:
 private:
   bool inited_ = false;
   BplusTreeHandler index_handler_;
+  // IndexMeta index_meta_;  ///< 索引的元数据
+  // std::vector<FieldMeta> field_meta_;  ///< 当前实现仅考虑一个字段的索引
 };
 
 /**

@@ -119,17 +119,50 @@ const FieldMeta *TableMeta::field(int index) const
 {
   return &fields_[index];
 }
+
 const FieldMeta *TableMeta::field(const char *name) const
 {
-  if (nullptr == name) {
+  if (name == nullptr)
+  {
     return nullptr;
   }
-  for (const FieldMeta &field : fields_) {
-    if (0 == strcmp(field.name(), name)) {
-      return &field;
-    }
+  for (auto it = fields_.begin(); it != fields_.end(); ++it) 
+  {
+      if (0 == strcmp(it->name(), name)) {
+          return &(*it);
+      }
   }
   return nullptr;
+}
+std::vector<FieldMeta> TableMeta::field_mult(const char *name) const
+{
+  std::vector<FieldMeta>empty;
+  if (nullptr == name) {
+    return empty;
+  }
+  std::vector<std::string> result;
+  std::stringstream ss(name);
+  std::string item;
+
+  while (std::getline(ss, item, '-')) {
+        result.push_back(item);
+  }
+
+  std::vector<FieldMeta>ret;
+
+  for(string n : result){
+    int f = 0;
+    for (const FieldMeta &field : fields_) {
+      if (0 == strcmp(field.name(), n.c_str())) {
+        ret.push_back(field);
+        f =1;
+      }
+    }
+    if (!f){
+      return empty;
+    }
+  }
+  return ret;
 }
 
 const FieldMeta *TableMeta::find_field_by_offset(int offset) const
