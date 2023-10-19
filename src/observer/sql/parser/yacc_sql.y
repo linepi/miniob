@@ -107,6 +107,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         LIKE
         INNER 
         JOIN
+        NULL_TOKEN
 
 /** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
 %union {
@@ -142,7 +143,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 //非终结符
 
 /** type 定义了各种解析后的结果输出的是什么类型。类型对应了 union 中的定义的成员变量名称 **/
-%type <number>              type
+%type <number>              type_meta
+%type <number>              type_note
 %type <number>              join_type
 %type <number>              aggregation_func
 %type <condition>           condition
@@ -381,21 +383,23 @@ attr_def_list:
     ;
     
 attr_def:
-    ID type LBRACE number RBRACE 
+    ID type_meta LBRACE number RBRACE type_note
     {
       $$ = new AttrInfoSqlNode;
       $$->type = (AttrType)$2;
       $$->name = $1;
       $$->length = $4;
+      $$->nullable = $6;
       free($1);
     }
-    | ID type
+    | ID type_meta type_note
     {
       $$ = new AttrInfoSqlNode;
       $$->type = (AttrType)$2;
       $$->name = $1;
       $$->length = 4;
       if ($$->type == DATES) $$->length = 10;
+      $$->nullable = $3;
       free($1);
     }
     ;
@@ -403,7 +407,12 @@ number:
     NUMBER {$$ = $1;}
     ;
 
-type:
+type_note:
+  { $$ = 1; }
+  | NULL_TOKEN { $$ = 1; }
+  | NOT NULL_TOKEN { $$ = 0; }
+
+type_meta:
     INT_T      { $$=INTS; }
     | STRING_T { $$=CHARS; }
     | FLOAT_T  { $$=FLOATS; }
@@ -497,6 +506,9 @@ value:
       char *tmp = common::substr($1,1,strlen($1)-2);
       $$ = new Value(tmp);
       free(tmp);
+    }
+    | NULL_TOKEN {
+      $$ = new Value(NULL_TYPE, nullptr, 0);
     }
     ;
     
@@ -846,7 +858,6 @@ comp_op:
     | LE { $$ = LESS_EQUAL; }
     | GE { $$ = GREAT_EQUAL; }
     | NE { $$ = NOT_EQUAL; }
-    | LT GT { $$ = NOT_EQUAL; }
     | LIKE { $$ = LIKE_OP; }
     | NOT LIKE { $$ = NOT_LIKE_OP; }
     ;

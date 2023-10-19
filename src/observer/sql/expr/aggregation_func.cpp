@@ -35,6 +35,7 @@ AggregationFunc::AggregationFunc(AggType agg_type, bool star, Field *field, bool
 }
 
 RC AggregationFunc::aggregate(Value *value) {
+  if (value->attr_type() == NULL_TYPE) return RC::SUCCESS;
   switch (agg_type_) {
     case AGG_AVG:
       avg(value);

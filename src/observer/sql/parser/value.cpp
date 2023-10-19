@@ -21,7 +21,7 @@ See the Mulan PSL v2 for more details. */
 #include "common/lang/string.h"
 #include "common/lang/comparator.h"
 
-const char *ATTR_TYPE_NAME[] = {"undefined", "chars", "ints", "floats", "dates", "booleans"};
+const char *ATTR_TYPE_NAME[] = {"undefined", "chars", "ints", "floats", "dates", "booleans", "null_type"};
 
 const char *attr_type_to_string(AttrType type)
 {
@@ -65,6 +65,11 @@ Value::Value(const char *s, bool isdate)
   set_date(s);
 }
 
+void Value::set_null() {
+  attr_type_ = NULL_TYPE;
+  length_ = 0;
+}
+
 void Value::set_data(char *data, int length)
 {
   switch (attr_type_) {
@@ -86,6 +91,8 @@ void Value::set_data(char *data, int length)
     case DATES: {
       set_date(data);
       length_ = length;
+    } break;
+    case NULL_TYPE: {
     } break;
     default: {
       LOG_WARN("unknown data type: %d", attr_type_);
@@ -159,6 +166,9 @@ void Value::set_value(const Value &value)
     case BOOLEANS: {
       set_boolean(value.get_boolean());
     } break;
+    case NULL_TYPE: {
+      set_null();
+    }
     case UNDEFINED: {
       ASSERT(false, "got an invalid value type");
     } break;
@@ -178,6 +188,8 @@ const char *Value::data() const
 }
 
 Value Value::operator+(const Value &other) {
+  if (this->attr_type_ == NULL_TYPE) return other;
+  if (other.attr_type_ == NULL_TYPE) return *this;
   Value result;
   if (this->attr_type_ == other.attr_type_) {
     switch (this->attr_type_) {
@@ -224,6 +236,9 @@ std::string Value::to_string() const
     case CHARS: case DATES: {
       os << str_value_;
     } break;
+    case NULL_TYPE: {
+      os << "null";
+    } break;
     default: {
       LOG_WARN("unsupported attr type: %d", attr_type_);
     } break;
@@ -234,6 +249,10 @@ std::string Value::to_string() const
 RC Value::compare(const Value &other, int &result) const
 {
   RC rc = RC::SUCCESS;
+  if (this->attr_type_ == NULL_TYPE || other.attr_type_ == NULL_TYPE) {
+    result = -1;
+    return rc;
+  }
   if (this->attr_type_ == other.attr_type_) {
     switch (this->attr_type_) {
       case INTS: {

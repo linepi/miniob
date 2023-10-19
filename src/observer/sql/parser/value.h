@@ -29,6 +29,7 @@ enum AttrType
   FLOATS,         ///< 浮点数类型(4字节)
   DATES,          ///< 日期类型
   BOOLEANS,       ///< boolean类型，当前不是由parser解析出来的，是程序内部使用的
+  NULL_TYPE,
 };
 
 const char *attr_type_to_string(AttrType type);
@@ -69,6 +70,7 @@ public:
     this->set_data(const_cast<char *>(data), length);
   }
   void set_int(int val);
+  void set_null();
   void set_float(float val);
   void set_boolean(bool val);
   void set_string(const char *s, int len = 0);
@@ -80,7 +82,6 @@ public:
   RC compare(const Value &other, int &result) const;
   RC like(const Value &other, bool &result) const;
   static bool like(const std::string &column, const std::string &pattern);
-  
 
   const char *data() const;
   int length() const

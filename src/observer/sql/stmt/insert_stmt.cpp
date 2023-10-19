@@ -56,16 +56,9 @@ RC InsertStmt::create(Db *db, const InsertSqlNode &inserts, Stmt *&stmt)
     const int sys_field_num = table_meta.sys_field_num();
     for (int i = 0; i < value_num; i++) {
       FieldMeta *field_meta = const_cast<FieldMeta *>(table_meta.field(i + sys_field_num));
-      if (field_meta->len() < values[i].length()) {
-        LOG_WARN("field len overload. table=%s, field=%s, len: %d, %d",
-            table_name, field_meta->name(), field_meta->len(), values[i].length());
-        return RC::SCHEMA_FIELD_SIZE;
-      }
-      const AttrType field_type = field_meta->type();
-      const AttrType value_type = values[i].attr_type();
-      if (field_type != value_type) {  // TODO try to convert the value type to field type
-        LOG_WARN("field type mismatch. table=%s, field=%s, field type=%d, value_type=%d",
-            table_name, field_meta->name(), field_type, value_type);
+      bool match = field_meta->match(values[i]);
+      if (!match) {
+        LOG_WARN("field does not match value");
         return RC::SCHEMA_FIELD_TYPE_MISMATCH;
       }
     }

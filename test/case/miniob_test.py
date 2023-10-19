@@ -19,6 +19,12 @@ except:
   exit(1)
 
 _logger = logging.getLogger('MiniOBTest')
+COLOR_PF='\033['
+COLOR_SF='m'
+BLUE=f"{COLOR_PF}0;34{COLOR_SF}"
+GREEN=f"{COLOR_PF}0;32{COLOR_SF}"
+RED=f"{COLOR_PF}0;31{COLOR_SF}"
+NC=f"{COLOR_PF}0{COLOR_SF}"
 
 """
 Case程序自动化运行脚本
@@ -623,7 +629,7 @@ class TestSuite:
   def __init__(self):
     self.__report_only = True # 本次测试为了获取测试结果，不是为了校验结果
     self.__test_case_base_dir = "./test"
-    self.__test_result_base_dir = "./result"
+    self.__test_result_base_dir = "./result_ref"
     self.__test_result_tmp_dir = "./result/tmp" # 生成的结果存放的临时目录
     self.__db_server_base_dir = None
     self.__db_data_dir = None
@@ -719,15 +725,13 @@ class TestSuite:
             return result
 
     result_file_name = test_case.result_file(self.__test_result_base_dir)
-    if self.__report_only:
-      os.rename(result_tmp_file_name, result_file_name)
-      return True
-    else:
-      result = self.__compare_files(result_tmp_file_name, result_file_name)
-      if not GlobalConfig.debug:
-        #os.remove(result_tmp_file_name)
-        pass
-      return result
+    result = self.__compare_files(result_tmp_file_name, result_file_name)
+    result_output = test_case.result_file(self.__test_result_base_dir[0:-4])
+    os.rename(result_tmp_file_name, result_output)
+    if not GlobalConfig.debug:
+      #os.remove(result_tmp_file_name)
+      pass
+    return result
 
   def __get_unix_socket_address(self):
     return self.__db_data_dir + '/miniob.sock'
@@ -784,13 +788,13 @@ class TestSuite:
         result = self.run_case(test_case)
 
         if result is Result.true:
-          _logger.info("Case passed: %s", test_case.get_name())
+          _logger.info("Case \033[0;32mpassed\033[0m: %s", test_case.get_name())
           success_count += 1
           eval_result.append_message("%s is success" % test_case.get_name())
         else: 
 
           if result is Result.false:
-            _logger.info("Case failed: %s", test_case.get_name())
+            _logger.info("Case \033[0;31mfailed\033[0m: %s", test_case.get_name())
             failure_count += 1
             eval_result.append_message("%s is error" % test_case.get_name())
           else:
@@ -863,7 +867,7 @@ def __init_options():
   options_parser.add_argument('--log', action='store', dest='log_file', default='stdout',
                             help='log file. stdout=standard output and stderr=standard error')
   # 是否启动调试模式。调试模式不会清理服务器的数据目录
-  options_parser.add_argument('-d', '--debug', action='store_true', dest='debug', default=False,
+  options_parser.add_argument('-d', '--debug', action='store_true', dest='debug', default=True,
                             help='enable debug mode')
 
   options_parser.add_argument('--compile-make-args', action='store', dest='compile_make_args', default='',
@@ -915,7 +919,7 @@ def __init_log(options):
 def __init_test_suite(options) -> TestSuite:
   test_suite = TestSuite()
   test_suite.set_test_case_base_dir(os.path.abspath(options.project_dir + '/test/case/test'))
-  test_suite.set_test_result_base_dir(os.path.abspath(options.project_dir + '/test/case/result'))
+  test_suite.set_test_result_base_dir(os.path.abspath(options.project_dir + '/test/case/result_ref'))
   test_suite.set_test_result_tmp_dir(os.path.abspath(options.work_dir + '/result_output'))
 
   test_suite.set_server_port(options.server_port)
