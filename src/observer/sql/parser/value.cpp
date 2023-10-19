@@ -265,6 +265,34 @@ RC Value::compare(const Value &other, int &result) const
   } else if (this->attr_type_ == FLOATS && other.attr_type_ == INTS) {
     float other_data = other.num_value_.int_value_;
     result = common::compare_float((void *)&this->num_value_.float_value_, (void *)&other_data);
+  } else if (this->attr_type_ == CHARS && other.attr_type_ == INTS) {
+    if (this->str_value_.size() == 0 || !std::isdigit(this->str_value_[0])) {
+      result = -1;
+    } else {
+      int this_int = std::stoi(this->str_value_);
+      result = common::compare_int((void *)&this_int, (void *)&other.num_value_.int_value_);
+    }
+  } else if (this->attr_type_ == INTS && other.attr_type_ == CHARS) {
+    if (other.str_value_.size() == 0 || !std::isdigit(other.str_value_[0])) {
+      result = 1;
+    } else {
+      int other_int = std::stoi(other.str_value_);
+      result = common::compare_int((void *)&this->num_value_.int_value_, (void *)&other_int);
+    }
+  } else if (this->attr_type_ == CHARS && other.attr_type_ == FLOATS) {
+    if (this->str_value_.size() == 0 || !std::isdigit(this->str_value_[0])) {
+      result = -1;
+    } else {
+      float this_float = std::stof(this->str_value_);
+      result = common::compare_float((void *)&this_float, (void *)&other.num_value_.float_value_);
+    }
+  } else if (this->attr_type_ == FLOATS && other.attr_type_ == CHARS) {
+    if (other.str_value_.size() == 0 || !std::isdigit(other.str_value_[0])) {
+      result = 1;
+    } else {
+      float other_float = std::stof(other.str_value_);
+      result = common::compare_float((void *)&this->num_value_.float_value_, (void *)&other_float);
+    }
   } else {
     rc = RC::VALUE_COMPERR;
   }
