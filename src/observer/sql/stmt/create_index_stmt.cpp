@@ -39,8 +39,8 @@ RC CreateIndexStmt::create(Db *db, const CreateIndexSqlNode &create_index, Stmt 
     return RC::SCHEMA_TABLE_NOT_EXIST;
   }
 
-  const FieldMeta *field_meta = table->table_meta().field(create_index.attribute_name.c_str());
-  if (nullptr == field_meta) {
+  std::vector<FieldMeta>field_meta = table->table_meta().field_mult(create_index.attribute_name.c_str());
+  if (field_meta.empty()) {
     LOG_WARN("no such field in table. db=%s, table=%s, field name=%s", 
              db->name(), table_name, create_index.attribute_name.c_str());
     return RC::SCHEMA_FIELD_NOT_EXIST;   

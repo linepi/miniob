@@ -12,6 +12,8 @@ See the Mulan PSL v2 for more details. */
 // Created by Xie Meiyi
 // Rewritten by Longda & Wangyunlai
 //
+#include <numeric>
+
 #include "storage/index/bplus_tree.h"
 #include "storage/buffer/disk_buffer_pool.h"
 #include "common/log/log.h"
@@ -745,7 +747,7 @@ RC BplusTreeHandler::sync()
   return disk_buffer_pool_->flush_all_pages();
 }
 
-RC BplusTreeHandler::create(const char *file_name, AttrType attr_type, int attr_length, int internal_max_size /* = -1*/,
+RC BplusTreeHandler::create(const char *file_name, std::vector<AttrType> attr_type, std::vector<int> attr_length, int internal_max_size /* = -1*/,
     int leaf_max_size /* = -1 */)
 {
   BufferPoolManager &bpm = BufferPoolManager::instance();
@@ -779,17 +781,20 @@ RC BplusTreeHandler::create(const char *file_name, AttrType attr_type, int attr_
     return RC::INTERNAL;
   }
 
+
+  int total_attr_length = std::accumulate(attr_length.begin(), attr_length.end(), 0);
+
   if (internal_max_size < 0) {
-    internal_max_size = calc_internal_page_capacity(attr_length);
+    internal_max_size = calc_internal_page_capacity(total_attr_length); 
   }
   if (leaf_max_size < 0) {
-    leaf_max_size = calc_leaf_page_capacity(attr_length);
+    leaf_max_size = calc_leaf_page_capacity(total_attr_length);
   }
 
   char *pdata = header_frame->data();
   IndexFileHeader *file_header = (IndexFileHeader *)pdata;
   file_header->attr_length = attr_length;
-  file_header->key_length = attr_length + sizeof(RID);
+  file_header->key_length = total_attr_length + sizeof(RID);
   file_header->attr_type = attr_type;
   file_header->internal_max_size = internal_max_size;
   file_header->leaf_max_size = leaf_max_size;
@@ -798,8 +803,16 @@ RC BplusTreeHandler::create(const char *file_name, AttrType attr_type, int attr_
   header_frame->mark_dirty();
 
   disk_buffer_pool_ = bp;
+  
+  //memcpy(&file_header_, pdata, sizeof(file_header_));
+  // file_header_ = IndexFileHeader::deserialize(pdata);
+  file_header_.attr_length = attr_length;
+  file_header_.key_length = total_attr_length + sizeof(RID);
+  file_header_.attr_type = attr_type;
+  file_header_.internal_max_size = internal_max_size;
+  file_header_.leaf_max_size = leaf_max_size;
+  file_header_.root_page = BP_INVALID_PAGE_NUM;
 
-  memcpy(&file_header_, pdata, sizeof(file_header_));
   header_dirty_ = false;
   bp->unpin_page(header_frame);
 
@@ -843,7 +856,8 @@ RC BplusTreeHandler::open(const char *file_name)
   }
 
   char *pdata = frame->data();
-  memcpy(&file_header_, pdata, sizeof(IndexFileHeader));
+  file_header_ = IndexFileHeader::deserialize(pdata);
+  //memcpy(&file_header_, pdata, sizeof(IndexFileHeader));
   header_dirty_ = false;
   disk_buffer_pool_ = disk_buffer_pool;
 
@@ -1355,8 +1369,9 @@ MemPoolItem::unique_ptr BplusTreeHandler::make_key(const char *user_key, const R
     LOG_WARN("Failed to alloc memory for key.");
     return nullptr;
   }
-  memcpy(static_cast<char *>(key.get()), user_key, file_header_.attr_length);
-  memcpy(static_cast<char *>(key.get()) + file_header_.attr_length, &rid, sizeof(rid));
+  size_t total_length = std::accumulate(file_header_.attr_length.begin(), file_header_.attr_length.end(), 0);
+  memcpy(static_cast<char *>(key.get()), user_key, total_length);
+  memcpy(static_cast<char *>(key.get()) + total_length, &rid, sizeof(rid));
   return key;
 }
 
@@ -1627,8 +1642,9 @@ RC BplusTreeHandler::delete_entry(const char *user_key, const RID *rid)
   }
   char *key = static_cast<char *>(pkey.get());
 
-  memcpy(key, user_key, file_header_.attr_length);
-  memcpy(key + file_header_.attr_length, rid, sizeof(*rid));
+  size_t total_length = std::accumulate(file_header_.attr_length.begin(), file_header_.attr_length.end(), 0);
+  memcpy(key, user_key, total_length);
+  memcpy(key + total_length, rid, sizeof(*rid));
 
   BplusTreeOperationType op = BplusTreeOperationType::DELETE;
   LatchMemo latch_memo(disk_buffer_pool_);
@@ -1694,16 +1710,19 @@ RC BplusTreeScanner::open(const char *left_user_key, int left_len, bool left_inc
   } else {
 
     char *fixed_left_key = const_cast<char *>(left_user_key);
-    if (tree_handler_.file_header_.attr_type == CHARS) {
-      bool should_inclusive_after_fix = false;
-      rc = fix_user_key(left_user_key, left_len, true /*greater*/, &fixed_left_key, &should_inclusive_after_fix);
-      if (rc != RC::SUCCESS) {
-        LOG_WARN("failed to fix left user key. rc=%s", strrc(rc));
-        return rc;
-      }
 
-      if (should_inclusive_after_fix) {
-        left_inclusive = true;
+    for(AttrType type : tree_handler_.file_header_.attr_type){
+      if (type == CHARS) {
+        bool should_inclusive_after_fix = false;
+        rc = fix_user_key(fixed_left_key, left_len, true /*greater*/, &fixed_left_key, &should_inclusive_after_fix);
+        if (rc != RC::SUCCESS) {
+          LOG_WARN("failed to fix left user key. rc=%s", strrc(rc));
+          return rc;
+        }
+
+        if (should_inclusive_after_fix) {
+          left_inclusive = true;
+        }
       }
     }
 
@@ -1762,15 +1781,17 @@ RC BplusTreeScanner::open(const char *left_user_key, int left_len, bool left_inc
 
     char *fixed_right_key = const_cast<char *>(right_user_key);
     bool should_include_after_fix = false;
-    if (tree_handler_.file_header_.attr_type == CHARS) {
-      rc = fix_user_key(right_user_key, right_len, false /*want_greater*/, &fixed_right_key, &should_include_after_fix);
-      if (rc != RC::SUCCESS) {
-        LOG_WARN("failed to fix right user key. rc=%s", strrc(rc));
-        return rc;
-      }
+    for (AttrType type : tree_handler_.file_header_.attr_type){
+      if (type == CHARS) {
+        rc = fix_user_key(fixed_right_key, right_len, false /*want_greater*/, &fixed_right_key, &should_include_after_fix);
+        if (rc != RC::SUCCESS) {
+          LOG_WARN("failed to fix right user key. rc=%s", strrc(rc));
+          return rc;
+        }
 
-      if (should_include_after_fix) {
-        right_inclusive = true;
+        if (should_include_after_fix) {
+          right_inclusive = true;
+        }
       }
     }
     if (right_inclusive) {
@@ -1877,12 +1898,15 @@ RC BplusTreeScanner::fix_user_key(
   }
 
   // 这里很粗暴，变长字段才需要做调整，其它默认都不需要做调整
-  assert(tree_handler_.file_header_.attr_type == CHARS);
+  for(AttrType type : tree_handler_.file_header_.attr_type){
+    assert(type == CHARS);
+  }
   assert(strlen(user_key) >= static_cast<size_t>(key_len));
 
   *should_inclusive = false;
 
-  int32_t attr_length = tree_handler_.file_header_.attr_length;
+  int total_attr_length = std::accumulate(tree_handler_.file_header_.attr_length.begin(), tree_handler_.file_header_.attr_length.end(), 0);
+  int32_t attr_length = total_attr_length;
   char *key_buf = new (std::nothrow) char[attr_length];
   if (nullptr == key_buf) {
     return RC::NOMEM;
