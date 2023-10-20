@@ -23,6 +23,7 @@ See the Mulan PSL v2 for more details. */
 
 const static Json::StaticString FIELD_NAME("name");
 const static Json::StaticString FIELD_FIELD_NAME("field_name");
+const static Json::StaticString UNIQUE_INDEX("unique_index");
 
 RC IndexMeta::init(const char *name, const std::vector<FieldMeta> &field)
 {
@@ -44,6 +45,7 @@ void IndexMeta::to_json(Json::Value &json_value) const
 {
   json_value[FIELD_NAME] = name_;
   json_value[FIELD_FIELD_NAME] = field_;
+  json_value[UNIQUE_INDEX] = unique_index;
 }
 
 RC IndexMeta::from_json(const TableMeta &table, const Json::Value &json_value, IndexMeta &index)
@@ -55,20 +57,25 @@ RC IndexMeta::from_json(const TableMeta &table, const Json::Value &json_value, I
     return RC::INTERNAL;
   }
 
-  if (!fields_value.isArray()) {
-    LOG_ERROR("Fields of index [%s] is not a JSON array. json value=%s",
-        name_value.asCString(),
-        fields_value.toStyledString().c_str());
+  if (!fields_value.isString()) {
+    // LOG_ERROR("Fields of index [%s] is not a JSON array. json value=%s",
+    //     name_value.asCString(),
+    //     fields_value.toStyledString().c_str());
+    LOG_ERROR("Fields of index is not a JSON array. json value=%s",
+      fields_value.toStyledString().c_str());
     return RC::INTERNAL;
   }
-
+  
+  std::string name = fields_value.asCString();
   std::vector<FieldMeta>field = table.field_mult(fields_value.asCString());
   if (field.empty()) {
         // LOG_ERROR("Deserialize index [%s]: no such field: %s", name_value.asCString(), field_value.asCString());
         return RC::SCHEMA_FIELD_MISSING;
   }
 
-  return index.init(name_value.asCString(), field);
+  RC rc = index.init(name_value.asCString(), field);
+  index.set_unique(&json_value[UNIQUE_INDEX]);
+  return rc;
 }
 
 

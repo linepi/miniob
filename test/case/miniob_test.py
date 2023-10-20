@@ -863,7 +863,7 @@ def __init_options():
   options_parser.add_argument('--log', action='store', dest='log_file', default='stdout',
                             help='log file. stdout=standard output and stderr=standard error')
   # 是否启动调试模式。调试模式不会清理服务器的数据目录
-  options_parser.add_argument('-d', '--debug', action='store_true', dest='debug', default=False,
+  options_parser.add_argument('-d', '--debug', action='store_true', dest='debug', default=True,
                             help='enable debug mode')
 
   options_parser.add_argument('--compile-make-args', action='store', dest='compile_make_args', default='',

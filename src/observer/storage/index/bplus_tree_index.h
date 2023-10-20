@@ -32,7 +32,7 @@ public:
   RC close();
 
   RC insert_entry(const char *record, const RID *rid) override;
-  RC delete_entry(const char *record, const RID *rid) override;
+  RC delete_entry(const char *record, const RID *rid, bool update) override;
 
   /**
    * 扫描指定范围的数据
@@ -64,7 +64,7 @@ public:
 
   RC open(const char *left_key, int left_len, bool left_inclusive, const char *right_key, int right_len,
       bool right_inclusive);
-
+  
 private:
   BplusTreeScanner tree_scanner_;
 };

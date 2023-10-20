@@ -44,7 +44,13 @@ public:
   bool ismult () {
     return mult_index;
   }
-
+  bool isunique(){
+    return unique_index;
+  }
+  void set_unique(bool f){
+    unique_index = f;
+  }
+  
   void desc(std::ostream &os) const;
 
 public:
@@ -55,4 +61,5 @@ protected:
   std::string name_;   // index's name
   std::string field_;  // field's name
   bool mult_index = false;
+  bool unique_index = false;
 };

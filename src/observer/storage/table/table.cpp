@@ -219,8 +219,16 @@ RC Table::insert_record(Record &record)
   }
 
   rc = insert_entry_of_indexes(record.data(), record.rid());
+  if (rc == RC::UNIQUE_INDEX){
+    RC rc2 = record_handler_->delete_record(&record.rid());
+    if (rc2 != RC::SUCCESS) {
+      LOG_PANIC("Failed to rollback record data when insert index entries failed. table name=%s, rc=%d:%s",
+                name(), rc2, strrc(rc2));
+    }
+    return rc;
+  }
   if (rc != RC::SUCCESS) { // 可能出现了键值重复
-    RC rc2 = delete_entry_of_indexes(record.data(), record.rid(), false/*error_on_not_exists*/);
+    RC rc2 = delete_entry_of_indexes(record.data(), record.rid(), false/*error_on_not_exists*/,false);
     if (rc2 != RC::SUCCESS) {
       LOG_ERROR("Failed to rollback index data when insert index entries failed. table name=%s, rc=%d:%s",
                 name(), rc2, strrc(rc2));
@@ -237,14 +245,21 @@ RC Table::insert_record(Record &record)
 RC Table::update_record(const FieldMeta *field_meta, Value *value, Record &record)
 {
   RC rc = RC::SUCCESS;
+  
+  Record record_bak(record);
 
-  Record record_bak = record;
   int len;
   if (value->attr_type() == CHARS) {
     len = min(value->length() + 1, field_meta->len());
   } else {
     len = min(value->length(), field_meta->len());
   }
+
+  rc = delete_entry_of_indexes(record_bak.data(), record_bak.rid(), true, true);
+  if (rc == RC::UNIQUE_INDEX){
+    return rc;
+  }
+
   memcpy(record.data() + field_meta->offset(), value->data(), len);
 
   auto copier = [&record](Record &record_src) {
@@ -256,10 +271,7 @@ RC Table::update_record(const FieldMeta *field_meta, Value *value, Record &recor
     return rc;
   }
 
-  rc = delete_entry_of_indexes(record_bak.data(), record_bak.rid(), true);
-  ASSERT(RC::SUCCESS == rc, "");
   rc = insert_entry_of_indexes(record.data(), record.rid());
-  ASSERT(RC::SUCCESS == rc, "");
 
   return rc;
 }
@@ -302,7 +314,7 @@ RC Table::recover_insert_record(Record &record)
 
   rc = insert_entry_of_indexes(record.data(), record.rid());
   if (rc != RC::SUCCESS) { // 可能出现了键值重复
-    RC rc2 = delete_entry_of_indexes(record.data(), record.rid(), false/*error_on_not_exists*/);
+    RC rc2 = delete_entry_of_indexes(record.data(), record.rid(), false/*error_on_not_exists*/,false);
     if (rc2 != RC::SUCCESS) {
       LOG_ERROR("Failed to rollback index data when insert index entries failed. table name=%s, rc=%d:%s",
                 name(), rc2, strrc(rc2));
@@ -404,7 +416,7 @@ RC Table::get_record_scanner(RecordFileScanner &scanner, Trx *trx, bool readonly
   return rc;
 }
 
-RC Table::create_index(Trx *trx, const std::vector<FieldMeta> field_meta, const char *index_name)
+RC Table::create_index(Trx *trx, const std::vector<FieldMeta> field_meta, const char *index_name, bool unique)
 {
   if (common::is_blank(index_name) || field_meta.empty() == true) {
     LOG_INFO("Invalid input arguments, table name is %s, index_name is blank or attribute_name is blank", name());
@@ -423,6 +435,7 @@ RC Table::create_index(Trx *trx, const std::vector<FieldMeta> field_meta, const 
   BplusTreeIndex *index = new BplusTreeIndex();
   std::string index_file = table_index_file(base_dir_.c_str(), name(), index_name);
   rc = index->create(index_file.c_str(), new_index_meta, field_meta);
+  index->set_index_meta_unique(unique);
   if (rc != RC::SUCCESS) {
     delete index;
     LOG_ERROR("Failed to create bplus tree index. file name=%s, rc=%d:%s", index_file.c_str(), rc, strrc(rc));
@@ -502,7 +515,7 @@ RC Table::delete_record(const Record &record)
 {
   RC rc = RC::SUCCESS;
   for (Index *index : indexes_) {
-    rc = index->delete_entry(record.data(), &record.rid());
+    rc = index->delete_entry(record.data(), &record.rid(), false);
     ASSERT(RC::SUCCESS == rc, 
            "failed to delete entry from index. table name=%s, index name=%s, rid=%s, rc=%s",
            name(), index->index_meta().name(), record.rid().to_string().c_str(), strrc(rc));
@@ -523,11 +536,14 @@ RC Table::insert_entry_of_indexes(const char *record, const RID &rid)
   return rc;
 }
 
-RC Table::delete_entry_of_indexes(const char *record, const RID &rid, bool error_on_not_exists)
+RC Table::delete_entry_of_indexes(const char *record, const RID &rid, bool error_on_not_exists, bool if_update)
 {
   RC rc = RC::SUCCESS;
   for (Index *index : indexes_) {
-    rc = index->delete_entry(record, &rid);
+    rc = index->delete_entry(record, &rid, if_update);
+    if(rc == RC::UNIQUE_INDEX){
+      return rc;
+    }
     if (rc != RC::SUCCESS) {
       if (rc != RC::RECORD_INVALID_KEY || !error_on_not_exists) {
         break;

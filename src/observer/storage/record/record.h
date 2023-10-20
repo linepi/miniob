@@ -144,6 +144,12 @@ public:
   char       *data() { return this->data_; }
   const char *data() const { return this->data_; }
   int         len() const { return this->len_; }
+  void set_owner(){
+    owner_ = true;
+  }
+  void reset_owner(){
+    owner_ = false;
+  }
 
   void set_rid(const RID &rid) { this->rid_ = rid; }
   void set_rid(const PageNum page_num, const SlotNum slot_num)
