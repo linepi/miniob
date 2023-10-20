@@ -86,7 +86,7 @@ RC TableMeta::init(int32_t table_id, const char *name, int field_num, const Attr
     field_offset += attr_info.length;
   }
 
-  record_size_ = field_offset;
+  record_size_ = field_offset + NR_NULL_BYTE(field_num);
 
   table_id_ = table_id;
   name_     = name;
@@ -312,7 +312,8 @@ int TableMeta::deserialize(std::istream &is)
   table_id_ = table_id;
   name_.swap(table_name);
   fields_.swap(fields);
-  record_size_ = fields_.back().offset() + fields_.back().len() - fields_.begin()->offset();
+  record_size_ = fields_.back().offset() + fields_.back().len() - fields_.begin()->offset()
+    + NR_NULL_BYTE(field_num);
 
   const Json::Value &indexes_value = table_value[FIELD_INDEXES];
   if (!indexes_value.empty()) {

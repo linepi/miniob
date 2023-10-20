@@ -88,50 +88,7 @@ ComparisonExpr::~ComparisonExpr()
 
 RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &result) const
 {
-  RC rc = RC::SUCCESS;
-  int cmp_result;
-  if (comp_ == LIKE_OP) {
-    left.like(right, result);
-    return rc;
-  } else if (comp_ == NOT_LIKE_OP) {
-    left.like(right, result);
-    result = !result;
-    return rc;
-  }
-
-  rc = left.compare(right, cmp_result);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("compare value err: %s", strrc(rc));
-    return rc;
-  }
-
-  result = false;
-  switch (comp_) {
-    case EQUAL_TO: {
-      result = (0 == cmp_result);
-    } break;
-    case LESS_EQUAL: {
-      result = (cmp_result <= 0);
-    } break;
-    case NOT_EQUAL: {
-      result = (cmp_result != 0);
-    } break;
-    case LESS_THAN: {
-      result = (cmp_result < 0);
-    } break;
-    case GREAT_EQUAL: {
-      result = (cmp_result >= 0);
-    } break;
-    case GREAT_THAN: {
-      result = (cmp_result > 0);
-    } break;
-    default: {
-      LOG_WARN("unsupported comparison. %d", comp_);
-      rc = RC::INTERNAL;
-    } break;
-  }
-
-  return rc;
+  return left.compare_op(right, comp_, result);
 }
 
 RC ComparisonExpr::try_get_value(Value &cell) const

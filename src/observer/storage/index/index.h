@@ -62,6 +62,8 @@ public:
    */
   virtual RC delete_entry(const char *record, const RID *rid) = 0;
 
+  RC isunique(const char *record, const RID *rid) { return RC::VALUE_COMPERR; }
+
   /**
    * @brief 创建一个索引数据的扫描器
    * 

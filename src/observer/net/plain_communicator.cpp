@@ -256,8 +256,8 @@ RC PlainCommunicator::write_tuple(SqlResult *sql_result) {
         writer_->writen(delim, 3);
       }
       writer_->writen(
-        aggregation_func->result_.to_string().c_str(), 
-        aggregation_func->result_.to_string().size());
+        aggregation_func->result().to_string().c_str(), 
+        aggregation_func->result().to_string().size());
       i++;
     }
     char newline = '\n';
@@ -307,7 +307,12 @@ RC PlainCommunicator::write_result_internal(SessionEvent *event, bool &need_disc
         out += func->field_->field_name(); 
         out += ")";
       }
-      writer_->writen(out.c_str(), out.size());
+      rc = writer_->writen(out.c_str(), out.size());
+      if (OB_FAIL(rc)) {
+        LOG_WARN("failed to send data to client. err=%s", strerror(errno));
+        sql_result->close();
+        return rc;
+      }
       i++;
     }
   } else {
@@ -320,6 +325,7 @@ RC PlainCommunicator::write_result_internal(SessionEvent *event, bool &need_disc
           rc = writer_->writen(delim, strlen(delim));
           if (OB_FAIL(rc)) {
             LOG_WARN("failed to send data to client. err=%s", strerror(errno));
+            sql_result->close();
             return rc;
           }
         }
@@ -350,7 +356,8 @@ RC PlainCommunicator::write_result_internal(SessionEvent *event, bool &need_disc
   } else {
     LOG_WARN("write tuple failed");
     sql_result->close();
-    return rc;
+    sql_result->set_return_code(rc);
+    return write_state(event, need_disconnect);
   }
 
   if (cell_num == 0) {
@@ -364,7 +371,6 @@ RC PlainCommunicator::write_result_internal(SessionEvent *event, bool &need_disc
     sql_result->set_return_code(rc);
     return write_state(event, need_disconnect);
   } else {
-
     rc = writer_->writen(send_message_delimiter_.data(), send_message_delimiter_.size());
     if (OB_FAIL(rc)) {
       LOG_ERROR("Failed to send data back to client. ret=%s, error=%s", strrc(rc), strerror(errno));

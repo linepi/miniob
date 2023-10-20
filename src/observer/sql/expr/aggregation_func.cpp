@@ -20,18 +20,15 @@ AggregationFunc::~AggregationFunc() {
 AggregationFunc::AggregationFunc(AggType agg_type, bool star, Field *field, bool multi_table) 
   : agg_type_(agg_type), star_(star), field_(field), multi_table_(multi_table)
 { 
-  switch (agg_type_) {
-    case AGG_MIN:
-      result_.set_float(FLT_MAX); 
-      break;
-    case AGG_MAX:
-      result_.set_float(-FLT_MAX); 
-      break;
-    default:
-      result_.set_float(0.0); 
-      break;
-  }
-  sum_.set_float(0.0);
+  result_.set_null(); 
+  sum_.set_null();
+}
+
+Value AggregationFunc::result() {
+  if (result_.attr_type() == NULL_TYPE && agg_type_ == AGG_COUNT) {
+    return Value(0);
+  } 
+  return result_;
 }
 
 RC AggregationFunc::aggregate(Value *value) {
@@ -59,8 +56,7 @@ RC AggregationFunc::aggregate(Value *value) {
 }
 
 void AggregationFunc::min(Value *value) {
-  if (result_.attr_type() != value->attr_type() && 
-    (value->attr_type() == CHARS || value->attr_type() == DATES)) {
+  if (result_.attr_type() == NULL_TYPE) {
     result_ = *value;
     return;
   }
@@ -70,8 +66,7 @@ void AggregationFunc::min(Value *value) {
 }
 
 void AggregationFunc::max(Value *value) {
-  if (result_.attr_type() != value->attr_type() && 
-    (value->attr_type() == CHARS || value->attr_type() == DATES)) {
+  if (result_.attr_type() == NULL_TYPE ) {
     result_ = *value;
     return;
   }

@@ -246,13 +246,56 @@ std::string Value::to_string() const
   return os.str();
 }
 
+RC Value::compare_op(const Value &other, CompOp op, bool &result) const {
+  RC rc = RC::SUCCESS;
+  if (op <= CompOp::GREAT_THAN && op >= CompOp::EQUAL_TO) {
+    if (this->attr_type_ == NULL_TYPE || other.attr_type_ == NULL_TYPE) {
+      result = false;
+      return rc;
+    }
+    int cmp_result;
+    rc = compare(other, cmp_result); 
+    switch (op) {
+    case EQUAL_TO: {
+      result = (0 == cmp_result);
+    } break;
+    case LESS_EQUAL: {
+      result = (cmp_result <= 0);
+    } break;
+    case NOT_EQUAL: {
+      result = (cmp_result != 0);
+    } break;
+    case LESS_THAN: {
+      result = (cmp_result < 0);
+    } break;
+    case GREAT_EQUAL: {
+      result = (cmp_result >= 0);
+    } break;
+    case GREAT_THAN: {
+      result = (cmp_result > 0);
+    } break;
+    default: 
+      assert(0);
+    }
+    return rc;
+  }
+  if (op == CompOp::IS || op == CompOp::IS_NOT) {
+    if (op == CompOp::IS) 
+      result = this->attr_type_ == other.attr_type_;
+    else 
+      result = this->attr_type_ != other.attr_type_;
+  }
+  if (op == CompOp::LIKE_OP || op == CompOp::NOT_LIKE_OP) {
+    rc = like(other, result);
+    if (op == CompOp::NOT_LIKE_OP) result = !result;
+    return rc;
+  }
+  return rc;
+}
+
 RC Value::compare(const Value &other, int &result) const
 {
   RC rc = RC::SUCCESS;
-  if (this->attr_type_ == NULL_TYPE || other.attr_type_ == NULL_TYPE) {
-    result = -1;
-    return rc;
-  }
   if (this->attr_type_ == other.attr_type_) {
     switch (this->attr_type_) {
       case INTS: {
@@ -352,6 +395,7 @@ RC Value::like(const Value &other, bool &result) const {
   RC rc = RC::SUCCESS;
   if (this->attr_type_ != CHARS || other.attr_type_ != CHARS) {
     result = false;
+    return rc;
   }
   result = like(this->to_string(), other.to_string());
   return rc;

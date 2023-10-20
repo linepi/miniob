@@ -20,6 +20,7 @@ See the Mulan PSL v2 for more details. */
 #include <string>
 
 #include "sql/parser/value.h"
+#include "common/enum.h"
 #include "sql/expr/aggregation_func.h"
 
 class Expression;
@@ -49,22 +50,6 @@ struct SelectAttr
   AggType agg_type = AGG_UNDEFINED;  
 };
 
-/**
- * @brief 描述比较运算符
- * @ingroup SQLParser
- */
-enum CompOp 
-{
-  EQUAL_TO,     ///< "="
-  LESS_EQUAL,   ///< "<="
-  NOT_EQUAL,    ///< "<>"
-  LESS_THAN,    ///< "<"
-  GREAT_EQUAL,  ///< ">="
-  GREAT_THAN,   ///< ">"
-  LIKE_OP,
-  NOT_LIKE_OP,
-  NO_OP
-};
 
 /**
  * @brief 表示一个条件比较

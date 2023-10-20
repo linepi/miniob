@@ -28,6 +28,8 @@ See the Mulan PSL v2 for more details. */
 #include "storage/index/index.h"
 #include "storage/index/bplus_tree_index.h"
 #include "storage/trx/trx.h"
+#include "event/sql_debug.h"
+
 
 Table::~Table()
 {
@@ -234,32 +236,67 @@ RC Table::insert_record(Record &record)
   return rc;
 }
 
+RC Table::update_record_impl(const FieldMeta *field_meta, Value *value, Record &record) {
+  if (value->attr_type() != NULL_TYPE) {
+    int len;
+    if (value->attr_type() == CHARS) {
+      len = min(value->length() + 1, field_meta->len());
+    } else {
+      len = min(value->length(), field_meta->len());
+    }
+    memcpy(record.data() + field_meta->offset(), value->data(), len);
+  } else {
+    int column_idx = -1;
+    for (size_t i = 0; i < table_meta_.field_metas()->size(); i++) {
+      if (strcmp(field_meta->name(), (*table_meta_.field_metas())[i].name()) == 0) column_idx = i; 
+    }
+    assert(column_idx != -1);
+    char *null_byte_start = record.data() + table_meta_.record_size() - NR_NULL_BYTE(table_meta_.field_num());
+    char thing = ~(1 << (column_idx % 8));
+    null_byte_start[column_idx/8] &= thing;
+  }
+  return RC::SUCCESS;
+}
+
 RC Table::update_record(const FieldMeta *field_meta, Value *value, Record &record)
 {
   RC rc = RC::SUCCESS;
 
-  Record record_bak = record;
-  int len;
-  if (value->attr_type() == CHARS) {
-    len = min(value->length() + 1, field_meta->len());
-  } else {
-    len = min(value->length(), field_meta->len());
-  }
-  memcpy(record.data() + field_meta->offset(), value->data(), len);
+  char *data_bak = (char *)malloc(table_meta_.record_size());
+  memcpy(data_bak, record.data(), table_meta_.record_size());
 
-  auto copier = [&record](Record &record_src) {
-    record_src = record;
-  };
-  rc = record_handler_->visit_record(record.rid(), false/*write*/, copier);
+  rc = record_handler_->visit_record(
+    record.rid(), 
+    false/*write*/, 
+    [this, &value, &field_meta](Record &record_src) {
+      this->update_record_impl(field_meta, value, record_src);
+  });
   if (rc != RC::SUCCESS) {
     LOG_WARN("failed to visit record. rid=%s, table=%s, rc=%s", record.rid().to_string().c_str(), name(), strrc(rc));
     return rc;
   }
 
-  rc = delete_entry_of_indexes(record_bak.data(), record_bak.rid(), true);
-  ASSERT(RC::SUCCESS == rc, "");
-  rc = insert_entry_of_indexes(record.data(), record.rid());
-  ASSERT(RC::SUCCESS == rc, "");
+
+  for (Index *index : indexes_) {
+    rc = index->isunique(record.data(), &record.rid());
+    if (rc != RC::SUCCESS) {
+      memcpy(record.data(), data_bak, table_meta_.record_size());
+      free(data_bak);
+      return rc;
+    }
+  }
+
+  for (Index *index : indexes_) {
+    rc = index->delete_entry(data_bak, &record.rid());
+    ASSERT(RC::SUCCESS == rc, 
+           "failed to delete entry from index. table name=%s, index name=%s, rid=%s, rc=%s",
+           name(), index->index_meta().name(), record.rid().to_string().c_str(), strrc(rc));
+
+    rc = index->insert_entry(record.data(), &record.rid());
+    ASSERT(RC::SUCCESS == rc, 
+           "failed to insert entry into index. table name=%s, index name=%s, rid=%s, rc=%s",
+           name(), index->index_meta().name(), record.rid().to_string().c_str(), strrc(rc));
+  }
 
   return rc;
 }
@@ -350,29 +387,33 @@ RC Table::make_record(int value_num, const Value *values, Record &record)
     }
   }
 
-  // 复制所有字段的值
+  // 需要record末尾几个字节来作为数据是否为null的判据
   int record_size = table_meta_.record_size();
-  int column_num = table_meta_.field_num();
-  char *record_data = (char *)malloc(record_size + column_num);
+  char *record_data = (char *)malloc(record_size);
+
+  int column = table_meta_.field_num();
+  int nr_null_bytes = NR_NULL_BYTE(column);
+  char null_bytes[nr_null_bytes];
+  memset(null_bytes, 0x0, nr_null_bytes);
 
   for (int i = 0; i < value_num; i++) {
     const FieldMeta *field = table_meta_.field(i + normal_field_start_index);
     const Value &value = values[i];
+    // 如果是字符串类型，则拷贝字符串的len + 1字节。
     size_t copy_len = field->len();
-    if (field->type() == CHARS) {
+    if (field->type() == CHARS || field->type() == DATES) {
       const size_t data_len = value.length();
       if (copy_len > data_len) {
         copy_len = data_len + 1;
       }
     }
-    if (value.attr_type() == NULL_TYPE) 
-      memset(record_data + field->offset() + i, 0x01, 1);
-    else
-      memset(record_data + field->offset() + i, 0x00, 1);
-    memcpy(record_data + field->offset() + 1 + i, value.data(), copy_len);
+    int isnotnull = value.attr_type() != NULL_TYPE;
+    null_bytes[i/8] |= (isnotnull << (i % 8));
+    memcpy(record_data + field->offset(), value.data(), copy_len);
   }
+  memcpy(record_data + record_size - nr_null_bytes, null_bytes, nr_null_bytes);
 
-  record.set_data_owner(record_data, record_size + column_num);
+  record.set_data_owner(record_data, record_size);
   return RC::SUCCESS;
 }
 

@@ -107,6 +107,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         LIKE
         INNER 
         JOIN
+        IS_TOKEN
         NULL_TOKEN
 
 /** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
@@ -871,6 +872,8 @@ comp_op:
     | NE { $$ = NOT_EQUAL; }
     | LIKE { $$ = LIKE_OP; }
     | NOT LIKE { $$ = NOT_LIKE_OP; }
+    | IS_TOKEN { $$ = IS; }
+    | IS_TOKEN NOT { $$ = IS_NOT; }
     ;
 
 load_data_stmt:

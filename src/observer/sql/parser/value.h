@@ -16,21 +16,7 @@ See the Mulan PSL v2 for more details. */
 
 #include <string>
 #include <common/rc.h>
-
-/**
- * @brief 属性的类型
- * 
- */
-enum AttrType
-{
-  UNDEFINED,
-  CHARS,          ///< 字符串类型
-  INTS,           ///< 整数类型(4字节)
-  FLOATS,         ///< 浮点数类型(4字节)
-  DATES,          ///< 日期类型
-  BOOLEANS,       ///< boolean类型，当前不是由parser解析出来的，是程序内部使用的
-  NULL_TYPE,
-};
+#include <common/enum.h>
 
 const char *attr_type_to_string(AttrType type);
 AttrType attr_type_from_string(const char *s);
@@ -80,6 +66,7 @@ public:
   std::string to_string() const;
 
   RC compare(const Value &other, int &result) const;
+  RC compare_op(const Value &other, CompOp op, bool &result) const;
   RC like(const Value &other, bool &result) const;
   static bool like(const std::string &column, const std::string &pattern);
 

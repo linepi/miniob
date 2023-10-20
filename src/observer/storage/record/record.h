@@ -25,6 +25,8 @@ See the Mulan PSL v2 for more details. */
 #include "storage/index/index_meta.h"
 #include "storage/field/field_meta.h"
 
+#define NR_NULL_BYTE(column) ((column & 0x7) ? (column / 8 + 1) : (column / 8))
+
 class Field;
 
 /**

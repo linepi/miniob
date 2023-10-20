@@ -25,6 +25,7 @@ public:
 	~AggregationFunc(); 
 
 	RC aggregate(Value *value);
+	Value result();
 
 private:
 	void min(Value *value) ;

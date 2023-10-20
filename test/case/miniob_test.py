@@ -55,6 +55,15 @@ python3 miniob_test.py --test-cases=basic
 
 如果要运行多个测试用例，则在 --test-cases 参数中使用 ',' 分隔写多个即可
 """
+commands = ["CREATE","SELECT","INSERT","DELETE"]
+
+def match_before_command(num,line):
+  for i in range(num-1,-1,-1):
+    for j in commands:
+      if(line[i][0:6].upper() == j):
+        print("\nline %d:\033[0;32m%s\033[0m" % (i,line[i]))
+        return
+
 
 class TimeoutException(BaseException):
   def __init__(self, value="Timed Out"):
@@ -675,20 +684,31 @@ class TestSuite:
 
   def set_report_only(self, report_only):
     self.__report_only = report_only
-
+    
   def __compare_files(self, file1, file2):
     with open(file1, 'r') as f1, open(file2, 'r') as f2:
       lines1 = f1.readlines()
       lines2 = f2.readlines()
       if len(lines1) != len(lines2):
-        return False
-
+        line_min = min(len(lines1),len(lines2))
+        for i in range(line_min):
+          if lines1[i].upper() != lines2[i].upper():
+            print("\nfile1=\033[0;34m%s\033[0m\nfile2=\033[0;34m%s\033[0m" % (file1,file2))
+            match_before_command(i,lines1)
+            print("\nline %d:+ \033[0;31m%s\033[0m\nline %d:- \033[0;32m%s\033[0m" % (i,lines1[i],i,lines2[i]))
+            return False
+      flag = 0
       line_num = len(lines1)
       for i in range(line_num):
         if lines1[i].upper() != lines2[i].upper():
-          _logger.info("file1=%s, file2=%s, line1=%s, line2=%s", file1, file2, lines1[i], lines2[i])
-          return False
-      return True
+          print("\nfile1=\033[0;34m%s\033[0m\nfile2=\033[0;34m%s\033[0m" % (file1,file2))
+          match_before_command(i,lines1)
+          print("\nline %d:+ \033[0;31m%s\033[0m\nline %d:- \033[0;32m%s\033[0m" % (i,lines1[i],i,lines2[i]))
+          flag = 1
+      if(flag == 1):
+        return False
+      else:
+        return True
 
   def run_case(self, test_case, timeout=20) -> Result:
     # eventlet.monkey_patch()
@@ -721,7 +741,7 @@ class TestSuite:
         for command_line in test_case.command_lines():
           result = command_runner.run_anything(command_line)
           if result is False:
-            _logger.error("Failed to run command %s in case %s", command_line, test_case.get_name())
+            _logger.error("Failed to run command :\033[0;31m%s\033[0m in case \033[0;31m%s\033[0m", command_line, test_case.get_name())
             return result
 
     result_file_name = test_case.result_file(self.__test_result_base_dir)
@@ -850,7 +870,7 @@ def __init_options():
   options_parser.add_argument('--project-dir', action='store', dest='project_dir', default='')
 
   # 测试哪些用例。不指定就会扫描test-case-dir目录下面的所有测试用例。指定的话，就从test-case-dir目录下面按照名字找
-  options_parser.add_argument('--test-cases', action='store', dest='test_cases', 
+  options_parser.add_argument('--test-cases', action='store', dest='test_cases', default='primary-group-by',
                             help='test cases. If none, we will iterate the test case directory. Split with \',\' if more than one')
 
   # 测试时服务器程序的数据文件存放目录
@@ -1027,7 +1047,7 @@ def compile(work_dir: str, build_dir: str, cmake_args: str, make_args: str, rebu
   make_command = ["make", "--silent", "-C", build_path]
   if isinstance(make_args, str):
     if not make_args:
-      make_command.append('-j4')
+      make_command.append('-j2')
     else:
       args = make_args.split(';')
       for arg in args:

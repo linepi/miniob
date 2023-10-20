@@ -138,8 +138,8 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
     char buf[4] = {'.','.','.','.'};
     Value left_value(left, buf, 4);
     Value right_value(right, buf, 4);
-    int result;
-    RC ret = left_value.compare(right_value, result);
+    bool result;
+    RC ret = left_value.compare_op(right_value, comp, result);
     if (ret != RC::SUCCESS) {
       LOG_INFO("type mismatch: %s and %s", attr_type_to_string(left), attr_type_to_string(right));
       return RC::SCHEMA_FIELD_TYPE_MISMATCH;
