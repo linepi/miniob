@@ -686,7 +686,7 @@ class TestSuite:
       line_num = len(lines1)
       for i in range(line_num):
         if lines1[i].upper() != lines2[i].upper():
-          _logger.info('file1=%s, file2=%s, line1=%s, line2=%s', file1, file2, lines1[i], lines2[i])
+          _logger.info("file1=%s, file2=%s, line1=%s, line2=%s", file1, file2, lines1[i], lines2[i])
           return False
       return True
 
@@ -867,7 +867,7 @@ def __init_options():
   options_parser.add_argument('--log', action='store', dest='log_file', default='stdout',
                             help='log file. stdout=standard output and stderr=standard error')
   # 是否启动调试模式。调试模式不会清理服务器的数据目录
-  options_parser.add_argument('-d', '--debug', action='store_true', dest='debug', default=True,
+  options_parser.add_argument('-d', '--debug', action='store_true', dest='debug', default=False,
                             help='enable debug mode')
 
   options_parser.add_argument('--compile-make-args', action='store', dest='compile_make_args', default='',

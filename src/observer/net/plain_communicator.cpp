@@ -210,9 +210,15 @@ static RC not_with_aggregation_func(BufferedWriter *writer_, Tuple *tuple) {
     if (rc != RC::SUCCESS) {
       return rc;
     }
-
-    std::string cell_str = value.to_string();
-    rc = writer_->writen(cell_str.data(), cell_str.size());
+    if (value.attr_type() == NULL_TYPE)
+    {
+      std::string cell_str = "null";
+      rc = writer_->writen(cell_str.data(), cell_str.size());
+    }
+    else{
+      std::string cell_str = value.to_string();
+      rc = writer_->writen(cell_str.data(), cell_str.size());
+    }
     if (OB_FAIL(rc)) {
       LOG_WARN("failed to send data to client. err=%s", strerror(errno));
       return rc;

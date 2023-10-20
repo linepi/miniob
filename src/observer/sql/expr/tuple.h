@@ -175,8 +175,23 @@ public:
 
     FieldExpr *field_expr = speces_[index];
     const FieldMeta *field_meta = field_expr->field().meta();
-    cell.set_type(field_meta->type());
-    cell.set_data(this->record_->data() + field_meta->offset(), field_meta->len());
+    int column = -1;
+    const std::vector<FieldMeta> *fields = field_expr->field().table()->table_meta().field_metas();
+    for (size_t i = 0; i < fields->size(); i++) {
+      if (0 == strcasecmp(field_meta->name(), (*fields)[i].name())) {
+        column = i;
+        break;
+      }
+    }
+    assert(column != -1);
+    char isnull;
+    memcpy(&isnull, this->record_->data() + field_meta->offset() + column, 1);
+    if (!isnull) {
+      cell.set_type(field_meta->type());
+      cell.set_data(this->record_->data() + field_meta->offset() + column + 1, field_meta->len());
+    } else {
+      cell.set_null();
+    }
     return RC::SUCCESS;
   }
 

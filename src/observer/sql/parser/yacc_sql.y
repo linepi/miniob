@@ -419,7 +419,7 @@ number:
     ;
 
 type_note:
-  { $$ = 1; }
+  { $$ = 0; }
   | NULL_TOKEN { $$ = 1; }
   | NOT NULL_TOKEN { $$ = 0; }
 

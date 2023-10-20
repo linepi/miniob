@@ -352,7 +352,8 @@ RC Table::make_record(int value_num, const Value *values, Record &record)
 
   // 复制所有字段的值
   int record_size = table_meta_.record_size();
-  char *record_data = (char *)malloc(record_size);
+  int column_num = table_meta_.field_num();
+  char *record_data = (char *)malloc(record_size + column_num);
 
   for (int i = 0; i < value_num; i++) {
     const FieldMeta *field = table_meta_.field(i + normal_field_start_index);
@@ -364,10 +365,14 @@ RC Table::make_record(int value_num, const Value *values, Record &record)
         copy_len = data_len + 1;
       }
     }
-    memcpy(record_data + field->offset(), value.data(), copy_len);
+    if (value.attr_type() == NULL_TYPE) 
+      memset(record_data + field->offset() + i, 0x01, 1);
+    else
+      memset(record_data + field->offset() + i, 0x00, 1);
+    memcpy(record_data + field->offset() + 1 + i, value.data(), copy_len);
   }
 
-  record.set_data_owner(record_data, record_size);
+  record.set_data_owner(record_data, record_size + column_num);
   return RC::SUCCESS;
 }
 
@@ -414,8 +419,7 @@ RC Table::create_index(Trx *trx, const std::vector<FieldMeta> field_meta, const 
   IndexMeta new_index_meta;
   RC rc = new_index_meta.init(index_name, field_meta);
   if (rc != RC::SUCCESS) {
-    // LOG_INFO("Failed to init IndexMeta in table:%s, index_name:%s, field_name:%s", 
-    //          name(), index_name, field_meta->name());
+    LOG_INFO("Failed to init IndexMeta in table:%s", name());
     return rc;
   }
 
