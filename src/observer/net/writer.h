@@ -9,26 +9,22 @@ MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
 See the Mulan PSL v2 for more details. */
 
 //
-// Created by Longda on 2021/4/13.
+// Created by Wangyunlai on 2023/06/16.
 //
 
 #pragma once
 
-#include "common/rc.h"
+#include <common/rc.h>
+#include <cstdint>
 
-class SQLStageEvent;
-
-/**
- * @brief 查询缓存处理
- * @ingroup SQLStage
- * @details 当前什么都没做
- */
-class QueryCacheStage
+class Writer
 {
 public:
-  QueryCacheStage() = default;
-  virtual ~QueryCacheStage() = default;
+  Writer() = default;
+  virtual ~Writer() = default;
 
-public:
-  RC handle_request(SQLStageEvent *sql_event, bool);
+  virtual RC close() = 0;
+  virtual RC write(const char *data, int32_t size, int32_t &write_size) = 0;
+  virtual RC writen(const char *data, int32_t size) = 0;
+  virtual RC flush() = 0;
 };

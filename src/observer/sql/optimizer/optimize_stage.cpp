@@ -31,7 +31,7 @@ See the Mulan PSL v2 for more details. */
 using namespace std;
 using namespace common;
 
-RC OptimizeStage::handle_request(SQLStageEvent *sql_event)
+RC OptimizeStage::handle_request(SQLStageEvent *sql_event, bool main_query)
 {
   unique_ptr<LogicalOperator> logical_operator;
   RC rc = create_logical_plan(sql_event, logical_operator);

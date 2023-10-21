@@ -70,7 +70,7 @@ public:
    */
   virtual RC delete_entry(const char *record, const RID *rid, bool update) = 0;
 
-  RC isunique(const char *record, const RID *rid) { return RC::VALUE_COMPERR; }
+  RC isunique(const char *record, const RID *rid) { return RC::SUCCESS; }
 
   /**
    * @brief 创建一个索引数据的扫描器

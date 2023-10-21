@@ -190,7 +190,7 @@ static RC with_aggregation_func(Tuple *tuple, std::vector<AggregationFunc *> * a
   return rc;
 }
 
-static RC not_with_aggregation_func(BufferedWriter *writer_, Tuple *tuple) {
+static RC not_with_aggregation_func(Writer *writer_, Tuple *tuple) {
   RC rc = RC::SUCCESS;
   assert(tuple != nullptr);
 

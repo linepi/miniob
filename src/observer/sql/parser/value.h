@@ -44,7 +44,6 @@ public:
   Value(const Value &other) = default;
   Value &operator=(const Value &other) = default;
   Value operator+(const Value &other);
-  
 
   void set_type(AttrType type)
   {
@@ -69,6 +68,8 @@ public:
   RC compare_op(const Value &other, CompOp op, bool &result) const;
   RC like(const Value &other, bool &result) const;
   static bool like(const std::string &column, const std::string &pattern);
+
+  int from_string(std::string str);
 
   const char *data() const;
   int length() const

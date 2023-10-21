@@ -22,6 +22,7 @@ struct ConnectionContext;
 class SessionEvent;
 class Session;
 class BufferedWriter;
+class Writer;
 
 /**
  * @defgroup Communicator
@@ -88,11 +89,19 @@ public:
     return addr_.c_str();
   }
 
+  Writer *writer() const {
+    return writer_;
+  }
+
+  void set_writer(Writer *writer) {
+    writer_ = writer;
+  }
+
 protected:
   Session *session_ = nullptr;
   struct event read_event_;
   std::string addr_;
-  BufferedWriter *writer_ = nullptr;
+  Writer *writer_ = nullptr;
   int fd_ = -1;
 };
 

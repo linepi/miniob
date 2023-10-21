@@ -24,7 +24,7 @@ See the Mulan PSL v2 for more details. */
 
 using namespace common;
 
-RC QueryCacheStage::handle_request(SQLStageEvent *sql_event)
+RC QueryCacheStage::handle_request(SQLStageEvent *sql_event, bool main_query)
 {
   return RC::SUCCESS;
 }

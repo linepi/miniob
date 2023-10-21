@@ -90,6 +90,7 @@ class Stage {
   // public interface operations
 
 public:
+  Stage() = default;
   /**
    * Destructor
    * @pre  stage is not connected

@@ -1416,6 +1416,7 @@ MemPoolItem::unique_ptr BplusTreeHandler::make_key(const char *user_key, const R
   return key;
 }
 
+
 RC BplusTreeHandler::insert_entry(const char *user_key, const RID *rid, bool unique)
 {
   if (user_key == nullptr || rid == nullptr) {

@@ -40,12 +40,10 @@ RC UpdatePhysicalOperator::next()
 
     RowTuple *row_tuple = static_cast<RowTuple *>(tuple);
     Record &record = row_tuple->record();
-    for (size_t i = 0; i < values_.size(); i++) {
-      rc = trx_->update_record(table_, field_metas_[i], &values_[i], record);
-      if (rc != RC::SUCCESS) {
-        LOG_WARN("failed to delete record: %s", strrc(rc));
-        return rc;
-      }
+    rc = trx_->update_record(table_, field_metas_, values_, record);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to delete record: %s", strrc(rc));
+      return rc;
     }
   }
 

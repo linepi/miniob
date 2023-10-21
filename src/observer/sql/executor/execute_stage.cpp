@@ -31,7 +31,7 @@ See the Mulan PSL v2 for more details. */
 using namespace std;
 using namespace common;
 
-RC ExecuteStage::handle_request(SQLStageEvent *sql_event)
+RC ExecuteStage::handle_request(SQLStageEvent *sql_event, bool main_query)
 {
   RC rc = RC::SUCCESS;
   const unique_ptr<PhysicalOperator> &physical_operator = sql_event->physical_operator();

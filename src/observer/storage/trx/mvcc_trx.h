@@ -68,7 +68,7 @@ public:
 
   RC insert_record(Table *table, Record &record) override;
   RC delete_record(Table *table, Record &record) override;
-  RC update_record(Table *table, const FieldMeta *field_meta, Value *value, Record &record) override
+  RC update_record(Table *table, std::vector<const FieldMeta *> &field_metas, std::vector<Value> &values, Record &record) override
   { return RC::SUCCESS; }
 
   /**

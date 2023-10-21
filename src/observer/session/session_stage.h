@@ -42,6 +42,7 @@ class SessionStage : public common::Stage
 public:
   virtual ~SessionStage();
   static Stage *make_stage(const std::string &tag);
+  SessionStage(SessionStage &other);
 
 protected:
   // common function
@@ -51,12 +52,9 @@ protected:
   bool initialize() override;
   void cleanup() override;
   void handle_event(common::StageEvent *event) override;
-
-protected:
   void handle_request(common::StageEvent *event);
-  RC   handle_sql(SQLStageEvent *sql_event);
 
-private:
+public:
   QueryCacheStage query_cache_stage_;
   ParseStage      parse_stage_;
   ResolveStage    resolve_stage_;

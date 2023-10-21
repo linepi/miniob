@@ -32,6 +32,8 @@ public:
   SQLStageEvent(SessionEvent *event, const std::string &sql);
   virtual ~SQLStageEvent() noexcept;
 
+  SQLStageEvent(SQLStageEvent &other);
+
   SessionEvent *session_event() const
   {
     return session_event_;

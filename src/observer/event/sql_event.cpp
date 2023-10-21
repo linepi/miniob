@@ -19,9 +19,14 @@ See the Mulan PSL v2 for more details. */
 #include "event/session_event.h"
 #include "sql/parser/parse_defs.h"
 #include "sql/stmt/stmt.h"
+#include "net/communicator.h"
 
 SQLStageEvent::SQLStageEvent(SessionEvent *event, const std::string &sql) : session_event_(event), sql_(sql)
 {}
+
+SQLStageEvent::SQLStageEvent(SQLStageEvent &other) {
+  session_event_ = new SessionEvent(other.session_event()->get_communicator());
+}
 
 SQLStageEvent::~SQLStageEvent() noexcept
 {

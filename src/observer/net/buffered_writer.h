@@ -14,6 +14,7 @@ See the Mulan PSL v2 for more details. */
 
 #pragma once
 
+#include "net/writer.h"
 #include "net/ring_buffer.h"
 
 /**
@@ -22,7 +23,7 @@ See the Mulan PSL v2 for more details. */
  * 看起来直接使用fdopen也可以实现缓存写，不过fdopen会在close时直接关闭fd。
  * @note 在执行close时，描述符fd并不会被关闭
  */
-class BufferedWriter
+class BufferedWriter : public Writer
 {
 public:
   BufferedWriter(int fd);
@@ -32,7 +33,7 @@ public:
   /**
    * @brief 关闭缓存
    */
-  RC close();
+  RC close() override;
 
   /**
    * @brief 写数据到文件/socket
@@ -41,7 +42,7 @@ public:
    * @param size 要写入的数据大小 
    * @param write_size 实际写入的数据大小
    */
-  RC write(const char *data, int32_t size, int32_t &write_size);
+  RC write(const char *data, int32_t size, int32_t &write_size) override;
 
   /**
    * @brief 写数据到文件/socket，全部写入成功返回成功
@@ -49,13 +50,13 @@ public:
    * @param data 要写入的数据
    * @param size 要写入的数据大小
    */
-  RC writen(const char *data, int32_t size);
+  RC writen(const char *data, int32_t size) override;
 
   /**
    * @brief 刷新缓存
    * @details 将缓存中的数据全部写入文件/socket
    */
-  RC flush();
+  RC flush() override;
 
 private:
   /**

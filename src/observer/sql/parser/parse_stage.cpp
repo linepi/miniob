@@ -27,9 +27,10 @@ See the Mulan PSL v2 for more details. */
 
 using namespace common;
 
-RC ParseStage::handle_request(SQLStageEvent *sql_event)
+RC ParseStage::handle_request(SQLStageEvent *sql_event, bool main_query)
 {
   RC rc = RC::SUCCESS;
+  if (!main_query) return rc;
   
   SqlResult *sql_result = sql_event->session_event()->sql_result();
   const std::string &sql = sql_event->sql();

@@ -17,6 +17,10 @@ enum CompOp
   IS,
   IS_NOT,
   NO_OP,
+  IN,
+  NOT_IN,
+  EXISTS,
+  NOT_EXISTS,
 };
 
 
@@ -33,4 +37,15 @@ enum AttrType
   DATES,          ///< 日期类型
   BOOLEANS,       ///< boolean类型，当前不是由parser解析出来的，是程序内部使用的
   NULL_TYPE,
+};
+
+
+/**
+ * @brief condition左右的类型
+ */
+enum ConType
+{
+  CON_ATTR,
+  CON_VALUE,
+  CON_SUB_SELECT
 };

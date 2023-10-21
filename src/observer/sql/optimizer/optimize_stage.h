@@ -38,7 +38,7 @@ class Stmt;
 class OptimizeStage
 {
 public:
-  RC handle_request(SQLStageEvent *event);
+  RC handle_request(SQLStageEvent *event, bool main_query);
 
 private:
   /**

@@ -27,12 +27,22 @@ See the Mulan PSL v2 for more details. */
 #include "net/server.h"
 #include "net/communicator.h"
 #include "session/session.h"
+#include "net/writer.h"
+#include "net/silent_writer.h"
+
+#include "sql/stmt/delete_stmt.h"
+#include "sql/stmt/select_stmt.h"
+#include "sql/stmt/update_stmt.h"
 
 using namespace common;
 
 // Constructor
 SessionStage::SessionStage(const char *tag) : Stage(tag)
 {}
+
+SessionStage::SessionStage(SessionStage &other) {
+
+}
 
 // Destructor
 SessionStage::~SessionStage()
@@ -85,6 +95,8 @@ void SessionStage::handle_event(StageEvent *event)
   return;
 }
 
+RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query);
+
 void SessionStage::handle_request(StageEvent *event)
 {
   SessionEvent *sev = dynamic_cast<SessionEvent *>(event);
@@ -93,27 +105,35 @@ void SessionStage::handle_request(StageEvent *event)
     return;
   }
 
-  std::string sql = sev->query();
-  if (common::is_blank(sql.c_str())) {
+  std::string query_str = sev->query();
+  if (common::is_blank(query_str.c_str())) {
     return;
   }
 
   Session::set_current_session(sev->session());
   sev->session()->set_current_request(sev);
-  SQLStageEvent sql_event(sev, sql);
-  
-  (void)handle_sql(&sql_event);
 
-  Communicator *communicator = sev->get_communicator();
-  bool need_disconnect = false;
-  RC rc = communicator->write_result(sev, need_disconnect);
-  LOG_INFO("write result return %s", strrc(rc));
-  if (need_disconnect) {
-    Server::close_connection(communicator);
+  std::vector<std::string> sqls;
+  common::split_string(query_str, ";", sqls);
+  for (std::string &sql : sqls) {
+    SQLStageEvent sql_event(sev, sql);
+    
+    (void)handle_sql(this, &sql_event, true);
+
+    Communicator *communicator = sev->get_communicator();
+    bool need_disconnect = false;
+    RC rc = communicator->write_result(sev, need_disconnect);
+    LOG_INFO("write result return %s", strrc(rc));
+    if (need_disconnect) {
+      Server::close_connection(communicator);
+    }
+
+    if (sev->sql_result()->return_code() != RC::SUCCESS) break;
   }
   sev->session()->set_current_request(nullptr);
   Session::set_current_session(nullptr);
 }
+
 
 /**
  * 处理一个SQL语句经历这几个阶段。
@@ -125,37 +145,101 @@ void SessionStage::handle_request(StageEvent *event)
  * execute_stage中的执行，通过explain语句看需要哪些operator，然后找对应的operator来
  * 调试或者看代码执行过程即可。
  */
-RC SessionStage::handle_sql(SQLStageEvent *sql_event)
+static std::vector<Value> * values_from_sql_stdout(std::string &std_out);
+
+RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
 {
-  RC rc = query_cache_stage_.handle_request(sql_event);
+  RC rc = RC::SUCCESS;
+  rc = ss->query_cache_stage_.handle_request(sql_event, main_query);
   if (OB_FAIL(rc)) {
     LOG_TRACE("failed to do query cache. rc=%s", strrc(rc));
     return rc;
   }
 
-  rc = parse_stage_.handle_request(sql_event);
+  rc = ss->parse_stage_.handle_request(sql_event, main_query);
   if (OB_FAIL(rc)) {
     LOG_TRACE("failed to do parse. rc=%s", strrc(rc));
     return rc;
   }
 
-  rc = resolve_stage_.handle_request(sql_event);
+  ParsedSqlNode *sql_node = sql_event->sql_node().get();
+  Writer *thesw = new SilentWriter();
+  if (sql_node->flag == SCF_DELETE || sql_node->flag == SCF_UPDATE || sql_node->flag == SCF_SELECT) {
+    std::vector<ConditionSqlNode> *conditions;
+    if (sql_node->flag == SCF_DELETE)
+      conditions = &(sql_node->deletion.conditions);
+    else if (sql_node->flag == SCF_UPDATE)
+      conditions = &(sql_node->update.conditions);
+    else
+      conditions = &(sql_node->selection.conditions);
+
+    for (ConditionSqlNode &condition : *conditions) {
+      ParsedSqlNode node;
+      node.flag = SCF_SELECT;
+      if (condition.left_type == CON_SUB_SELECT) {
+        SQLStageEvent stack_sql_event(*sql_event);
+        SessionStage stack_ss(*ss);
+
+        node.selection = *condition.left_select;
+        stack_sql_event.set_sql_node(std::unique_ptr<ParsedSqlNode>(&node));
+
+        handle_sql(&stack_ss, &stack_sql_event, false);
+
+        Communicator *communicator = stack_sql_event.session_event()->get_communicator();
+        Writer *writer_bak = communicator->writer();
+
+        communicator->set_writer(thesw); 
+        bool need_disconnect = false;
+        rc = communicator->write_result(stack_sql_event.session_event(), need_disconnect);
+        SilentWriter *sw = static_cast<SilentWriter *>(communicator->writer());
+        condition.left_values = values_from_sql_stdout(sw->content());
+
+        communicator->set_writer(writer_bak);
+
+        condition.left_type = CON_VALUE;
+        condition.left_value = (*condition.left_values)[0];
+      } 
+    }
+  }
+  delete thesw;
+
+  rc = ss->resolve_stage_.handle_request(sql_event, main_query);
   if (OB_FAIL(rc)) {
     LOG_TRACE("failed to do resolve. rc=%s", strrc(rc));
     return rc;
   }
   
-  rc = optimize_stage_.handle_request(sql_event);
+  rc = ss->optimize_stage_.handle_request(sql_event, main_query);
   if (rc != RC::UNIMPLENMENT && rc != RC::SUCCESS) {
     LOG_TRACE("failed to do optimize. rc=%s", strrc(rc));
     return rc;
   }
   
-  rc = execute_stage_.handle_request(sql_event);
+  rc = ss->execute_stage_.handle_request(sql_event, main_query);
   if (OB_FAIL(rc)) {
     LOG_TRACE("failed to do execute. rc=%s", strrc(rc));
     return rc;
   }
 
   return rc;
+}
+
+static std::vector<Value> * values_from_sql_stdout(std::string &std_out) {
+  std::vector<std::string> lines;
+  common::split_string(std_out, "\n", lines);
+  std::vector<Value> * ret = new std::vector<Value>;
+  for (size_t i = 0; i < lines.size(); i++) {
+    std::string &line = lines[i];
+    if (line.find(" | ", 0) != std::string::npos) {
+      delete ret;
+      return nullptr;
+    }
+    if (i != 0) {
+      Value v;
+      int rc = v.from_string(line);
+      if (rc == 0)
+        ret->push_back(v);
+    }
+  }
+  return ret;
 }

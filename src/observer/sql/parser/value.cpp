@@ -20,6 +20,7 @@ See the Mulan PSL v2 for more details. */
 #include "common/lang/comparator.h"
 #include "common/lang/string.h"
 #include "common/lang/comparator.h"
+#include <regex>
 
 const char *ATTR_TYPE_NAME[] = {"undefined", "chars", "ints", "floats", "dates", "booleans", "null_type"};
 
@@ -185,6 +186,47 @@ const char *Value::data() const
       return (const char *)&num_value_;
     } break;
   }
+}
+
+static bool is_float(const std::string& str) {
+  try {
+    std::stof(str); 
+    return true; 
+  } catch (const std::invalid_argument& e) {
+    return false; 
+  } catch (const std::out_of_range& e) {
+    return false; 
+  }
+}
+
+static bool is_date(const std::string& str) {
+  std::regex datePattern(R"(\d{4}-\d{2}-\d{2})");
+  return std::regex_match(str, datePattern);
+}
+
+int Value::from_string(std::string str) {
+  size_t firstNonSpace = str.find_first_not_of(" \t\n\r");
+  size_t lastNonSpace = str.find_last_not_of(" \t\n\r");
+
+  if (firstNonSpace != std::string::npos && lastNonSpace != std::string::npos) {
+    str = str.substr(firstNonSpace, lastNonSpace - firstNonSpace + 1);
+  } else {
+    return -1;
+  }
+  if (str.find("null", 0) != std::string::npos) {
+    set_null();
+    return 0;
+  }
+  if (is_float(str)) {
+    set_float(std::stof(str));
+    return 0;
+  }
+  if (is_date(str)) {
+    set_date(str.c_str());
+    return 0;
+  }
+  set_string(str.c_str(), str.size());
+  return 0;
 }
 
 Value Value::operator+(const Value &other) {
