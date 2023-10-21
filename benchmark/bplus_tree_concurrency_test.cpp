@@ -100,8 +100,8 @@ public:
     for (uint32_t value = min; value < max; ++value) {
       const char *key = reinterpret_cast<const char *>(&value);
       RID         rid(value, value);
-
-      [[maybe_unused]] RC rc = handler_.insert_entry(key, &rid);
+      //TODO: 确定需不需要设定唯一索引的标识
+      [[maybe_unused]] RC rc = handler_.insert_entry(key, &rid, false);
       ASSERT(rc == RC::SUCCESS, "failed to insert entry into btree. key=%" PRIu32, value);
     }
   }
@@ -120,7 +120,8 @@ public:
     const char *key = reinterpret_cast<const char *>(&value);
     RID         rid(value, value);
 
-    RC rc = handler_.insert_entry(key, &rid);
+    //TODO: 确定需不需要设定唯一索引的标识
+    RC rc = handler_.insert_entry(key, &rid, false);
     switch (rc) {
       case RC::SUCCESS: {
         stat.insert_success_count++;

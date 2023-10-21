@@ -30,6 +30,7 @@ See the Mulan PSL v2 for more details. */
 #include "common/lang/comparator.h"
 #include "common/log/log.h"
 
+#define MAX_INDEX 10
 /**
  * @brief B+树的实现
  * @defgroup BPlusTree
@@ -45,6 +46,7 @@ enum class BplusTreeOperationType
   INSERT,
   DELETE,
 };
+
 
 /**
  * @brief 属性比较(BplusTree)
@@ -113,7 +115,7 @@ private:
 class KeyComparator 
 {
 public:
-  void init(std::vector<AttrType> type, std::vector<int> length)
+  void init(std::vector<AttrType> type, std::vector<int> length, bool unique = false)
   {
     attr_comparator_.init(type, length);
   }
@@ -129,14 +131,20 @@ public:
     if (result != 0) {
       return result;
     }
-
+    if(unique == true){
+      return 0;
+    }
     const RID *rid1 = (const RID *)(v1 + attr_comparator_.attr_length());
     const RID *rid2 = (const RID *)(v2 + attr_comparator_.attr_length());
     return RID::compare(rid1, rid2);
   }
 
+  void set_unique(){ unique = true; }
+  void recover_unique(){ unique = false; }
+
 private:
   AttrComparator attr_comparator_;
+  bool unique;
 };
 
 /**
@@ -248,16 +256,17 @@ struct IndexFileHeader
   PageNum root_page;          ///< 根节点在磁盘中的页号
   int32_t internal_max_size;  ///< 内部节点最大的键值对数
   int32_t leaf_max_size;      ///< 叶子节点最大的键值对数
-  std::vector<int32_t> attr_length;        ///< 键值的长度
+  int32_t attr_length[MAX_INDEX];        ///< 键值的长度
+  int32_t attr_num;               ///< 键值的数量
   int32_t key_length;         ///< attr length + sizeof(RID)
-  std::vector<AttrType> attr_type;         ///< 键值的类型
+  AttrType attr_type[MAX_INDEX];         ///< 键值的类型
 
   const std::string to_string()
   {
     std::stringstream ss;
 
     ss << "attr_length:";
-    for (size_t i = 0; i < attr_length.size(); i++) {
+    for (int32_t i = 0; i < attr_num; i++) {
         if (i != 0) ss << "|";
         ss << attr_length[i];
     }
@@ -265,7 +274,7 @@ struct IndexFileHeader
     ss << ",key_length:" << key_length
        << ",attr_type:";
     
-    for (size_t i = 0; i < attr_type.size(); i++) {
+    for (int32_t i = 0; i < attr_num; i++) {
         if (i != 0) ss << "|";
         ss << attr_type[i];
     }
@@ -276,74 +285,8 @@ struct IndexFileHeader
 
     return ss.str();
   }
-
-  //序列化
-  std::vector<char> serialize() const {
-    std::vector<char> data;
-
-    // 将基本类型数据转换为字节流并添加到数据向量中
-    auto appendToData = [&data](const auto& val) {
-        const char* begin = reinterpret_cast<const char*>(&val);
-        data.insert(data.end(), begin, begin + sizeof(val));
-    };
-
-    appendToData(root_page);
-    appendToData(internal_max_size);
-    appendToData(leaf_max_size);
-    appendToData(key_length);
-
-    // 对于 attr_length
-    int32_t attr_length_size = static_cast<int32_t>(attr_length.size());
-    appendToData(attr_length_size);
-    for (const auto& val : attr_length) {
-        appendToData(val);
-    }
-
-    // 对于 attr_type
-    int32_t attr_type_size = static_cast<int32_t>(attr_type.size());
-    appendToData(attr_type_size);
-    for (const auto& val : attr_type) {
-        appendToData(val);
-    }
-
-      return data;
-  }
-
-  //反序列化
-  static IndexFileHeader deserialize(const char* data) {
-    IndexFileHeader header;
-    size_t offset = 0;
-
-    auto extractFromData = [&data, &offset](auto& val) {
-        memcpy(&val, data + offset, sizeof(val));
-        offset += sizeof(val);
-    };
-
-    extractFromData(header.root_page);
-    extractFromData(header.internal_max_size);
-    extractFromData(header.leaf_max_size);
-    extractFromData(header.key_length);
-
-    // 对于 attr_length
-    int32_t attr_length_size;
-    extractFromData(attr_length_size);
-    header.attr_length.resize(attr_length_size);
-    for (int32_t i = 0; i < attr_length_size; ++i) {
-        extractFromData(header.attr_length[i]);
-    }
-
-    // 对于 attr_type
-    int32_t attr_type_size;
-    extractFromData(attr_type_size);
-    header.attr_type.resize(attr_type_size);
-    for (int32_t i = 0; i < attr_type_size; ++i) {
-        extractFromData(header.attr_type[i]);
-    }
-
-    return header;
-  }
-
 };
+
 
 /**
  * @brief the common part of page describtion of bplus tree
@@ -595,14 +538,14 @@ public:
    * 即向索引中插入一个值为（user_key，rid）的键值对
    * @note 这里假设user_key的内存大小与attr_length 一致
    */
-  RC insert_entry(const char *user_key, const RID *rid);
+  RC insert_entry(const char *user_key, const RID *rid, bool unique);
 
   /**
    * 从IndexHandle句柄对应的索引中删除一个值为（*pData，rid）的索引项
    * @return RECORD_INVALID_KEY 指定值不存在
    * @note 这里假设user_key的内存大小与attr_length 一致
    */
-  RC delete_entry(const char *user_key, const RID *rid);
+  RC delete_entry(const char *user_key, const RID *rid, bool unique = false);
 
   bool is_empty() const;
 

@@ -28,6 +28,8 @@ UpdateStmt::~UpdateStmt()
 
 RC UpdateStmt::create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt)
 {
+  UpdateStmt *update_stmt = new UpdateStmt();
+
   RC rc = RC::SUCCESS;
   const char *table_name = update_sql.relation_name.c_str();
   if (nullptr == db || nullptr == table_name) {
@@ -42,16 +44,30 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt)
     return RC::SCHEMA_TABLE_NOT_EXIST;
   }
 
-  FieldMeta *field_meta = const_cast<FieldMeta *>(table->table_meta().field(update_sql.attribute_name.c_str()));
-  if (nullptr == field_meta) {
-    LOG_WARN("no such field. field=%s.%s.%s", db->name(), table->name(), update_sql.attribute_name.c_str());
-    return RC::SCHEMA_FIELD_MISSING;
+  for (const std::pair<std::string, Value> &p : update_sql.av) {
+    const std::string &attribute_name = p.first;
+    const Value &value = p.second;
+    FieldMeta *field_meta = const_cast<FieldMeta *>(table->table_meta().field(attribute_name.c_str()));
+
+    if (nullptr == field_meta) {
+      LOG_WARN("no such field. field=%s.%s.%s", db->name(), table->name(), attribute_name.c_str());
+      return RC::SCHEMA_FIELD_MISSING;
+    }
+    if (field_meta->type() != value.attr_type()) {
+      LOG_WARN("attrtype mismatch. field=%s.%s.%s, type %d != %d", 
+        db->name(), table->name(), attribute_name.c_str(), field_meta->type(), value.attr_type());
+      return RC::SCHEMA_FIELD_TYPE_MISMATCH;;
+    }
+    if (field_meta->len() < value.length()) {
+      LOG_WARN("field len overload. table=%s, field=%s, len: %d, %d",
+              table_name, field_meta->name(), field_meta->len(), value.length());
+      return RC::SCHEMA_FIELD_SIZE;
+    }
+
+    update_stmt->field_metas_.push_back(field_meta);
+    update_stmt->values_.push_back(value);
   }
-  bool match = field_meta->match(update_sql.value);
-  if (!match) {
-    LOG_WARN("field does not match value");
-    return RC::SCHEMA_FIELD_TYPE_MISMATCH;
-  }
+
 
   // create filter statement in `where` statement
   FilterStmt *filter_stmt = nullptr;
@@ -68,11 +84,8 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt)
     return rc;
   }
 
-  UpdateStmt *update_stmt = new UpdateStmt();
-  update_stmt->field_meta_ = field_meta;
   update_stmt->table_ = table;
   update_stmt->filter_stmt_ = filter_stmt;
-  update_stmt->value_ = update_sql.value;
 
   stmt = update_stmt;
   return rc;

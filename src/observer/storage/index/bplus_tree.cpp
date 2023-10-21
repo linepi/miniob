@@ -791,11 +791,22 @@ RC BplusTreeHandler::create(const char *file_name, std::vector<AttrType> attr_ty
     leaf_max_size = calc_leaf_page_capacity(total_attr_length);
   }
 
+  int32_t attr_lengths[MAX_INDEX];
+  int32_t attr_types[MAX_INDEX];
+  int32_t attr_num = attr_length.size();
+  for(int i = 0; i < attr_num; i++) {
+    attr_lengths[i] = attr_length[i];
+  }
+  for(int i = 0; i < attr_num; i++) {
+    attr_types[i] = attr_type[i];
+  }
+
   char *pdata = header_frame->data();
   IndexFileHeader *file_header = (IndexFileHeader *)pdata;
-  file_header->attr_length = attr_length;
+  memcpy(file_header->attr_length, attr_lengths, sizeof(int32_t) * attr_num);
   file_header->key_length = total_attr_length + sizeof(RID);
-  file_header->attr_type = attr_type;
+  memcpy(file_header->attr_type, attr_types, sizeof(int32_t) * attr_num);
+  file_header->attr_num = attr_num;
   file_header->internal_max_size = internal_max_size;
   file_header->leaf_max_size = leaf_max_size;
   file_header->root_page = BP_INVALID_PAGE_NUM;
@@ -804,14 +815,14 @@ RC BplusTreeHandler::create(const char *file_name, std::vector<AttrType> attr_ty
 
   disk_buffer_pool_ = bp;
   
-  //memcpy(&file_header_, pdata, sizeof(file_header_));
-  // file_header_ = IndexFileHeader::deserialize(pdata);
-  file_header_.attr_length = attr_length;
-  file_header_.key_length = total_attr_length + sizeof(RID);
-  file_header_.attr_type = attr_type;
-  file_header_.internal_max_size = internal_max_size;
-  file_header_.leaf_max_size = leaf_max_size;
-  file_header_.root_page = BP_INVALID_PAGE_NUM;
+  memcpy(&file_header_, pdata, sizeof(file_header_));
+
+  // file_header_.attr_length = attr_length;
+  // file_header_.key_length = total_attr_length + sizeof(RID);
+  // file_header_.attr_type = attr_type;
+  // file_header_.internal_max_size = internal_max_size;
+  // file_header_.leaf_max_size = leaf_max_size;
+  // file_header_.root_page = BP_INVALID_PAGE_NUM;
 
   header_dirty_ = false;
   bp->unpin_page(header_frame);
@@ -823,8 +834,17 @@ RC BplusTreeHandler::create(const char *file_name, std::vector<AttrType> attr_ty
     return RC::NOMEM;
   }
 
-  key_comparator_.init(file_header->attr_type, file_header->attr_length);
-  key_printer_.init(file_header->attr_type, file_header->attr_length);
+  std::vector<AttrType> types;
+  std::vector<int> lengths;
+
+  for(int i=0; i< file_header_.attr_num;i++)
+  {
+    types.push_back(file_header_.attr_type[i]);
+    lengths.push_back(file_header_.attr_length[i]);
+  }
+
+  key_comparator_.init(types, lengths);
+  key_printer_.init(types, lengths);
 
   this->sync();
 
@@ -856,8 +876,17 @@ RC BplusTreeHandler::open(const char *file_name)
   }
 
   char *pdata = frame->data();
-  file_header_ = IndexFileHeader::deserialize(pdata);
-  //memcpy(&file_header_, pdata, sizeof(IndexFileHeader));
+  // IndexFileHeader *file_header = reinterpret_cast<IndexFileHeader *>(pdata);
+  // file_header_ = *file_header;
+  // file_header_.attr_length = file_header->attr_length;
+  // file_header_.key_length = file_header->key_length + sizeof(RID);
+  // file_header_.attr_type = file_header->attr_type;
+  // file_header_.internal_max_size = file_header->internal_max_size;
+  // file_header_.leaf_max_size = file_header->leaf_max_size;
+  // file_header_.root_page = BP_INVALID_PAGE_NUM;
+  
+  memcpy(&file_header_, pdata, sizeof(IndexFileHeader));
+
   header_dirty_ = false;
   disk_buffer_pool_ = disk_buffer_pool;
 
@@ -871,8 +900,17 @@ RC BplusTreeHandler::open(const char *file_name)
   // close old page_handle
   disk_buffer_pool->unpin_page(frame);
 
-  key_comparator_.init(file_header_.attr_type, file_header_.attr_length);
-  key_printer_.init(file_header_.attr_type, file_header_.attr_length);
+  std::vector<AttrType> types;
+  std::vector<int> lengths;
+
+  for(int i=0; i< file_header_.attr_num;i++)
+  {
+    types.push_back(file_header_.attr_type[i]);
+    lengths.push_back(file_header_.attr_length[i]);
+  }
+
+  key_comparator_.init(types, lengths);
+  key_printer_.init(types, lengths);
   LOG_INFO("Successfully open index %s", file_name);
   return RC::SUCCESS;
 }
@@ -1369,13 +1407,16 @@ MemPoolItem::unique_ptr BplusTreeHandler::make_key(const char *user_key, const R
     LOG_WARN("Failed to alloc memory for key.");
     return nullptr;
   }
-  size_t total_length = std::accumulate(file_header_.attr_length.begin(), file_header_.attr_length.end(), 0);
+  int32_t total_length = 0;
+  for(int32_t i = 0; i < file_header_.attr_num; i++) {
+      total_length += file_header_.attr_length[i];
+  }
   memcpy(static_cast<char *>(key.get()), user_key, total_length);
   memcpy(static_cast<char *>(key.get()) + total_length, &rid, sizeof(rid));
   return key;
 }
 
-RC BplusTreeHandler::insert_entry(const char *user_key, const RID *rid)
+RC BplusTreeHandler::insert_entry(const char *user_key, const RID *rid, bool unique)
 {
   if (user_key == nullptr || rid == nullptr) {
     LOG_WARN("Invalid arguments, key is empty or rid is empty");
@@ -1403,7 +1444,20 @@ RC BplusTreeHandler::insert_entry(const char *user_key, const RID *rid)
   LatchMemo latch_memo(disk_buffer_pool_);
 
   Frame *frame = nullptr;
+
   RC rc = find_leaf(latch_memo, BplusTreeOperationType::INSERT, key, frame);
+
+  if(unique){
+    LeafIndexNodeHandler leaf_node(file_header_, frame);
+    bool exists = false; 
+    key_comparator_.set_unique();
+    leaf_node.lookup(key_comparator_, key, &exists);
+    key_comparator_.recover_unique();
+    if(exists){
+      LOG_WARN("Failed to insert(unique_index)");
+      return RC::UNIQUE_INDEX;
+    }
+  }
   if (rc != RC::SUCCESS) {
     LOG_WARN("Failed to find leaf %s. rc=%d:%s", rid->to_string().c_str(), rc, strrc(rc));
     return rc;
@@ -1633,7 +1687,7 @@ RC BplusTreeHandler::delete_entry_internal(LatchMemo &latch_memo, Frame *leaf_fr
   return coalesce_or_redistribute<LeafIndexNodeHandler>(latch_memo, leaf_frame);
 }
 
-RC BplusTreeHandler::delete_entry(const char *user_key, const RID *rid)
+RC BplusTreeHandler::delete_entry(const char *user_key, const RID *rid, bool unique)
 {
   MemPoolItem::unique_ptr pkey = mem_pool_item_->alloc_unique_ptr();
   if (nullptr == pkey) {
@@ -1642,7 +1696,10 @@ RC BplusTreeHandler::delete_entry(const char *user_key, const RID *rid)
   }
   char *key = static_cast<char *>(pkey.get());
 
-  size_t total_length = std::accumulate(file_header_.attr_length.begin(), file_header_.attr_length.end(), 0);
+  int32_t total_length = 0;
+  for(int32_t i = 0; i < file_header_.attr_num; i++) {
+      total_length += file_header_.attr_length[i];
+  }
   memcpy(key, user_key, total_length);
   memcpy(key + total_length, rid, sizeof(*rid));
 
@@ -1654,6 +1711,18 @@ RC BplusTreeHandler::delete_entry(const char *user_key, const RID *rid)
   if (rc == RC::EMPTY) {
     rc = RC::RECORD_NOT_EXIST;
     return rc;
+  }
+
+  if(unique){
+    LeafIndexNodeHandler leaf_node(file_header_, leaf_frame);
+    bool exists = false; 
+    key_comparator_.set_unique();
+    leaf_node.lookup(key_comparator_, key, &exists);
+    key_comparator_.recover_unique();
+    if(exists){
+      LOG_WARN("Failed to delete(unique_index)");
+      return RC::UNIQUE_INDEX;
+    }
   }
   
   if (rc != RC::SUCCESS) {
@@ -1904,8 +1973,11 @@ RC BplusTreeScanner::fix_user_key(
   assert(strlen(user_key) >= static_cast<size_t>(key_len));
 
   *should_inclusive = false;
-
-  int total_attr_length = std::accumulate(tree_handler_.file_header_.attr_length.begin(), tree_handler_.file_header_.attr_length.end(), 0);
+  
+  int total_attr_length = 0;
+  for(int i = 0; i < tree_handler_.file_header_.attr_num; i++) {
+      total_attr_length += tree_handler_.file_header_.attr_length[i];
+  }
   int32_t attr_length = total_attr_length;
   char *key_buf = new (std::nothrow) char[attr_length];
   if (nullptr == key_buf) {

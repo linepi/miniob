@@ -44,7 +44,15 @@ public:
   {
     return index_meta_;
   }
+  
+  void set_index_meta_unique(bool unique) {
+    index_meta_.set_unique(unique);
+  }
 
+  bool get_index_meta_unique()
+  {
+    return index_meta_.isunique();
+  }
 
   /**
    * @brief 插入一条数据
@@ -60,7 +68,7 @@ public:
    * @param record 删除的记录，当前假设记录是定长的
    * @param[in] rid   删除的记录的位置
    */
-  virtual RC delete_entry(const char *record, const RID *rid) = 0;
+  virtual RC delete_entry(const char *record, const RID *rid, bool update) = 0;
 
   RC isunique(const char *record, const RID *rid) { return RC::VALUE_COMPERR; }
 
@@ -88,7 +96,7 @@ protected:
 
 protected:
   IndexMeta index_meta_;  ///< 索引的元数据
-  std::vector<FieldMeta> field_meta_;  ///< 当前实现仅考虑一个字段的索引
+  std::vector<FieldMeta> field_meta_;  ///< 索引字段
 };
 
 /**

@@ -3,7 +3,7 @@
 #include "storage/record/record.h"
 #include "storage/table/table.h"
 #include "storage/trx/trx.h"
-#include "sql/stmt/update_stmt.h"
+#include "sql/stmt/update_stmt.h"//
 
 RC UpdatePhysicalOperator::open(Trx *trx)
 {
@@ -40,10 +40,12 @@ RC UpdatePhysicalOperator::next()
 
     RowTuple *row_tuple = static_cast<RowTuple *>(tuple);
     Record &record = row_tuple->record();
-    rc = trx_->update_record(table_, field_meta_, &value_, record);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("failed to delete record: %s", strrc(rc));
-      return rc;
+    for (size_t i = 0; i < values_.size(); i++) {
+      rc = trx_->update_record(table_, field_metas_[i], &values_[i], record);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to delete record: %s", strrc(rc));
+        return rc;
+      }
     }
   }
 

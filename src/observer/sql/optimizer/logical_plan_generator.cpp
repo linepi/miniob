@@ -228,7 +228,9 @@ RC LogicalPlanGenerator::create_plan(
 {
   RC rc = RC::SUCCESS;
   std::vector<Field> fields;
-  fields.push_back(Field(update_stmt->table_, update_stmt->field_meta_));
+  for (const FieldMeta *field_meta : update_stmt->field_metas_) {
+    fields.push_back(Field(update_stmt->table_, field_meta));
+  }
 
   unique_ptr<LogicalOperator> table_get_oper(new TableGetLogicalOperator(update_stmt->table_, fields, false));
 
@@ -238,7 +240,7 @@ RC LogicalPlanGenerator::create_plan(
     return rc;
   }
 
-  unique_ptr<LogicalOperator> update_oper(new UpdateLogicalOperator(update_stmt->table_, update_stmt->value_, update_stmt->field_meta_));
+  unique_ptr<LogicalOperator> update_oper(new UpdateLogicalOperator(update_stmt->table_, update_stmt->values_, update_stmt->field_metas_));
 
   if (predicate_oper) {
     predicate_oper->add_child(std::move(table_get_oper));
