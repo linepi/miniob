@@ -95,6 +95,23 @@ RC BplusTreeIndex::close()
   return RC::SUCCESS;
 }
 
+RC BplusTreeIndex::isunique(const char *record, const RID *rid)
+{
+  std::string rel;
+  for(FieldMeta f_m : field_meta_)
+  {
+    const char* fieldData = record + f_m.offset();
+    rel += std::string(fieldData, f_m.len());
+  }
+  if(get_index_meta_unique()){
+    RC rc = index_handler_.is_unique_index(rel.c_str(), rid);
+    if (rc == RC::UNIQUE_INDEX){
+      return rc;
+    }
+  }
+  return RC::SUCCESS;
+}
+
 RC BplusTreeIndex::insert_entry(const char *record, const RID *rid)
 {
   std::string rel;
@@ -103,11 +120,16 @@ RC BplusTreeIndex::insert_entry(const char *record, const RID *rid)
     const char* fieldData = record + f_m.offset();
     rel += std::string(fieldData, f_m.len());
   }
-  bool f = get_index_meta_unique();
-  return index_handler_.insert_entry(rel.c_str(), rid ,f);
+  if(get_index_meta_unique()){
+    RC rc = index_handler_.is_unique_index(rel.c_str(), rid);
+    if (rc == RC::UNIQUE_INDEX){
+      return rc;
+    }
+  }
+  return index_handler_.insert_entry(rel.c_str(), rid);
 }
 
-RC BplusTreeIndex::delete_entry(const char *record, const RID *rid, bool update)
+RC BplusTreeIndex::insert_entry_first(const char *record, const RID *rid)
 {
   std::string rel;
   for(FieldMeta f_m : field_meta_)
@@ -115,8 +137,18 @@ RC BplusTreeIndex::delete_entry(const char *record, const RID *rid, bool update)
     const char* fieldData = record + f_m.offset();
     rel += std::string(fieldData, f_m.len());
   }
-  bool f = get_index_meta_unique() && update;
-  return index_handler_.delete_entry(rel.c_str(), rid, f);
+  return index_handler_.insert_entry(rel.c_str(), rid);
+}
+
+RC BplusTreeIndex::delete_entry(const char *record, const RID *rid)
+{
+  std::string rel;
+  for(FieldMeta f_m : field_meta_)
+  {
+    const char* fieldData = record + f_m.offset();
+    rel += std::string(fieldData, f_m.len());
+  }
+  return index_handler_.delete_entry(rel.c_str(), rid);
 }
 
 IndexScanner *BplusTreeIndex::create_scanner(

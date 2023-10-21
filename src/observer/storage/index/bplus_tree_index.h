@@ -31,8 +31,10 @@ public:
   RC open(const char *file_name, const IndexMeta &index_meta, const std::vector<FieldMeta> &field_meta);
   RC close();
 
+  RC isunique(const char *record, const RID *rid) override;
   RC insert_entry(const char *record, const RID *rid) override;
-  RC delete_entry(const char *record, const RID *rid, bool update) override;
+  RC insert_entry_first(const char *record, const RID *rid) override;
+  RC delete_entry(const char *record, const RID *rid) override;
 
   /**
    * 扫描指定范围的数据

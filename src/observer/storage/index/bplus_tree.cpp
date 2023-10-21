@@ -1416,7 +1416,41 @@ MemPoolItem::unique_ptr BplusTreeHandler::make_key(const char *user_key, const R
   return key;
 }
 
-RC BplusTreeHandler::insert_entry(const char *user_key, const RID *rid, bool unique)
+RC BplusTreeHandler::is_unique_index(const char *user_key, const RID *rid)
+{
+  if (user_key == nullptr || rid == nullptr) {
+    LOG_WARN("Invalid arguments, key is empty or rid is empty");
+    return RC::INVALID_ARGUMENT;
+  }
+
+  MemPoolItem::unique_ptr pkey = make_key(user_key, *rid);
+  if (pkey == nullptr) {
+    LOG_WARN("Failed to alloc memory for key.");
+    return RC::NOMEM;
+  }
+
+  char *key = static_cast<char *>(pkey.get());
+
+  LatchMemo latch_memo(disk_buffer_pool_);
+
+  Frame *frame = nullptr;
+
+  find_leaf(latch_memo, BplusTreeOperationType::INSERT, key, frame);
+
+  LeafIndexNodeHandler leaf_node(file_header_, frame);
+  bool exists = false; 
+  key_comparator_.set_unique();
+  leaf_node.lookup(key_comparator_, key, &exists);
+  key_comparator_.recover_unique();
+  if(exists){
+      LOG_WARN("Failed to insert(unique_index)");
+      return RC::UNIQUE_INDEX;
+  }
+  return RC::SUCCESS;
+}
+
+
+RC BplusTreeHandler::insert_entry(const char *user_key, const RID *rid)
 {
   if (user_key == nullptr || rid == nullptr) {
     LOG_WARN("Invalid arguments, key is empty or rid is empty");
@@ -1447,17 +1481,6 @@ RC BplusTreeHandler::insert_entry(const char *user_key, const RID *rid, bool uni
 
   RC rc = find_leaf(latch_memo, BplusTreeOperationType::INSERT, key, frame);
 
-  if(unique){
-    LeafIndexNodeHandler leaf_node(file_header_, frame);
-    bool exists = false; 
-    key_comparator_.set_unique();
-    leaf_node.lookup(key_comparator_, key, &exists);
-    key_comparator_.recover_unique();
-    if(exists){
-      LOG_WARN("Failed to insert(unique_index)");
-      return RC::UNIQUE_INDEX;
-    }
-  }
   if (rc != RC::SUCCESS) {
     LOG_WARN("Failed to find leaf %s. rc=%d:%s", rid->to_string().c_str(), rc, strrc(rc));
     return rc;
@@ -1687,7 +1710,7 @@ RC BplusTreeHandler::delete_entry_internal(LatchMemo &latch_memo, Frame *leaf_fr
   return coalesce_or_redistribute<LeafIndexNodeHandler>(latch_memo, leaf_frame);
 }
 
-RC BplusTreeHandler::delete_entry(const char *user_key, const RID *rid, bool unique)
+RC BplusTreeHandler::delete_entry(const char *user_key, const RID *rid)
 {
   MemPoolItem::unique_ptr pkey = mem_pool_item_->alloc_unique_ptr();
   if (nullptr == pkey) {
@@ -1711,18 +1734,6 @@ RC BplusTreeHandler::delete_entry(const char *user_key, const RID *rid, bool uni
   if (rc == RC::EMPTY) {
     rc = RC::RECORD_NOT_EXIST;
     return rc;
-  }
-
-  if(unique){
-    LeafIndexNodeHandler leaf_node(file_header_, leaf_frame);
-    bool exists = false; 
-    key_comparator_.set_unique();
-    leaf_node.lookup(key_comparator_, key, &exists);
-    key_comparator_.recover_unique();
-    if(exists){
-      LOG_WARN("Failed to delete(unique_index)");
-      return RC::UNIQUE_INDEX;
-    }
   }
   
   if (rc != RC::SUCCESS) {

@@ -244,48 +244,41 @@ RC Table::insert_record(Record &record)
   return rc;
 }
 
-RC Table::update_record_impl(const FieldMeta *field_meta, Value *value, Record &record) {
-  if (value->attr_type() != NULL_TYPE) {
-    int len;
-    if (value->attr_type() == CHARS) {
-      len = min(value->length() + 1, field_meta->len());
+RC Table::update_record_impl(std::vector<const FieldMeta *> &field_metas, std::vector<Value> &values, Record &record) {
+  assert(field_metas.size() == values.size());
+  for (size_t  i = 0; i < field_metas.size(); i++) {
+    Value *value = &values[i];
+    const FieldMeta *field_meta = field_metas[i];
+    if (value->attr_type() != NULL_TYPE) {
+      int len;
+      if (value->attr_type() == CHARS) {
+        len = min(value->length() + 1, field_meta->len());
+      } else {
+        len = min(value->length(), field_meta->len());
+      }
+      memcpy(record.data() + field_meta->offset(), value->data(), len);
     } else {
-      len = min(value->length(), field_meta->len());
+      int column_idx = -1;
+      for (size_t i = 0; i < table_meta_.field_metas()->size(); i++) {
+        if (strcmp(field_meta->name(), (*table_meta_.field_metas())[i].name()) == 0) column_idx = i; 
+      }
+      assert(column_idx != -1);
+      char *null_byte_start = record.data() + table_meta_.record_size() - NR_NULL_BYTE(table_meta_.field_num());
+      char thing = ~(1 << (column_idx % 8));
+      null_byte_start[column_idx/8] &= thing;
     }
-    memcpy(record.data() + field_meta->offset(), value->data(), len);
-  } else {
-    int column_idx = -1;
-    for (size_t i = 0; i < table_meta_.field_metas()->size(); i++) {
-      if (strcmp(field_meta->name(), (*table_meta_.field_metas())[i].name()) == 0) column_idx = i; 
-    }
-    assert(column_idx != -1);
-    char *null_byte_start = record.data() + table_meta_.record_size() - NR_NULL_BYTE(table_meta_.field_num());
-    char thing = ~(1 << (column_idx % 8));
-    null_byte_start[column_idx/8] &= thing;
   }
   return RC::SUCCESS;
 }
 
-RC Table::update_record(const FieldMeta *field_meta, Value *value, Record &record)
+RC Table::update_record(std::vector<const FieldMeta *> &field_metas, std::vector<Value> &values, Record &record)
 {
   RC rc = RC::SUCCESS;
   
-  Record record_bak(record);
-
   char *data_bak = (char *)malloc(table_meta_.record_size());
   memcpy(data_bak, record.data(), table_meta_.record_size());
 
-  rc = record_handler_->visit_record(
-    record.rid(), 
-    false/*write*/, 
-    [this, &value, &field_meta](Record &record_src) {
-      this->update_record_impl(field_meta, value, record_src);
-  });
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to visit record. rid=%s, table=%s, rc=%s", record.rid().to_string().c_str(), name(), strrc(rc));
-    return rc;
-  }
-
+  update_record_impl(field_metas, values, record);
 
   for (Index *index : indexes_) {
     rc = index->isunique(record.data(), &record.rid());
@@ -502,7 +495,7 @@ RC Table::create_index(Trx *trx, const std::vector<FieldMeta> field_meta, const 
                name(), index_name, strrc(rc));
       return rc;
     }
-    rc = index->insert_entry(record.data(), &record.rid());
+    rc = index->insert_entry_first(record.data(), &record.rid());
     if (rc != RC::SUCCESS) {
       LOG_WARN("failed to insert record into index while creating index. table=%s, index=%s, rc=%s",
                name(), index_name, strrc(rc));
@@ -558,7 +551,7 @@ RC Table::delete_record(const Record &record)
 {
   RC rc = RC::SUCCESS;
   for (Index *index : indexes_) {
-    rc = index->delete_entry(record.data(), &record.rid(), false);
+    rc = index->delete_entry(record.data(), &record.rid());
     ASSERT(RC::SUCCESS == rc, 
            "failed to delete entry from index. table name=%s, index name=%s, rid=%s, rc=%s",
            name(), index->index_meta().name(), record.rid().to_string().c_str(), strrc(rc));
@@ -583,7 +576,7 @@ RC Table::delete_entry_of_indexes(const char *record, const RID &rid, bool error
 {
   RC rc = RC::SUCCESS;
   for (Index *index : indexes_) {
-    rc = index->delete_entry(record, &rid, if_update);
+    rc = index->delete_entry(record, &rid);
     if(rc == RC::UNIQUE_INDEX){
       return rc;
     }
