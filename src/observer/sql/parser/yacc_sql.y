@@ -130,6 +130,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
   std::vector<std::string> *        relation_list;
   std::vector<JoinNode> *           join_list;
   JoinNode *                        join_node;
+  std::vector<std::pair<std::string, Value>> * set_list;
   char *                            string;
   int                               number;
   float                             floats;
@@ -171,6 +172,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <relation_list>       id_list
 %type <expression>          expression
 %type <expression_list>     expression_list
+
+%type <set_list>            set_list
 
 %type <sql_node>            calc_stmt
 %type <sql_node>            select_stmt
@@ -547,16 +550,40 @@ delete_stmt:    /*  delete 语句的语法解析树*/
       free($3);
     }
     ;
+
+set_list:
+  {
+    $$ = nullptr;
+  }
+  | COMMA ID EQ value set_list
+  {
+    if ($5 != nullptr) {
+      $$ = $5;
+    } else {
+      $$ = new std::vector<std::pair<std::string, Value>>;
+    }
+    $$->emplace_back(std::pair<std::string, Value>($2, *$4));
+    free($2);
+    delete $4;
+  }
+
 update_stmt:      /*  update 语句的语法解析树*/
-    UPDATE ID SET ID EQ value where 
+    UPDATE ID SET ID EQ value set_list where 
     {
       $$ = new ParsedSqlNode(SCF_UPDATE);
       $$->update.relation_name = $2;
       $$->update.attribute_name = $4;
-      $$->update.value = *$6;
+
       if ($7 != nullptr) {
-        $$->update.conditions.swap(*$7);
+        $$->update.av.swap(*$7);
         delete $7;
+      }
+      $$->update.av.emplace_back(std::pair<std::string, Value>($4, *$6));
+      std::reverse($$->update.av.begin(), $$->update.av.end());
+
+      if ($8 != nullptr) {
+        $$->update.conditions.swap(*$8);
+        delete $8;
       }
       free($2);
       free($4);
