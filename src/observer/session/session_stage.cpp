@@ -27,12 +27,6 @@ See the Mulan PSL v2 for more details. */
 #include "net/server.h"
 #include "net/communicator.h"
 #include "session/session.h"
-#include "net/writer.h"
-#include "net/silent_writer.h"
-
-#include "sql/stmt/delete_stmt.h"
-#include "sql/stmt/select_stmt.h"
-#include "sql/stmt/update_stmt.h"
 
 using namespace common;
 
@@ -146,7 +140,6 @@ void SessionStage::handle_request(StageEvent *event)
  * execute_stage中的执行，通过explain语句看需要哪些operator，然后找对应的operator来
  * 调试或者看代码执行过程即可。
  */
-static RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &values, int &nr_line);
 
 RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
 {
@@ -163,123 +156,9 @@ RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
     return rc;
   }
 
-  /*
-    deal with sub_query 
-  */
-
-  ParsedSqlNode *sql_node = sql_event->sql_node().get();
-  if (sql_node->flag == SCF_DELETE || sql_node->flag == SCF_UPDATE || sql_node->flag == SCF_SELECT) {
-    std::vector<ConditionSqlNode> *conditions;
-    if (sql_node->flag == SCF_DELETE)
-      conditions = &(sql_node->deletion.conditions);
-    else if (sql_node->flag == SCF_UPDATE)
-      conditions = &(sql_node->update.conditions);
-    else
-      conditions = &(sql_node->selection.conditions);
-
-    RC sub_rc;
-    for (ConditionSqlNode &condition : *conditions) {
-      ConType *types[] = {&condition.left_type, &condition.right_type};
-      Value *value[] = {&condition.left_value, &condition.right_value};
-      const SelectSqlNode *nodes[] = {condition.left_select, condition.right_select};
-      std::vector<Value> **values[] = {&(condition.left_values), &condition.right_values};
-      if ((condition.comp == IN || condition.comp == NOT_IN) && 
-          (condition.right_type != CON_SUB_SELECT && condition.right_values == nullptr)) {
-        LOG_WARN("invalid in op");
-        sql_event->session_event()->sql_result()->set_return_code(RC::SUB_QUERY_OP_IN);
-        return RC::SUB_QUERY_OP_IN;
-      }
-      for (int i = 0; i < 2; i++) {
-        if (*types[i] == CON_SUB_SELECT) {
-          ParsedSqlNode *node = new ParsedSqlNode();
-          node->flag = SCF_SELECT;
-          node->selection = *nodes[i];
-          SQLStageEvent stack_sql_event(*sql_event, false);
-          stack_sql_event.set_sql_node(std::unique_ptr<ParsedSqlNode>(node));
-
-          sub_rc = handle_sql(ss, &stack_sql_event, false);
-          if (sub_rc != RC::SUCCESS) {
-            LOG_WARN("sub query failed. rc=%s", strrc(sub_rc));
-            sql_event->session_event()->sql_result()->set_return_code(sub_rc);
-            return sub_rc;
-          }
-
-          Writer *thesw = new SilentWriter();
-          Communicator *communicator = stack_sql_event.session_event()->get_communicator();
-          Writer *writer_bak = communicator->writer();
-          communicator->set_writer(thesw); 
-
-          bool need_disconnect = false;
-          sub_rc = communicator->write_result(stack_sql_event.session_event(), need_disconnect);
-          LOG_INFO("sub query write result return %s", strrc(rc));
-          communicator->set_writer(writer_bak);
-
-          if ((sub_rc = stack_sql_event.session_event()->sql_result()->return_code()) != RC::SUCCESS) {
-            LOG_WARN("sub query failed. rc=%s", strrc(sub_rc));
-            sql_event->session_event()->sql_result()->set_return_code(sub_rc);
-            return sub_rc;
-          }
-
-          SilentWriter *sw = static_cast<SilentWriter *>(thesw);
-          *values[i] = new std::vector<Value>;
-          int nr_line = -1;
-          sub_rc = values_from_sql_stdout(sw->content(), *(*values[i]), nr_line);
-          delete sw;
-
-          // 直接在这里把exists解决了
-          if (condition.comp == EXISTS || condition.comp == NOT_EXISTS) {
-            condition.left_type = CON_VALUE; 
-            condition.right_type = CON_VALUE; 
-            condition.left_value.set_null();
-            condition.right_value.set_null();
-            if ((condition.comp == EXISTS && nr_line > 0) ||
-                (condition.comp == NOT_EXISTS && nr_line == 0))
-              condition.comp = IS;
-            else 
-              condition.comp = IS_NOT;
-            delete *values[i];
-            *values[i] = nullptr;
-            continue;
-          }
-
-          if (nr_line > 1 && (condition.comp != IN && condition.comp != NOT_IN)) {
-            LOG_WARN("sub query return more than one row");
-            sub_rc = RC::SUB_QUERY_OP_IN;
-            sql_event->session_event()->sql_result()->set_return_code(sub_rc);
-            delete *values[i];
-            *values[i] = nullptr;
-            return sub_rc;
-          }
-
-          if (sub_rc != RC::SUCCESS) {
-            LOG_WARN("sub query parse values from std out failed. rc=%s", strrc(sub_rc));
-            sql_event->session_event()->sql_result()->set_return_code(sub_rc);
-            delete *values[i];
-            *values[i] = nullptr;
-            return sub_rc;
-          }
-
-          if ((**values[i]).size() == 1) {
-            *types[i] = CON_VALUE;
-            *value[i] = (**values[i])[0];
-            delete *values[i];
-            *values[i] = nullptr;
-          }          
-
-          if ((**values[i]).size() == 0) {
-            *types[i] = CON_VALUE;
-            value[i]->set_null();
-            delete *values[i];
-            *values[i] = nullptr;
-          }
-        } 
-      }
-    }
-  }
-
-  rc = ss->resolve_stage_.handle_request(sql_event, main_query);
+  rc = ss->resolve_stage_.handle_request(ss, sql_event, main_query);
   if (OB_FAIL(rc)) {
-    LOG_TRACE("failed to do resolve. rc=%s", strrc(rc));
+    LOG_TRACE("failed to do parse. rc=%s", strrc(rc));
     return rc;
   }
   
@@ -296,26 +175,4 @@ RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
   }
 
   return rc;
-}
-
-static RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &values, int &nr_line) {
-  std::vector<std::string> lines;
-  common::split_string(std_out, "\n", lines);
-  nr_line = lines.size() - 1;
-  for (size_t i = 0; i < lines.size(); i++) {
-    std::string &line = lines[i];
-    if (line.find("FALIURE", 0) != std::string::npos) {
-      return RC::SUB_QUERY_FAILURE;
-    }
-    if (line.find(" | ", 0) != std::string::npos) { // 多于一列
-      return RC::SUB_QUERY_MULTI_COLUMN;
-    }
-    if (i != 0) {
-      Value v;
-      int rc = v.from_string(line);
-      if (rc == 0) // 是否为空白
-        values.push_back(v);
-    }
-  }
-  return RC::SUCCESS;
 }

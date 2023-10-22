@@ -89,71 +89,102 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
   }
 
   filter_unit = new FilterUnit;
-
   FilterObj filter_obj_left;
-  if (condition.left_type == CON_ATTR) {
-    Table *table = nullptr;
-    const FieldMeta *field = nullptr;
-    rc = get_table_and_field(db, default_table, tables, condition.left_attr, table, field);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("cannot find attr");
-      return rc;
-    }
-    filter_obj_left.init_attr(Field(table, field));
-  } else if (condition.left_type == CON_VALUE) {
-    if (condition.left_values != nullptr) filter_obj_left.init_values(std::move(*condition.left_values)); // maybe something in (1,2,3)
-    else filter_obj_left.init_value(condition.left_value);
-  } else if (condition.left_type == CON_SUB_SELECT) {
-    if (condition.left_values != nullptr) 
-      filter_obj_left.init_values(*condition.left_values);
-    else
-      filter_obj_left.init_value(condition.left_value);
-  } else if (condition.left_type == CON_UNDEFINED) { // exists op left
-    filter_obj_left.init_value(Value(NULL_TYPE, nullptr, 0));
-  } else {
-    assert(0);
-  }
-  filter_unit->set_left(filter_obj_left);
-
   FilterObj filter_obj_right;
-  if (condition.right_type == CON_ATTR) {
-    Table *table = nullptr;
-    const FieldMeta *field = nullptr;
-    rc = get_table_and_field(db, default_table, tables, condition.right_attr, table, field);
+  CompOp filter_comp = comp;
+  const ValueWrapper &rv = condition.right_value;
+  const ValueWrapper &lv = condition.left_value;
+
+  if (comp == EXISTS || comp == NOT_EXISTS) {
+    filter_obj_left.init_value(Value(NULL_TYPE)); 
+    filter_obj_right.init_value(Value(NULL_TYPE)); 
+    if ((condition.comp == EXISTS && rv.values->size() > 0) ||
+        (condition.comp == NOT_EXISTS && rv.values->size() == 0))
+      filter_comp = IS;
+    else 
+      filter_comp = IS_NOT;
+    filter_unit->set_left(filter_obj_left);
+    filter_unit->set_right(filter_obj_right);
+    filter_unit->set_comp(filter_comp); 
+    return rc;
+  } 
+
+  Table *left_table = nullptr;
+  Table *right_table = nullptr;
+  const FieldMeta *left_field = nullptr;
+  const FieldMeta *right_field = nullptr;
+  if (condition.left_type == CON_ATTR) {
+    rc = get_table_and_field(db, default_table, tables, condition.left_attr, left_table, left_field);
     if (rc != RC::SUCCESS) {
       LOG_WARN("cannot find attr");
       return rc;
     }
-    filter_obj_right.init_attr(Field(table, field));
-  } else if (condition.right_type == CON_VALUE) {
-    if (condition.right_values != nullptr) filter_obj_right.init_values(std::move(*condition.right_values)); // maybe something in (1,2,3)
-    else filter_obj_right.init_value(condition.right_value);
-  } else if (condition.right_type == CON_SUB_SELECT) {
-    if (condition.right_values != nullptr) 
-      filter_obj_right.init_values(*condition.right_values);
-    else
-      filter_obj_right.init_value(condition.right_value);
-  } else if (condition.right_type == CON_UNDEFINED) { // exists op left
-    filter_obj_right.init_value(Value(NULL_TYPE, nullptr, 0));
-  } else {
-    assert(0);
-  }
-  filter_unit->set_right(filter_obj_right);
+  } 
+  if (condition.right_type == CON_ATTR) {
+    rc = get_table_and_field(db, default_table, tables, condition.right_attr, right_table, right_field);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("cannot find attr");
+      return rc;
+    }
+  } 
 
-  filter_unit->set_comp(comp);
+  if (comp == IN || comp == NOT_IN) {
+    if (!rv.values) {
+      LOG_WARN("in op's right value can only be sub query");
+      return RC::SUB_QUERY_OP_IN;
+    }
+    if (condition.left_type == CON_ATTR) {
+      filter_obj_left.init_attr(Field(left_table, left_field));
+    } else {
+      filter_obj_left.init_value(lv.value);
+    }
+    filter_obj_right.init_values(*rv.values);
+    filter_unit->set_left(filter_obj_left);
+    filter_unit->set_right(filter_obj_right);
+    filter_unit->set_comp(filter_comp); 
+    return rc;
+  } 
+
+  if (rv.values && rv.values->size() > 1) {
+    LOG_WARN("invalid values size: %d", rv.values->size());
+    return RC::SUB_QUERY_MULTI_VALUE;
+  }
+  if (lv.values && lv.values->size() > 1) {
+    LOG_WARN("invalid values size: %d", lv.values->size());
+    return RC::SUB_QUERY_MULTI_VALUE;
+  }
 
   // 检查两个类型是否能够比较
   AttrType left, right;
-  if (filter_unit->left().is_attr) left = filter_unit->left().field.attr_type();
-  else {
-    if (filter_unit->left().values.size() == 0) left = NULL_TYPE; // empty select
-    else left = filter_unit->left().values[0].attr_type();
+
+  if (condition.left_type == CON_ATTR) {
+    left = left_field->type();
+    filter_obj_left.init_attr(Field(left_table, left_field));
+  } else {
+    Value lv_impl;
+    if (lv.values) {
+      if (lv.values->size() == 0) lv_impl.set_null();
+      else lv_impl = (*lv.values)[0];
+    } else {
+      lv_impl = lv.value;
+    }
+    left = lv_impl.attr_type();
+    filter_obj_left.init_value(lv_impl);
   }
 
-  if (filter_unit->right().is_attr) right = filter_unit->right().field.attr_type();
-  else {
-    if (filter_unit->right().values.size() == 0) right = NULL_TYPE;
-    else right = filter_unit->right().values[0].attr_type();
+  if (condition.right_type == CON_ATTR) {
+    right = right_field->type();
+    filter_obj_right.init_attr(Field(right_table, right_field));
+  } else {
+    Value rv_impl;
+    if (rv.values) {
+      if (rv.values->size() == 0) rv_impl.set_null();
+      else rv_impl = (*rv.values)[0];
+    } else {
+      rv_impl = rv.value;
+    }
+    right = rv_impl.attr_type();
+    filter_obj_right.init_value(rv_impl);
   }
 
   if (left != right) {
@@ -174,6 +205,10 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
       return RC::SCHEMA_FIELD_TYPE_MISMATCH;
     }
   }
+
+  filter_unit->set_left(filter_obj_left);
+  filter_unit->set_right(filter_obj_right);
+  filter_unit->set_comp(filter_comp);
 
   return rc;
 }

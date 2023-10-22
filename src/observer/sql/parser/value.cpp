@@ -204,6 +204,14 @@ static bool is_date(const std::string& str) {
   return std::regex_match(str, datePattern);
 }
 
+static bool is_int(const std::string &s) {
+  std::istringstream iss(s);
+  int n;
+  iss >> n;
+
+  return !iss.fail() && iss.eof();  // 检查是否解析成功且到达字符串末尾
+}
+
 int Value::from_string(std::string str) {
   size_t firstNonSpace = str.find_first_not_of(" \t\n\r");
   size_t lastNonSpace = str.find_last_not_of(" \t\n\r");
@@ -215,6 +223,10 @@ int Value::from_string(std::string str) {
   }
   if (str.find("null", 0) != std::string::npos) {
     set_null();
+    return 0;
+  }
+  if (is_int(str)) {
+    set_int(std::stoi(str));
     return 0;
   }
   if (is_float(str)) {
@@ -322,12 +334,14 @@ RC Value::compare_op(const Value &other, CompOp op, bool &result) const {
     return rc;
   }
   if (op == CompOp::IS || op == CompOp::IS_NOT) {
+    if (other.attr_type_ != NULL_TYPE) { return RC::VALUE_COMPERR; }
     if (op == CompOp::IS) 
       result = this->attr_type_ == other.attr_type_;
     else 
       result = this->attr_type_ != other.attr_type_;
   }
   if (op == CompOp::LIKE_OP || op == CompOp::NOT_LIKE_OP) {
+    if (this->attr_type_ != CHARS || other.attr_type_ != CHARS) { return RC::VALUE_COMPERR; }
     rc = like(other, result);
     if (op == CompOp::NOT_LIKE_OP) result = !result;
     return rc;

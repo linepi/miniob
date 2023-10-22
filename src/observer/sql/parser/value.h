@@ -34,6 +34,7 @@ public:
   {
     this->set_data(data, length);
   }
+  Value (AttrType attr_type) : attr_type_(attr_type) {}
 
   explicit Value(int val);
   explicit Value(float val);
@@ -65,6 +66,7 @@ public:
   std::string to_string() const;
 
   RC compare(const Value &other, int &result) const;
+  bool match(const Value &other) const;
   RC compare_op(const Value &other, CompOp op, bool &result) const;
   RC like(const Value &other, bool &result) const;
   static bool like(const std::string &column, const std::string &pattern);

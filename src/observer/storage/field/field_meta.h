@@ -45,6 +45,7 @@ public:
   void set_len(int len);
   void set_nullable(bool nullable);
   bool visible() const;
+  bool match(Value &value) const;
   bool match(const Value &value) const;
 
 public:

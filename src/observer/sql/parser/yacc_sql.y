@@ -118,14 +118,16 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
   ParsedSqlNode *                   sql_node;
   std::vector<ParsedSqlNode *> *    sql_nodes;
   ConditionSqlNode *                condition;
-  Value *                           value;
+
+  ValueWrapper *                           value;
+  std::vector<ValueWrapper> *              value_list;
+  std::vector<std::vector<ValueWrapper>> * values_list;
+
   enum CompOp                       comp;
   std::vector<AttrInfoSqlNode> *    attr_infos;
   AttrInfoSqlNode *                 attr_info;
   Expression *                      expression;
   std::vector<Expression *> *       expression_list;
-  std::vector<Value> *              value_list;
-  std::vector<std::vector<Value>> * values_list;
   std::vector<ConditionSqlNode> *   condition_list;
   RelAttrSqlNode *                  rel_attr;
   std::vector<RelAttrSqlNode> *     rel_attr_list;
@@ -134,7 +136,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
   std::vector<std::string> *        relation_list;
   std::vector<JoinNode> *           join_list;
   JoinNode *                        join_node;
-  std::vector<std::pair<std::string, Value>> * set_list;
+  std::vector<std::pair<std::string, ValueWrapper>> * set_list;
   char *                            string;
   int                               number;
   float                             floats;
@@ -154,13 +156,13 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <number>              aggregation_func
 %type <condition>           condition
 %type <value>               value
+%type <value_list>          value_list
 %type <number>              number
 %type <comp>                comp_op
 %type <comp>                comp_op_single
 
 %type <attr_infos>          attr_def_list
 %type <attr_info>           attr_def
-%type <value_list>          value_list
 %type <value_list>          insert_data
 %type <values_list>         insert_data_list
 %type <condition_list>      where
@@ -478,7 +480,7 @@ insert_stmt:        /*insert   语句的语法解析树*/
         std::reverse($6->begin(), $6->end());
         $$->insertion.values_list = $6;
       } else {
-        $$->insertion.values_list = new std::vector<vector<Value>>;
+        $$->insertion.values_list = new std::vector<vector<ValueWrapper>>;
         $$->insertion.values_list->emplace_back(*$5);
       }
       delete $5;
@@ -495,7 +497,7 @@ insert_data_list:
         $3->emplace_back(*$2);
         $$ = $3;
       } else {
-        $$ = new std::vector<vector<Value>>;
+        $$ = new std::vector<vector<ValueWrapper>>;
         $$->emplace_back(*$2);
       }
       delete $2;
@@ -509,7 +511,7 @@ insert_data:
         std::reverse($3->begin(), $3->end());
         $$ = $3;
       } else {
-        $$ = new std::vector<Value>;
+        $$ = new std::vector<ValueWrapper>;
         $$->emplace_back(*$2);
       }   
       delete $2;
@@ -524,7 +526,7 @@ value_list:
       if ($3 != nullptr) {
         $$ = $3;
       } else {
-        $$ = new std::vector<Value>;
+        $$ = new std::vector<ValueWrapper>;
       }
       $$->emplace_back(*$2);
       delete $2;
@@ -532,25 +534,44 @@ value_list:
     ;
 value:
     NUMBER {
-      $$ = new Value((int)$1);
+      $$ = new ValueWrapper;
+      $$->value.set_int((int)$1);
       @$ = @1;
     }
     |FLOAT {
-      $$ = new Value((float)$1);
+      $$ = new ValueWrapper;
+      $$->value.set_float((float)$1);
       @$ = @1;
     }
     |DATE {
+      $$ = new ValueWrapper;
       char *tmp = common::substr($1,1,strlen($1)-2);
-      $$ = new Value(tmp, true);
+      $$->value.set_date(tmp);
       free(tmp);
     }
     |SSS {
+      $$ = new ValueWrapper;
       char *tmp = common::substr($1,1,strlen($1)-2);
-      $$ = new Value(tmp);
+      $$->value.set_string(tmp);
       free(tmp);
     }
     | NULL_TOKEN {
-      $$ = new Value(NULL_TYPE, nullptr, 0);
+      $$ = new ValueWrapper;
+      $$->value.set_null();
+    }
+    | LBRACE select_stmt RBRACE {
+      $$ = new ValueWrapper;
+      $$->select = new SelectSqlNode;
+      *($$->select) = $2->selection;
+      delete $2;
+    }
+    | insert_data {
+      $$ = new ValueWrapper;
+      $$->values = new std::vector<Value>;
+      for (ValueWrapper &vw : *$1) {
+        $$->values->emplace_back(vw.value);
+      }
+      delete $1;
     }
     ;
     
@@ -576,9 +597,9 @@ set_list:
     if ($5 != nullptr) {
       $$ = $5;
     } else {
-      $$ = new std::vector<std::pair<std::string, Value>>;
+      $$ = new std::vector<std::pair<std::string, ValueWrapper>>;
     }
-    $$->emplace_back(std::pair<std::string, Value>($2, *$4));
+    $$->emplace_back(std::pair<std::string, ValueWrapper>($2, *$4));
     free($2);
     delete $4;
   }
@@ -594,7 +615,7 @@ update_stmt:      /*  update 语句的语法解析树*/
         $$->update.av.swap(*$7);
         delete $7;
       }
-      $$->update.av.emplace_back(std::pair<std::string, Value>($4, *$6));
+      $$->update.av.emplace_back(std::pair<std::string, ValueWrapper>($4, *$6));
       std::reverse($$->update.av.begin(), $$->update.av.end());
 
       if ($8 != nullptr) {
@@ -653,7 +674,7 @@ expression:
       $$ = create_arithmetic_expression(ArithmeticExpr::Type::NEGATIVE, $2, nullptr, sql_string, &@$);
     }
     | value {
-      $$ = new ValueExpr(*$1);
+      $$ = new ValueExpr($1->value);
       $$->set_name(token_name(sql_string, &@$));
       delete $1;
     }
@@ -916,104 +937,15 @@ condition:
       delete $1;
       delete $3;
     }
-    | value comp_op LBRACE select_stmt RBRACE
-    {
-      $$ = new ConditionSqlNode;
-      $$->left_type = CON_VALUE;
-      $$->left_value = *$1;
-      $$->right_type = CON_SUB_SELECT;
-      $$->right_select = new SelectSqlNode();
-      *($$->right_select) = $4->selection;
-      $$->comp = $2;
-
-      delete $1;
-      delete $4;
-    }
-    | LBRACE select_stmt RBRACE comp_op value
-    {
-      $$ = new ConditionSqlNode;
-      $$->left_type = CON_SUB_SELECT;
-      $$->left_select = new SelectSqlNode();
-      *($$->left_select) = $2->selection;
-      $$->right_type = CON_VALUE;
-      $$->right_value = *$5;
-      $$->comp = $4;
-
-      delete $2;
-      delete $5;
-    }
-    | rel_attr comp_op LBRACE select_stmt RBRACE
-    {
-      $$ = new ConditionSqlNode;
-      $$->left_type = CON_ATTR;
-      $$->left_attr = *$1;
-      $$->right_type = CON_SUB_SELECT;
-      $$->right_select = new SelectSqlNode();
-      *($$->right_select) = $4->selection;
-      $$->comp = $2;
-
-      delete $1;
-      delete $4;
-    }
-    | LBRACE select_stmt RBRACE comp_op rel_attr
-    {
-      $$ = new ConditionSqlNode;
-      $$->left_type = CON_SUB_SELECT;
-      $$->left_select = new SelectSqlNode();
-      *($$->left_select) = $2->selection;
-      $$->right_type = CON_ATTR;
-      $$->right_attr = *$5;
-      $$->comp = $4;
-
-      delete $2;
-      delete $5;
-    }
-    | LBRACE select_stmt RBRACE comp_op LBRACE select_stmt RBRACE
-    {
-      $$ = new ConditionSqlNode;
-      $$->left_type = CON_SUB_SELECT;
-      $$->left_select = new SelectSqlNode();
-      *($$->left_select) = $2->selection;
-      $$->right_type = CON_SUB_SELECT;
-      $$->right_select = new SelectSqlNode();
-      *($$->right_select) = $6->selection;
-      $$->comp = $4;
-
-      delete $2;
-      delete $6;
-    }
-    | comp_op_single LBRACE select_stmt RBRACE 
+    | comp_op_single LBRACE select_stmt RBRACE
     {
       $$ = new ConditionSqlNode;
       $$->left_type = CON_UNDEFINED;
-      $$->right_type = CON_SUB_SELECT;
-      $$->right_select = new SelectSqlNode();
-      *($$->right_select) = $3->selection;
+      $$->right_type = CON_VALUE;
+      $$->right_value.select = new SelectSqlNode;
+      (*$$->right_value.select) = $3->selection; 
       $$->comp = $1;
-
       delete $3;
-    }
-    | value comp_op insert_data
-    {
-      $$ = new ConditionSqlNode;
-      $$->left_type = CON_VALUE;
-      $$->left_value = *$1;
-      $$->right_type = CON_VALUE;
-      $$->right_values = $3;
-      $$->comp = $2;
-
-      delete $1;
-    }
-    | rel_attr comp_op insert_data
-    {
-      $$ = new ConditionSqlNode;
-      $$->left_type = CON_ATTR;
-      $$->left_attr = *$1;
-      $$->right_type = CON_VALUE;
-      $$->right_values = $3;
-      $$->comp = $2;
-
-      delete $1;
     }
     ;
 
@@ -1064,7 +996,7 @@ set_variable_stmt:
     {
       $$ = new ParsedSqlNode(SCF_SET_VARIABLE);
       $$->set_variable.name  = $2;
-      $$->set_variable.value = *$4;
+      $$->set_variable.value = $4->value;
       free($2);
       delete $4;
     }

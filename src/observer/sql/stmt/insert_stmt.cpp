@@ -37,8 +37,10 @@ RC InsertStmt::create(Db *db, const InsertSqlNode &inserts, Stmt *&stmt)
     return RC::INVALID_ARGUMENT;
   }
 
+  std::vector<std::vector<Value>> * values_list_impl = new std::vector<std::vector<Value>>;
   for (size_t i = 0; i < inserts.values_list->size(); i++) {
-    std::vector<Value> values = (*inserts.values_list)[i];
+    std::vector<Value> values_impl;
+    std::vector<ValueWrapper> values = (*inserts.values_list)[i];
     if (values.empty()) {
       LOG_WARN("invalid argument. %dth values: db=%p, table_name=%p, value_num=%d",
           i + 1, db, table_name, static_cast<int>(values.size()));
@@ -54,16 +56,24 @@ RC InsertStmt::create(Db *db, const InsertSqlNode &inserts, Stmt *&stmt)
 
     // check fields type
     const int sys_field_num = table_meta.sys_field_num();
-    for (int i = 0; i < value_num; i++) {
-      FieldMeta *field_meta = const_cast<FieldMeta *>(table_meta.field(i + sys_field_num));
-      bool match = field_meta->match(values[i]);
+    for (int j = 0; j < value_num; j++) {
+      ValueWrapper &value = values[j];
+      if (value.values && value.values->size() != 1) {
+        LOG_WARN("only one sub query value!");
+        return RC::SUB_QUERY_MULTI_VALUE;
+      }
+      Value &value_impl = value.values ? (*value.values)[0] : value.value;
+      FieldMeta *field_meta = const_cast<FieldMeta *>(table_meta.field(j + sys_field_num));
+      bool match = field_meta->match(value_impl);
       if (!match) {
         LOG_WARN("field does not match value");
         return RC::SCHEMA_FIELD_TYPE_MISMATCH;
       }
+      values_impl.emplace_back(value_impl);
     }
+    values_list_impl->emplace_back(values_impl);
   }
   // everything alright
-  stmt = new InsertStmt(table, inserts.values_list);
+  stmt = new InsertStmt(table, values_list_impl);
   return RC::SUCCESS;
 }

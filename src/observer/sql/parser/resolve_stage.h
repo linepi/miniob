@@ -15,9 +15,11 @@ See the Mulan PSL v2 for more details. */
 #pragma once
 
 #include "common/rc.h"
+#include <memory>
 
 class SQLStageEvent;
-
+class SessionStage;
+class ParsedSqlNode;
 /**
  * @brief 执行Resolve，将解析后的SQL语句，转换成各种Stmt(Statement), 同时会做错误检查
  * @ingroup SQLStage
@@ -25,5 +27,7 @@ class SQLStageEvent;
 class ResolveStage
 {
 public:
-  RC handle_request(SQLStageEvent *sql_event, bool);
+  RC handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool);
+private:
+  RC extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionStage *ss, SQLStageEvent *sql_event);
 };

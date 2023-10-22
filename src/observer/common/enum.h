@@ -48,5 +48,4 @@ enum ConType
   CON_UNDEFINED,
   CON_ATTR,
   CON_VALUE,
-  CON_SUB_SELECT,
 };

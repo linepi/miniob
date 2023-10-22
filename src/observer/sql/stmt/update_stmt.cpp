@@ -44,9 +44,9 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt)
     return RC::SCHEMA_TABLE_NOT_EXIST;
   }
 
-  for (const std::pair<std::string, Value> &p : update_sql.av) {
+  for (const std::pair<std::string, ValueWrapper> &p : update_sql.av) {
     const std::string &attribute_name = p.first;
-    const Value &value = p.second;
+    const ValueWrapper &value = p.second;
     FieldMeta *field_meta = const_cast<FieldMeta *>(table->table_meta().field(attribute_name.c_str()));
 
     if (nullptr == field_meta) {
@@ -54,13 +54,19 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt)
       return RC::SCHEMA_FIELD_MISSING;
     }
 
-    if (!field_meta->match(value)) {
+    if (value.values && value.values->size() != 1) {
+      LOG_WARN("only one sub query value!");
+      return RC::SUB_QUERY_MULTI_VALUE;
+    }
+    const Value &value_impl = value.values ? (*value.values)[0] : value.value;
+
+    if (!field_meta->match(const_cast<Value &>(value_impl))) {
       LOG_WARN("field does not match value");
       return RC::SCHEMA_FIELD_TYPE_MISMATCH;
     }
 
     update_stmt->field_metas_.push_back(field_meta);
-    update_stmt->values_.push_back(value);
+    update_stmt->values_.push_back(value_impl);
   }
 
 

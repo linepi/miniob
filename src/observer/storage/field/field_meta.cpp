@@ -98,6 +98,20 @@ bool FieldMeta::nullable() const {
   return nullable_;
 }
 
+bool FieldMeta::match(Value &value) const {
+  if (value.attr_type() == NULL_TYPE && nullable_) return true;
+  if (attr_type_ == FLOATS && value.attr_type() == INTS) {
+    value.set_float(value.get_int());
+    return true;
+  }
+  if (attr_type_ == INTS && value.attr_type() == FLOATS) {
+    value.set_int(value.get_float());
+    return true;
+  }
+  if (attr_len_ < value.length() || attr_type_ != value.attr_type()) return false;
+  return true;
+}
+
 bool FieldMeta::match(const Value &value) const {
   if (value.attr_type() == NULL_TYPE && nullable_) return true;
   if (attr_len_ < value.length() || attr_type_ != value.attr_type()) return false;

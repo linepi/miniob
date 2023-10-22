@@ -22,6 +22,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/parser/value.h"
 #include "common/enum.h"
 #include "sql/expr/aggregation_func.h"
+#include "sql/parser/value_wrapper.h"
 
 class Expression;
 
@@ -50,7 +51,6 @@ struct SelectAttr
   AggType agg_type = AGG_UNDEFINED;  
 };
 
-
 /**
  * @brief 表示一个条件比较
  * @ingroup SQLParser
@@ -59,22 +59,15 @@ struct SelectAttr
  * 左边和右边理论上都可以是任意的数据，比如是字段（属性，列），也可以是数值常量。
  * 这个结构中记录的仅仅支持字段和值。
  */
-struct SelectSqlNode;
 struct ConditionSqlNode
 {
-  ConType             left_type;    ///< TRUE if left-hand side is an attribute
-                                       ///< 1时，操作符左边是属性名，0时，是属性值
-  Value               left_value;      ///< left-hand side value if left_is_attr = FALSE
-  RelAttrSqlNode      left_attr;       ///< left-hand side attribute
-  SelectSqlNode      *left_select = nullptr;
-  std::vector<Value> *left_values = nullptr;
-  CompOp              comp;            ///< comparison operator
-  ConType             right_type;   ///< TRUE if right-hand side is an attribute
-                                       ///< 1时，操作符右边是属性名，0时，是属性值
-  RelAttrSqlNode      right_attr;      ///< right-hand side attribute if right_is_attr = TRUE 右边的属性
-  Value               right_value;     ///< right-hand side value if right_is_attr = FALSE
-  SelectSqlNode      *right_select = nullptr;
-  std::vector<Value> *right_values = nullptr;
+  ConType             left_type;    
+  RelAttrSqlNode      left_attr;      
+  ValueWrapper       left_value;
+  CompOp              comp;           
+  ConType             right_type;   
+  RelAttrSqlNode      right_attr;    
+  ValueWrapper       right_value;
 };
 
 enum JoinType
@@ -128,7 +121,7 @@ struct CalcSqlNode
 struct InsertSqlNode
 {
   std::string        relation_name;  ///< Relation to insert into
-  std::vector<std::vector<Value>> * values_list;         ///< 要插入的值
+  std::vector<std::vector<ValueWrapper>> * values_list;         ///< 要插入的值
 };
 
 /**
@@ -148,9 +141,8 @@ struct DeleteSqlNode
 struct UpdateSqlNode
 {
   std::string                   relation_name;         ///< Relation to update
-  std::vector<std::pair<std::string, Value>> av;
-  std::string                   attribute_name;        ///< 更新的字段，仅支持一个字段
-  Value                         value;                 ///< 更新的值，仅支持一个字段
+  std::string                   attribute_name;       
+  std::vector<std::pair<std::string, ValueWrapper>> av;
   std::vector<ConditionSqlNode> conditions;
 };
 

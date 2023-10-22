@@ -79,6 +79,7 @@ See the Mulan PSL v2 for more details. */
   DEFINE_RC(SUB_QUERY_MULTI_COLUMN)         \
   DEFINE_RC(SUB_QUERY_FAILURE)              \
   DEFINE_RC(SUB_QUERY_OP_IN)                \
+  DEFINE_RC(SUB_QUERY_MULTI_VALUE)                \
   DEFINE_RC(OPERAND_COLUMNS)                \
   DEFINE_RC(UNIQUE_INDEX)                 
 
