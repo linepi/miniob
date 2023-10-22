@@ -24,7 +24,7 @@ RC FieldExpr::get_value(const Tuple &tuple, Value &value) const
 
 RC ValueExpr::get_value(const Tuple &tuple, Value &value) const
 {
-  value = value_;
+  value = values_[0];
   return RC::SUCCESS;
 }
 
@@ -96,16 +96,34 @@ RC ComparisonExpr::try_get_value(Value &cell) const
   if (left_->type() == ExprType::VALUE && right_->type() == ExprType::VALUE) {
     ValueExpr *left_value_expr = static_cast<ValueExpr *>(left_.get());
     ValueExpr *right_value_expr = static_cast<ValueExpr *>(right_.get());
+
     const Value &left_cell = left_value_expr->get_value();
     const Value &right_cell = right_value_expr->get_value();
 
-    bool value = false;
-    RC rc = compare_value(left_cell, right_cell, value);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("failed to compare tuple cells. rc=%s", strrc(rc));
+    RC rc = RC::SUCCESS;
+
+    bool bool_value = false;
+    if (right_value_expr->get_values().size() > 1) {
+      if (comp_ == CompOp::IN || comp_ == CompOp::NOT_IN) {
+        for (const Value &v : (*right_value_expr).get_values()) {
+          rc = left_cell.compare_op(v, CompOp::EQUAL_TO, bool_value); 
+          if (rc != RC::SUCCESS) 
+            break;
+          if (bool_value)
+            break;
+        }
+        if (comp_ == CompOp::NOT_IN) 
+          bool_value = !bool_value;
+      } else {
+        return RC::OPERAND_COLUMNS;
+      }
     } else {
-      cell.set_boolean(value);
+      rc = compare_value(left_cell, right_cell, bool_value);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to compare tuple cells. rc=%s", strrc(rc));
+      } 
     }
+    cell.set_boolean(bool_value);
     return rc;
   }
 
@@ -115,21 +133,39 @@ RC ComparisonExpr::try_get_value(Value &cell) const
 RC ComparisonExpr::get_value(const Tuple &tuple, Value &value) const
 {
   Value left_value;
-  Value right_value;
-
   RC rc = left_->get_value(tuple, left_value);
   if (rc != RC::SUCCESS) {
     LOG_WARN("failed to get value of left expression. rc=%s", strrc(rc));
     return rc;
   }
-  rc = right_->get_value(tuple, right_value);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to get value of right expression. rc=%s", strrc(rc));
-    return rc;
+  
+  Value right_value;
+  if (comp_ != CompOp::IN && comp_ != CompOp::NOT_IN) {
+    rc = right_->get_value(tuple, right_value);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to get value of right expression. rc=%s", strrc(rc));
+      return rc;
+    }
   }
 
   bool bool_value = false;
-  rc = compare_value(left_value, right_value, bool_value);
+  if (comp_ == CompOp::IN || comp_ == CompOp::NOT_IN) {
+    ValueExpr *sub_query_values = static_cast<ValueExpr *>(right_.get());
+    for (const Value &v : (*sub_query_values).get_values()) {
+      rc = left_value.compare_op(v, CompOp::EQUAL_TO, bool_value); 
+      if (rc != RC::SUCCESS) 
+        break;
+      if (bool_value)
+        break;
+    }
+    if ((*sub_query_values).get_values().size() == 0) // empty select
+      bool_value = false;
+    if (comp_ == CompOp::NOT_IN) 
+      bool_value = !bool_value;
+  } else {
+    rc = compare_value(left_value, right_value, bool_value);
+  }
+
   if (rc == RC::SUCCESS) {
     value.set_boolean(bool_value);
   }

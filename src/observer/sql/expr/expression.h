@@ -138,24 +138,42 @@ class ValueExpr : public Expression
 {
 public:
   ValueExpr() = default;
-  explicit ValueExpr(const Value &value) : value_(value)
-  {}
+  explicit ValueExpr(const Value &value) 
+  { 
+    values_.clear(); 
+    values_.push_back(value); 
+  }
+  explicit ValueExpr(const std::vector<Value> &values) 
+  { 
+    values_ = values;
+  }
 
   virtual ~ValueExpr() = default;
 
   RC get_value(const Tuple &tuple, Value &value) const override;
-  RC try_get_value(Value &value) const override { value = value_; return RC::SUCCESS; }
+  RC try_get_value(Value &value) const override { 
+    assert(values_.size() > 0);
+    value = values_[0]; 
+    return RC::SUCCESS; 
+  }
 
   ExprType type() const override { return ExprType::VALUE; }
 
-  AttrType value_type() const override { return value_.attr_type(); }
+  AttrType value_type() const override { 
+    assert(values_.size() > 0);
+      return values_[0].attr_type(); }
 
-  void get_value(Value &value) const { value = value_; }
-
-  const Value &get_value() const { return value_; }
+  void get_value(Value &value) const { 
+    assert(values_.size() > 0);
+      value = values_[0]; }
+  const std::vector<Value> &get_values() const {  return values_; }
+  const Value &get_value() const { 
+    assert(values_.size() > 0);
+    return values_[0]; 
+  }
 
 private:
-  Value value_;
+  std::vector<Value> values_;
 };
 
 /**

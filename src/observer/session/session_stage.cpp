@@ -121,6 +121,7 @@ void SessionStage::handle_request(StageEvent *event)
     (void)handle_sql(this, &sql_event, true);
 
     Communicator *communicator = sev->get_communicator();
+    // communicator->session()->set_sql_debug(true);
     bool need_disconnect = false;
     RC rc = communicator->write_result(sev, need_disconnect);
     LOG_INFO("write result return %s", strrc(rc));
@@ -145,7 +146,7 @@ void SessionStage::handle_request(StageEvent *event)
  * execute_stage中的执行，通过explain语句看需要哪些operator，然后找对应的operator来
  * 调试或者看代码执行过程即可。
  */
-static std::vector<Value> * values_from_sql_stdout(std::string &std_out);
+static RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &values, int &nr_line);
 
 RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
 {
@@ -162,8 +163,11 @@ RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
     return rc;
   }
 
+  /*
+    deal with sub_query 
+  */
+
   ParsedSqlNode *sql_node = sql_event->sql_node().get();
-  Writer *thesw = new SilentWriter();
   if (sql_node->flag == SCF_DELETE || sql_node->flag == SCF_UPDATE || sql_node->flag == SCF_SELECT) {
     std::vector<ConditionSqlNode> *conditions;
     if (sql_node->flag == SCF_DELETE)
@@ -173,35 +177,105 @@ RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
     else
       conditions = &(sql_node->selection.conditions);
 
+    RC sub_rc;
     for (ConditionSqlNode &condition : *conditions) {
-      ParsedSqlNode node;
-      node.flag = SCF_SELECT;
-      if (condition.left_type == CON_SUB_SELECT) {
-        SQLStageEvent stack_sql_event(*sql_event);
-        SessionStage stack_ss(*ss);
+      ConType *types[] = {&condition.left_type, &condition.right_type};
+      Value *value[] = {&condition.left_value, &condition.right_value};
+      const SelectSqlNode *nodes[] = {condition.left_select, condition.right_select};
+      std::vector<Value> **values[] = {&(condition.left_values), &condition.right_values};
+      if ((condition.comp == IN || condition.comp == NOT_IN) && 
+          (condition.right_type != CON_SUB_SELECT && condition.right_values == nullptr)) {
+        LOG_WARN("invalid in op");
+        sql_event->session_event()->sql_result()->set_return_code(RC::SUB_QUERY_OP_IN);
+        return RC::SUB_QUERY_OP_IN;
+      }
+      for (int i = 0; i < 2; i++) {
+        if (*types[i] == CON_SUB_SELECT) {
+          ParsedSqlNode *node = new ParsedSqlNode();
+          node->flag = SCF_SELECT;
+          node->selection = *nodes[i];
+          SQLStageEvent stack_sql_event(*sql_event, false);
+          stack_sql_event.set_sql_node(std::unique_ptr<ParsedSqlNode>(node));
 
-        node.selection = *condition.left_select;
-        stack_sql_event.set_sql_node(std::unique_ptr<ParsedSqlNode>(&node));
+          sub_rc = handle_sql(ss, &stack_sql_event, false);
+          if (sub_rc != RC::SUCCESS) {
+            LOG_WARN("sub query failed. rc=%s", strrc(sub_rc));
+            sql_event->session_event()->sql_result()->set_return_code(sub_rc);
+            return sub_rc;
+          }
 
-        handle_sql(&stack_ss, &stack_sql_event, false);
+          Writer *thesw = new SilentWriter();
+          Communicator *communicator = stack_sql_event.session_event()->get_communicator();
+          Writer *writer_bak = communicator->writer();
+          communicator->set_writer(thesw); 
 
-        Communicator *communicator = stack_sql_event.session_event()->get_communicator();
-        Writer *writer_bak = communicator->writer();
+          bool need_disconnect = false;
+          sub_rc = communicator->write_result(stack_sql_event.session_event(), need_disconnect);
+          LOG_INFO("sub query write result return %s", strrc(rc));
+          communicator->set_writer(writer_bak);
 
-        communicator->set_writer(thesw); 
-        bool need_disconnect = false;
-        rc = communicator->write_result(stack_sql_event.session_event(), need_disconnect);
-        SilentWriter *sw = static_cast<SilentWriter *>(communicator->writer());
-        condition.left_values = values_from_sql_stdout(sw->content());
+          if ((sub_rc = stack_sql_event.session_event()->sql_result()->return_code()) != RC::SUCCESS) {
+            LOG_WARN("sub query failed. rc=%s", strrc(sub_rc));
+            sql_event->session_event()->sql_result()->set_return_code(sub_rc);
+            return sub_rc;
+          }
 
-        communicator->set_writer(writer_bak);
+          SilentWriter *sw = static_cast<SilentWriter *>(thesw);
+          *values[i] = new std::vector<Value>;
+          int nr_line = -1;
+          sub_rc = values_from_sql_stdout(sw->content(), *(*values[i]), nr_line);
+          delete sw;
 
-        condition.left_type = CON_VALUE;
-        condition.left_value = (*condition.left_values)[0];
-      } 
+          // 直接在这里把exists解决了
+          if (condition.comp == EXISTS || condition.comp == NOT_EXISTS) {
+            condition.left_type = CON_VALUE; 
+            condition.right_type = CON_VALUE; 
+            condition.left_value.set_null();
+            condition.right_value.set_null();
+            if ((condition.comp == EXISTS && nr_line > 0) ||
+                (condition.comp == NOT_EXISTS && nr_line == 0))
+              condition.comp = IS;
+            else 
+              condition.comp = IS_NOT;
+            delete *values[i];
+            *values[i] = nullptr;
+            continue;
+          }
+
+          if (nr_line > 1 && (condition.comp != IN && condition.comp != NOT_IN)) {
+            LOG_WARN("sub query return more than one row");
+            sub_rc = RC::SUB_QUERY_OP_IN;
+            sql_event->session_event()->sql_result()->set_return_code(sub_rc);
+            delete *values[i];
+            *values[i] = nullptr;
+            return sub_rc;
+          }
+
+          if (sub_rc != RC::SUCCESS) {
+            LOG_WARN("sub query parse values from std out failed. rc=%s", strrc(sub_rc));
+            sql_event->session_event()->sql_result()->set_return_code(sub_rc);
+            delete *values[i];
+            *values[i] = nullptr;
+            return sub_rc;
+          }
+
+          if ((**values[i]).size() == 1) {
+            *types[i] = CON_VALUE;
+            *value[i] = (**values[i])[0];
+            delete *values[i];
+            *values[i] = nullptr;
+          }          
+
+          if ((**values[i]).size() == 0) {
+            *types[i] = CON_VALUE;
+            value[i]->set_null();
+            delete *values[i];
+            *values[i] = nullptr;
+          }
+        } 
+      }
     }
   }
-  delete thesw;
 
   rc = ss->resolve_stage_.handle_request(sql_event, main_query);
   if (OB_FAIL(rc)) {
@@ -224,22 +298,24 @@ RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
   return rc;
 }
 
-static std::vector<Value> * values_from_sql_stdout(std::string &std_out) {
+static RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &values, int &nr_line) {
   std::vector<std::string> lines;
   common::split_string(std_out, "\n", lines);
-  std::vector<Value> * ret = new std::vector<Value>;
+  nr_line = lines.size() - 1;
   for (size_t i = 0; i < lines.size(); i++) {
     std::string &line = lines[i];
-    if (line.find(" | ", 0) != std::string::npos) {
-      delete ret;
-      return nullptr;
+    if (line.find("FALIURE", 0) != std::string::npos) {
+      return RC::SUB_QUERY_FAILURE;
+    }
+    if (line.find(" | ", 0) != std::string::npos) { // 多于一列
+      return RC::SUB_QUERY_MULTI_COLUMN;
     }
     if (i != 0) {
       Value v;
       int rc = v.from_string(line);
-      if (rc == 0)
-        ret->push_back(v);
+      if (rc == 0) // 是否为空白
+        values.push_back(v);
     }
   }
-  return ret;
+  return RC::SUCCESS;
 }

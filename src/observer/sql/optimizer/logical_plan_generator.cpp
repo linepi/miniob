@@ -146,11 +146,11 @@ RC LogicalPlanGenerator::create_plan(
 
     unique_ptr<Expression> left(filter_obj_left.is_attr
                                          ? static_cast<Expression *>(new FieldExpr(filter_obj_left.field))
-                                         : static_cast<Expression *>(new ValueExpr(filter_obj_left.value)));
+                                         : static_cast<Expression *>(new ValueExpr(filter_obj_left.values)));
 
     unique_ptr<Expression> right(filter_obj_right.is_attr
                                           ? static_cast<Expression *>(new FieldExpr(filter_obj_right.field))
-                                          : static_cast<Expression *>(new ValueExpr(filter_obj_right.value)));
+                                          : static_cast<Expression *>(new ValueExpr(filter_obj_right.values)));
 
     ComparisonExpr *cmp_expr = new ComparisonExpr(filter_unit->comp(), std::move(left), std::move(right));
     cmp_exprs.emplace_back(cmp_expr);

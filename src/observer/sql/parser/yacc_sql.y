@@ -156,6 +156,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <value>               value
 %type <number>              number
 %type <comp>                comp_op
+%type <comp>                comp_op_single
 
 %type <attr_infos>          attr_def_list
 %type <attr_info>           attr_def
@@ -967,6 +968,53 @@ condition:
       delete $2;
       delete $5;
     }
+    | LBRACE select_stmt RBRACE comp_op LBRACE select_stmt RBRACE
+    {
+      $$ = new ConditionSqlNode;
+      $$->left_type = CON_SUB_SELECT;
+      $$->left_select = new SelectSqlNode();
+      *($$->left_select) = $2->selection;
+      $$->right_type = CON_SUB_SELECT;
+      $$->right_select = new SelectSqlNode();
+      *($$->right_select) = $6->selection;
+      $$->comp = $4;
+
+      delete $2;
+      delete $6;
+    }
+    | comp_op_single LBRACE select_stmt RBRACE 
+    {
+      $$ = new ConditionSqlNode;
+      $$->left_type = CON_UNDEFINED;
+      $$->right_type = CON_SUB_SELECT;
+      $$->right_select = new SelectSqlNode();
+      *($$->right_select) = $3->selection;
+      $$->comp = $1;
+
+      delete $3;
+    }
+    | value comp_op insert_data
+    {
+      $$ = new ConditionSqlNode;
+      $$->left_type = CON_VALUE;
+      $$->left_value = *$1;
+      $$->right_type = CON_VALUE;
+      $$->right_values = $3;
+      $$->comp = $2;
+
+      delete $1;
+    }
+    | rel_attr comp_op insert_data
+    {
+      $$ = new ConditionSqlNode;
+      $$->left_type = CON_ATTR;
+      $$->left_attr = *$1;
+      $$->right_type = CON_VALUE;
+      $$->right_values = $3;
+      $$->comp = $2;
+
+      delete $1;
+    }
     ;
 
 comp_op:
@@ -982,9 +1030,13 @@ comp_op:
     | IS_TOKEN NOT { $$ = IS_NOT; }
     | IN_TOKEN { $$ = IN; }
     | NOT IN_TOKEN { $$ = NOT_IN; }
-    | NOT EXISTS_TOKEN { $$ = NOT_EXISTS; }
-    | EXISTS_TOKEN { $$ = EXISTS; }
     ;
+
+comp_op_single:
+  NOT EXISTS_TOKEN { $$ = NOT_EXISTS; }
+  | EXISTS_TOKEN { $$ = EXISTS; }
+  ;
+
 
 load_data_stmt:
     LOAD DATA INFILE SSS INTO TABLE ID 

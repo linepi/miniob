@@ -16,11 +16,11 @@ enum CompOp
   NOT_LIKE_OP,
   IS,
   IS_NOT,
-  NO_OP,
   IN,
   NOT_IN,
   EXISTS,
   NOT_EXISTS,
+  NO_OP,
 };
 
 
@@ -45,7 +45,8 @@ enum AttrType
  */
 enum ConType
 {
+  CON_UNDEFINED,
   CON_ATTR,
   CON_VALUE,
-  CON_SUB_SELECT
+  CON_SUB_SELECT,
 };

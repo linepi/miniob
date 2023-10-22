@@ -24,11 +24,16 @@ class Db;
 class Table;
 class FieldMeta;
 
+/*
+  values包含一个元素的情况有两类，一类是(select stmt)退化而来，另一类是基本的value
+  values包含多个元素由子查询得出
+*/
+
 struct FilterObj 
 {
   bool is_attr;
   Field field;
-  Value value;
+  std::vector<Value> values;
 
   void init_attr(const Field &field)
   {
@@ -39,7 +44,13 @@ struct FilterObj
   void init_value(const Value &value)
   {
     is_attr = false;
-    this->value = value;
+    this->values.push_back(value);
+  }
+
+  void init_values(const std::vector<Value> &values)
+  {
+    is_attr = false;
+    this->values = values;
   }
 };
 

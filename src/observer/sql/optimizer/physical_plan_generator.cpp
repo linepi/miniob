@@ -98,7 +98,7 @@ RC PhysicalPlanGenerator::create_plan(TableGetLogicalOperator &table_get_oper, u
   for (auto &expr : predicates) {
     if (expr->type() == ExprType::COMPARISON) {
       auto comparison_expr = static_cast<ComparisonExpr *>(expr.get());
-      // 简单处理，就找等值查询
+      // 简单处理: 就找等值查询
       if (comparison_expr->comp() != EQUAL_TO) {
         continue;
       }
@@ -121,7 +121,7 @@ RC PhysicalPlanGenerator::create_plan(TableGetLogicalOperator &table_get_oper, u
         value_expr = static_cast<ValueExpr *>(left_expr.get());
       }
 
-      if (field_expr == nullptr) {
+      if (field_expr == nullptr || value_expr->value_type() == NULL_TYPE) {
         continue;
       }
 

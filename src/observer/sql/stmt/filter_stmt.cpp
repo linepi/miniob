@@ -90,6 +90,7 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
 
   filter_unit = new FilterUnit;
 
+  FilterObj filter_obj_left;
   if (condition.left_type == CON_ATTR) {
     Table *table = nullptr;
     const FieldMeta *field = nullptr;
@@ -98,17 +99,23 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
       LOG_WARN("cannot find attr");
       return rc;
     }
-    FilterObj filter_obj;
-    filter_obj.init_attr(Field(table, field));
-    filter_unit->set_left(filter_obj);
+    filter_obj_left.init_attr(Field(table, field));
   } else if (condition.left_type == CON_VALUE) {
-    FilterObj filter_obj;
-    filter_obj.init_value(condition.left_value);
-    filter_unit->set_left(filter_obj);
+    if (condition.left_values != nullptr) filter_obj_left.init_values(std::move(*condition.left_values)); // maybe something in (1,2,3)
+    else filter_obj_left.init_value(condition.left_value);
+  } else if (condition.left_type == CON_SUB_SELECT) {
+    if (condition.left_values != nullptr) 
+      filter_obj_left.init_values(*condition.left_values);
+    else
+      filter_obj_left.init_value(condition.left_value);
+  } else if (condition.left_type == CON_UNDEFINED) { // exists op left
+    filter_obj_left.init_value(Value(NULL_TYPE, nullptr, 0));
   } else {
     assert(0);
   }
+  filter_unit->set_left(filter_obj_left);
 
+  FilterObj filter_obj_right;
   if (condition.right_type == CON_ATTR) {
     Table *table = nullptr;
     const FieldMeta *field = nullptr;
@@ -117,26 +124,37 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
       LOG_WARN("cannot find attr");
       return rc;
     }
-    FilterObj filter_obj;
-    filter_obj.init_attr(Field(table, field));
-    filter_unit->set_right(filter_obj);
+    filter_obj_right.init_attr(Field(table, field));
   } else if (condition.right_type == CON_VALUE) {
-    FilterObj filter_obj;
-    filter_obj.init_value(condition.right_value);
-    filter_unit->set_right(filter_obj);
+    if (condition.right_values != nullptr) filter_obj_right.init_values(std::move(*condition.right_values)); // maybe something in (1,2,3)
+    else filter_obj_right.init_value(condition.right_value);
+  } else if (condition.right_type == CON_SUB_SELECT) {
+    if (condition.right_values != nullptr) 
+      filter_obj_right.init_values(*condition.right_values);
+    else
+      filter_obj_right.init_value(condition.right_value);
+  } else if (condition.right_type == CON_UNDEFINED) { // exists op left
+    filter_obj_right.init_value(Value(NULL_TYPE, nullptr, 0));
   } else {
     assert(0);
   }
+  filter_unit->set_right(filter_obj_right);
 
   filter_unit->set_comp(comp);
 
   // 检查两个类型是否能够比较
   AttrType left, right;
   if (filter_unit->left().is_attr) left = filter_unit->left().field.attr_type();
-  else left = filter_unit->left().value.attr_type();
+  else {
+    if (filter_unit->left().values.size() == 0) left = NULL_TYPE; // empty select
+    else left = filter_unit->left().values[0].attr_type();
+  }
 
   if (filter_unit->right().is_attr) right = filter_unit->right().field.attr_type();
-  else right = filter_unit->right().value.attr_type();
+  else {
+    if (filter_unit->right().values.size() == 0) right = NULL_TYPE;
+    else right = filter_unit->right().values[0].attr_type();
+  }
 
   if (left != right) {
     char buf[4] = {'.','.','.','.'};

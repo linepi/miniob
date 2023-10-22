@@ -32,7 +32,7 @@ public:
   SQLStageEvent(SessionEvent *event, const std::string &sql);
   virtual ~SQLStageEvent() noexcept;
 
-  SQLStageEvent(SQLStageEvent &other);
+  SQLStageEvent(SQLStageEvent &other, bool main_query);
 
   SessionEvent *session_event() const
   {
@@ -83,4 +83,5 @@ private:
   std::unique_ptr<ParsedSqlNode> sql_node_;  ///< 语法解析后的SQL命令
   Stmt *stmt_ = nullptr;  ///< Resolver之后生成的数据结构
   std::unique_ptr<PhysicalOperator> operator_; ///< 生成的执行计划，也可能没有
+  bool main_query_ = true;
 };

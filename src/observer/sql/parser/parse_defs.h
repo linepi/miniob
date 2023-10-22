@@ -66,15 +66,15 @@ struct ConditionSqlNode
                                        ///< 1时，操作符左边是属性名，0时，是属性值
   Value               left_value;      ///< left-hand side value if left_is_attr = FALSE
   RelAttrSqlNode      left_attr;       ///< left-hand side attribute
-  SelectSqlNode      *left_select;
-  std::vector<Value> *left_values;
+  SelectSqlNode      *left_select = nullptr;
+  std::vector<Value> *left_values = nullptr;
   CompOp              comp;            ///< comparison operator
   ConType             right_type;   ///< TRUE if right-hand side is an attribute
                                        ///< 1时，操作符右边是属性名，0时，是属性值
   RelAttrSqlNode      right_attr;      ///< right-hand side attribute if right_is_attr = TRUE 右边的属性
   Value               right_value;     ///< right-hand side value if right_is_attr = FALSE
-  SelectSqlNode      *right_select;
-  std::vector<Value> *right_values;
+  SelectSqlNode      *right_select = nullptr;
+  std::vector<Value> *right_values = nullptr;
 };
 
 enum JoinType

@@ -24,13 +24,14 @@ See the Mulan PSL v2 for more details. */
 SQLStageEvent::SQLStageEvent(SessionEvent *event, const std::string &sql) : session_event_(event), sql_(sql)
 {}
 
-SQLStageEvent::SQLStageEvent(SQLStageEvent &other) {
+SQLStageEvent::SQLStageEvent(SQLStageEvent &other, bool main_query) {
   session_event_ = new SessionEvent(other.session_event()->get_communicator());
+  main_query_ = main_query;
 }
 
 SQLStageEvent::~SQLStageEvent() noexcept
 {
-  if (session_event_ != nullptr) {
+  if (session_event_ != nullptr && main_query_) {
     session_event_ = nullptr;
   }
 

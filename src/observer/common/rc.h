@@ -76,7 +76,11 @@ See the Mulan PSL v2 for more details. */
   DEFINE_RC(VARIABLE_NOT_VALID)             \
   DEFINE_RC(VALUE_COMPERR)                   \
   DEFINE_RC(LOGBUF_FULL)                    \
-  DEFINE_RC(UNIQUE_INDEX)  
+  DEFINE_RC(SUB_QUERY_MULTI_COLUMN)         \
+  DEFINE_RC(SUB_QUERY_FAILURE)              \
+  DEFINE_RC(SUB_QUERY_OP_IN)                \
+  DEFINE_RC(OPERAND_COLUMNS)                \
+  DEFINE_RC(UNIQUE_INDEX)                 
 
 enum class RC
 {
