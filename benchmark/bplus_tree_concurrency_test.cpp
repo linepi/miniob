@@ -101,7 +101,7 @@ public:
       const char *key = reinterpret_cast<const char *>(&value);
       RID         rid(value, value);
       //TODO: 确定需不需要设定唯一索引的标识
-      [[maybe_unused]] RC rc = handler_.insert_entry(key, &rid, false);
+      [[maybe_unused]] RC rc = handler_.insert_entry(key, &rid);
       ASSERT(rc == RC::SUCCESS, "failed to insert entry into btree. key=%" PRIu32, value);
     }
   }
@@ -121,7 +121,7 @@ public:
     RID         rid(value, value);
 
     //TODO: 确定需不需要设定唯一索引的标识
-    RC rc = handler_.insert_entry(key, &rid, false);
+    RC rc = handler_.insert_entry(key, &rid);
     switch (rc) {
       case RC::SUCCESS: {
         stat.insert_success_count++;
