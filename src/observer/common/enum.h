@@ -37,6 +37,7 @@ enum AttrType
   DATES,          ///< 日期类型
   BOOLEANS,       ///< boolean类型，当前不是由parser解析出来的，是程序内部使用的
   NULL_TYPE,
+  EMPTY_TYPE,
 };
 
 

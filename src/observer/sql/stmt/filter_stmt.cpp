@@ -92,17 +92,14 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
   FilterObj filter_obj_left;
   FilterObj filter_obj_right;
   CompOp filter_comp = comp;
-  const ValueWrapper &rv = condition.right_value;
-  const ValueWrapper &lv = condition.left_value;
+  ValueWrapper &rv = const_cast<ValueWrapper &>(condition.right_value);
+  ValueWrapper &lv = const_cast<ValueWrapper &>(condition.left_value);
+
 
   if (comp == EXISTS || comp == NOT_EXISTS) {
-    filter_obj_left.init_value(Value(NULL_TYPE)); 
-    filter_obj_right.init_value(Value(NULL_TYPE)); 
-    if ((condition.comp == EXISTS && rv.values->size() > 0) ||
-        (condition.comp == NOT_EXISTS && rv.values->size() == 0))
-      filter_comp = IS;
-    else 
-      filter_comp = IS_NOT;
+    assert(rv.values || rv.select);
+    filter_obj_left.init_value(Value(NULL_TYPE));
+    filter_obj_right.init_value(rv);
     filter_unit->set_left(filter_obj_left);
     filter_unit->set_right(filter_obj_right);
     filter_unit->set_comp(filter_comp); 
@@ -129,16 +126,16 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
   } 
 
   if (comp == IN || comp == NOT_IN) {
-    if (!rv.values) {
-      LOG_WARN("in op's right value can only be sub query");
+    if (!rv.values && !rv.select) {
+      LOG_WARN("in op's right value can only be sub query or tuple");
       return RC::SUB_QUERY_OP_IN;
     }
     if (condition.left_type == CON_ATTR) {
       filter_obj_left.init_attr(Field(left_table, left_field));
     } else {
-      filter_obj_left.init_value(lv.value);
+      filter_obj_left.init_value(lv);
     }
-    filter_obj_right.init_values(*rv.values);
+    filter_obj_right.init_value(rv);
     filter_unit->set_left(filter_obj_left);
     filter_unit->set_right(filter_obj_right);
     filter_unit->set_comp(filter_comp); 
@@ -149,7 +146,7 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
     LOG_WARN("invalid values size: %d", rv.values->size());
     return RC::SUB_QUERY_MULTI_VALUE;
   }
-  if (lv.values && lv.values->size() > 1) {
+  if (lv.values && lv.values->size() > 1 && comp != IS && comp != IS_NOT) {
     LOG_WARN("invalid values size: %d", lv.values->size());
     return RC::SUB_QUERY_MULTI_VALUE;
   }
@@ -161,37 +158,30 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
     left = left_field->type();
     filter_obj_left.init_attr(Field(left_table, left_field));
   } else {
-    Value lv_impl;
-    if (lv.values) {
-      if (lv.values->size() == 0) lv_impl.set_null();
-      else lv_impl = (*lv.values)[0];
-    } else {
-      lv_impl = lv.value;
-    }
-    left = lv_impl.attr_type();
-    filter_obj_left.init_value(lv_impl);
+    filter_obj_left.init_value(lv);
+    // 关联查询则为undefined
+    left = filter_obj_left.to_be_select ? UNDEFINED : filter_obj_left.values[0].attr_type();
   }
 
   if (condition.right_type == CON_ATTR) {
     right = right_field->type();
     filter_obj_right.init_attr(Field(right_table, right_field));
   } else {
-    Value rv_impl;
-    if (rv.values) {
-      if (rv.values->size() == 0) rv_impl.set_null();
-      else rv_impl = (*rv.values)[0];
-    } else {
-      rv_impl = rv.value;
-    }
-    right = rv_impl.attr_type();
-    filter_obj_right.init_value(rv_impl);
+    filter_obj_right.init_value(rv);
+    right = filter_obj_right.to_be_select ? UNDEFINED : filter_obj_right.values[0].attr_type();
   }
 
-  if (left != right) {
+  if (left != UNDEFINED && right != UNDEFINED && left != right) {
     char buf[4] = {'.','.','.','.'};
     Value left_value(left, buf, 4);
     Value right_value(right, buf, 4);
     bool result;
+    if (left_value.attr_type() == EMPTY_TYPE) {
+      left_value.set_null();
+    }
+    if (right_value.attr_type() == EMPTY_TYPE) {
+      right_value.set_null();
+    }
     RC ret = left_value.compare_op(right_value, comp, result);
     if (ret != RC::SUCCESS) {
       LOG_INFO("type mismatch: %s and %s", attr_type_to_string(left), attr_type_to_string(right));
@@ -199,16 +189,16 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
     }
   }
 
+  filter_unit->set_left(filter_obj_left);
+  filter_unit->set_right(filter_obj_right);
+  filter_unit->set_comp(filter_comp);
+
   if (comp == LIKE_OP || comp == NOT_LIKE_OP) {
     if (!(filter_unit->left().is_attr && !(filter_unit->right().is_attr))) {
       LOG_INFO("only `column name` like `pattern`");
       return RC::SCHEMA_FIELD_TYPE_MISMATCH;
     }
   }
-
-  filter_unit->set_left(filter_obj_left);
-  filter_unit->set_right(filter_obj_right);
-  filter_unit->set_comp(filter_comp);
 
   return rc;
 }

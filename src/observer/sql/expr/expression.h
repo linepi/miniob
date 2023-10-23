@@ -147,10 +147,20 @@ public:
   { 
     values_ = values;
   }
+  explicit ValueExpr(const ValueWrapper &value) 
+  { 
+    to_be_select_ = true;
+    value_ = value;
+  }
 
   virtual ~ValueExpr() = default;
 
   RC get_value(const Tuple &tuple, Value &value) const override;
+  const std::vector<Value> &get_values(const Tuple &tuple, RC &rc);
+  const std::vector<Value> &get_values() { 
+    return values_;
+  }
+
   RC try_get_value(Value &value) const override { 
     assert(values_.size() > 0);
     value = values_[0]; 
@@ -158,6 +168,7 @@ public:
   }
 
   ExprType type() const override { return ExprType::VALUE; }
+  bool to_be_select() const { return to_be_select_; }
 
   AttrType value_type() const override { 
     assert(values_.size() > 0);
@@ -165,14 +176,17 @@ public:
 
   void get_value(Value &value) const { 
     assert(values_.size() > 0);
-      value = values_[0]; }
-  const std::vector<Value> &get_values() const {  return values_; }
+      value = values_[0]; 
+  }
+
   const Value &get_value() const { 
     assert(values_.size() > 0);
     return values_[0]; 
   }
 
 private:
+  bool to_be_select_ = false;
+  ValueWrapper value_;
   std::vector<Value> values_;
 };
 

@@ -20,6 +20,9 @@ See the Mulan PSL v2 for more details. */
 
 const char *attr_type_to_string(AttrType type);
 AttrType attr_type_from_string(const char *s);
+bool is_float(const std::string& str);
+bool is_date(const std::string& str);
+bool is_int(const std::string &s);
 
 /**
  * @brief 属性的值
@@ -34,7 +37,9 @@ public:
   {
     this->set_data(data, length);
   }
-  Value (AttrType attr_type) : attr_type_(attr_type) {}
+  Value (AttrType attr_type) : attr_type_(attr_type) {
+    num_value_.int_value_ = 0;
+  }
 
   explicit Value(int val);
   explicit Value(float val);

@@ -36,6 +36,31 @@ static void wildcard_fields(Table *table, std::vector<Field> &field_metas)
   }
 }
 
+static RC add_table(
+  Db *db,
+  std::vector<Table *> &tables, 
+  std::unordered_map<std::string, Table *> &table_map, 
+  const char *table_name,
+  bool norepeat
+) {
+  if (nullptr == table_name) {
+    LOG_WARN("invalid argument. relation name is null");
+    return RC::INVALID_ARGUMENT;
+  }
+
+  Table *table = db->find_table(table_name);
+  if (nullptr == table) {
+    LOG_WARN("no such table. db=%s, table_name=%s", db->name(), table_name);
+    return RC::SCHEMA_TABLE_NOT_EXIST;
+  }
+
+  if (!norepeat || (norepeat && table_map.find(table_name) == table_map.end())) {
+    tables.push_back(table);
+    table_map.insert(std::pair<std::string, Table *>(table_name, table));
+  }
+  return RC::SUCCESS;
+}
+
 RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
 {
   if (nullptr == db) {
@@ -43,43 +68,22 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
     return RC::INVALID_ARGUMENT;
   }
 
+  RC rc;
   // collect tables in `from` statement
   std::vector<Table *> tables;
   std::unordered_map<std::string, Table *> table_map;
   for (size_t i = 0; i < select_sql.relations.size(); i++) {
     const char *table_name = select_sql.relations[i].c_str();
-    if (nullptr == table_name) {
-      LOG_WARN("invalid argument. relation name is null. index=%d", i);
-      return RC::INVALID_ARGUMENT;
-    }
-
-    Table *table = db->find_table(table_name);
-    if (nullptr == table) {
-      LOG_WARN("no such table. db=%s, table_name=%s", db->name(), table_name);
-      return RC::SCHEMA_TABLE_NOT_EXIST;
-    }
-
-    tables.push_back(table);
-    table_map.insert(std::pair<std::string, Table *>(table_name, table));
+    if ((rc = add_table(db, tables, table_map, table_name, false)) != RC::SUCCESS) 
+      return rc;
   }
 
   // collect tables and conditions in 'join' statement
   std::vector<ConditionSqlNode> conditions = select_sql.conditions;
   for (const JoinNode &jnode : select_sql.joins) {
     const char *table_name = jnode.relation_name.c_str();
-    if (nullptr == table_name) {
-      LOG_WARN("invalid argument. relation name is null. ");
-      return RC::INVALID_ARGUMENT;
-    }
-
-    Table *table = db->find_table(table_name);
-    if (nullptr == table) {
-      LOG_WARN("no such table. db=%s, table_name=%s", db->name(), table_name);
-      return RC::SCHEMA_TABLE_NOT_EXIST;
-    }
-
-    tables.push_back(table);
-    table_map.insert(std::pair<std::string, Table *>(table_name, table));
+    if ((rc = add_table(db, tables, table_map, table_name, false)) != RC::SUCCESS) 
+      return rc;
     for (const ConditionSqlNode &cnode : jnode.on) {
       conditions.emplace_back(cnode);
     }
@@ -171,7 +175,7 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
 
   // create filter statement in `where` statement
   FilterStmt *filter_stmt = nullptr;
-  RC rc = FilterStmt::create(db,
+  rc = FilterStmt::create(db,
       default_table,
       &table_map,
       conditions.data(),

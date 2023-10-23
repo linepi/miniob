@@ -99,13 +99,29 @@ bool FieldMeta::nullable() const {
 }
 
 bool FieldMeta::match(Value &value) const {
-  if (value.attr_type() == NULL_TYPE && nullable_) return true;
+  if (value.attr_type() == NULL_TYPE && nullable_) {
+    return true;
+  }
   if (attr_type_ == FLOATS && value.attr_type() == INTS) {
     value.set_float(value.get_int());
     return true;
   }
   if (attr_type_ == INTS && value.attr_type() == FLOATS) {
     value.set_int(value.get_float());
+    return true;
+  }
+  if (attr_type_ == CHARS && (value.attr_type() == INTS || value.attr_type() == FLOATS)) {
+    value.set_string(value.to_string().c_str());
+    return true;
+  }
+  if ((attr_type_ == INTS || attr_type_ == FLOATS) && value.attr_type() == CHARS) {
+    if (!is_float(value.to_string())) return false;
+    if (attr_type_ == INTS) {
+      value.set_int(std::stoi(value.to_string()));
+    }
+    if (attr_type_ == FLOATS) {
+      value.set_int(std::stof(value.to_string()));
+    }
     return true;
   }
   if (attr_len_ < value.length() || attr_type_ != value.attr_type()) return false;

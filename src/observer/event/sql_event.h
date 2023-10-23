@@ -77,6 +77,13 @@ public:
     operator_ = std::move(oper);
   }
 
+  void set_correlated_query(bool v) {
+    correlated_query_ = v;
+  }
+  bool correlated_query() const {
+    return correlated_query_;
+  }
+
 private:
   SessionEvent *session_event_ = nullptr;
   std::string sql_;  ///< 处理的SQL语句
@@ -84,4 +91,5 @@ private:
   Stmt *stmt_ = nullptr;  ///< Resolver之后生成的数据结构
   std::unique_ptr<PhysicalOperator> operator_; ///< 生成的执行计划，也可能没有
   bool main_query_ = true;
+  bool correlated_query_ = false;
 };

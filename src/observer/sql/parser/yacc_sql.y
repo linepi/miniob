@@ -112,6 +112,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         UNIQUE
         IN_TOKEN
         EXISTS_TOKEN
+        NULLABLE
 
 /** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
 %union {
@@ -453,6 +454,7 @@ number:
 
 type_note:
   { $$ = 0; }
+  | NULLABLE { $$ = 1; }
   | NULL_TOKEN { $$ = 1; }
   | NOT NULL_TOKEN { $$ = 0; }
 

@@ -244,7 +244,7 @@ RC Table::insert_record(Record &record)
   return rc;
 }
 
-RC Table::update_record_impl(std::vector<const FieldMeta *> &field_metas, std::vector<Value> &values, Record &record) {
+RC Table::update_record_impl(std::vector<const FieldMeta *> &field_metas, std::vector<Value> &values, char *data) {
   assert(field_metas.size() == values.size());
   for (size_t i = 0; i < field_metas.size(); i++) {
     Value *value = &values[i];
@@ -256,16 +256,24 @@ RC Table::update_record_impl(std::vector<const FieldMeta *> &field_metas, std::v
       } else {
         len = min(value->length(), field_meta->len());
       }
-      memcpy(record.data() + field_meta->offset(), value->data(), len);
-    } else {
-      int column_idx = -1;
-      for (size_t i = 0; i < table_meta_.field_metas()->size(); i++) {
-        if (strcmp(field_meta->name(), (*table_meta_.field_metas())[i].name()) == 0) column_idx = i; 
-      }
-      assert(column_idx != -1);
-      char *null_byte_start = record.data() + table_meta_.record_size() - NR_NULL_BYTE(table_meta_.field_num());
+      memcpy(data + field_meta->offset(), value->data(), len);
+    } 
+    int column_idx = -1;
+    for (size_t i = table_meta_.sys_field_num(); i < (size_t)table_meta_.field_num(); i++) {
+      if (strcmp(field_meta->name(), (*table_meta_.field_metas())[i].name()) == 0) 
+        column_idx = i; 
+    }
+    assert(column_idx != -1);
+    column_idx -= table_meta_.sys_field_num();
+
+    char *null_byte_start = data + table_meta_.record_size() - NR_NULL_BYTE(table_meta_.field_num());
+
+    if (value->attr_type() == NULL_TYPE) {
       char thing = ~(1 << (column_idx % 8));
       null_byte_start[column_idx/8] &= thing;
+    } else {
+      char thing = (1 << (column_idx % 8));
+      null_byte_start[column_idx/8] |= thing;
     }
   }
   return RC::SUCCESS;
@@ -278,12 +286,14 @@ RC Table::update_record(std::vector<const FieldMeta *> &field_metas, std::vector
   char *data_bak = (char *)malloc(table_meta_.record_size());
   memcpy(data_bak, record.data(), table_meta_.record_size());
 
-  update_record_impl(field_metas, values, record);
+  update_record_impl(field_metas, values, record.data());
+
+  record_handler_->update_record(record.data(), table_meta_.record_size(), &record.rid());
 
   for (Index *index : indexes_) {
     rc = index->isunique(record.data(), &record.rid());
     if (rc != RC::SUCCESS) {
-      memcpy(record.data(), data_bak, table_meta_.record_size());
+      record_handler_->update_record(data_bak, table_meta_.record_size(), &record.rid());
       free(data_bak);
       return rc;
     }
@@ -301,6 +311,7 @@ RC Table::update_record(std::vector<const FieldMeta *> &field_metas, std::vector
            name(), index->index_meta().name(), record.rid().to_string().c_str(), strrc(rc));
   }
 
+  free(data_bak);
   return rc;
 }
 

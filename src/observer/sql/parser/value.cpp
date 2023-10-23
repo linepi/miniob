@@ -22,7 +22,7 @@ See the Mulan PSL v2 for more details. */
 #include "common/lang/comparator.h"
 #include <regex>
 
-const char *ATTR_TYPE_NAME[] = {"undefined", "chars", "ints", "floats", "dates", "booleans", "null_type"};
+const char *ATTR_TYPE_NAME[] = {"undefined", "chars", "ints", "floats", "dates", "booleans", "null_type", "empty_type"};
 
 const char *attr_type_to_string(AttrType type)
 {
@@ -170,6 +170,10 @@ void Value::set_value(const Value &value)
     case NULL_TYPE: {
       set_null();
     } break;
+    case EMPTY_TYPE: {
+      set_null();
+      attr_type_ = EMPTY_TYPE;
+    } break;
     case UNDEFINED: {
       ASSERT(false, "got an invalid value type");
     } break;
@@ -188,7 +192,7 @@ const char *Value::data() const
   }
 }
 
-static bool is_float(const std::string& str) {
+bool is_float(const std::string& str) {
   try {
     std::stof(str); 
     return true; 
@@ -199,12 +203,12 @@ static bool is_float(const std::string& str) {
   }
 }
 
-static bool is_date(const std::string& str) {
+bool is_date(const std::string& str) {
   std::regex datePattern(R"(\d{4}-\d{2}-\d{2})");
   return std::regex_match(str, datePattern);
 }
 
-static bool is_int(const std::string &s) {
+bool is_int(const std::string &s) {
   std::istringstream iss(s);
   int n;
   iss >> n;
@@ -336,9 +340,9 @@ RC Value::compare_op(const Value &other, CompOp op, bool &result) const {
   if (op == CompOp::IS || op == CompOp::IS_NOT) {
     if (other.attr_type_ != NULL_TYPE) { return RC::VALUE_COMPERR; }
     if (op == CompOp::IS) 
-      result = this->attr_type_ == other.attr_type_;
+      result = this->attr_type_ == NULL_TYPE;
     else 
-      result = this->attr_type_ != other.attr_type_;
+      result = this->attr_type_ != NULL_TYPE;
   }
   if (op == CompOp::LIKE_OP || op == CompOp::NOT_LIKE_OP) {
     if (this->attr_type_ != CHARS || other.attr_type_ != CHARS) { return RC::VALUE_COMPERR; }

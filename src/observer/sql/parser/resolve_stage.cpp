@@ -14,9 +14,10 @@ See the Mulan PSL v2 for more details. */
 
 #include <string.h>
 #include <string>
+#include <algorithm>
 
 #include "resolve_stage.h"
-
+#include "storage/db/db.h"
 #include "common/conf/ini.h"
 #include "common/io/io.h"
 #include "common/lang/string.h"
@@ -39,7 +40,8 @@ using namespace common;
 
 RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query);
 
-static RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &values) {
+static RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &values)
+{
   std::vector<std::string> lines;
   common::split_string(std_out, "\n", lines);
   for (size_t i = 0; i < lines.size(); i++) {
@@ -47,41 +49,159 @@ static RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &value
     if (line.find("FALIURE", 0) != std::string::npos) {
       return RC::SUB_QUERY_FAILURE;
     }
-    if (line.find(" | ", 0) != std::string::npos) { // 多于一列
+    if (line.find(" | ", 0) != std::string::npos) {  // 多于一列
       return RC::SUB_QUERY_MULTI_COLUMN;
     }
     if (i != 0) {
       Value v;
-      int rc = v.from_string(line);
-      if (rc == 0) // 是否为空白
+      int   rc = v.from_string(line);
+      if (rc == 0)  // 是否为空白
         values.push_back(v);
     }
+  }
+  if (values.size() == 0) {
+    values.push_back(Value(EMPTY_TYPE));
   }
   return RC::SUCCESS;
 }
 
-static RC value_extract(ValueWrapper &value, SessionStage *ss, SQLStageEvent *sql_event) {
-  if (value.select == nullptr) return RC::SUCCESS;
+static RC check_correlated_query(SelectSqlNode *sub_query, std::vector<std::string> *father_tables, bool &result)
+{
+  // 初始假设它是非关联的子查询
+  result = false;
+  std::vector<const ConditionSqlNode *> conditions;
+  RC rc = RC::SUCCESS;
+
+  for (const auto &condition : sub_query->conditions) {
+    conditions.push_back(&condition);
+  }
+
+  for (const auto &join : sub_query->joins) {
+    for (const auto &condition : join.on) {
+      conditions.push_back(&condition);
+    }
+  }
+
+  for (const auto con : conditions) {
+    const ConditionSqlNode &condition = *con;
+    // 检查左边的属性
+    if (condition.left_type == CON_ATTR) {
+      const std::string *relation_name = &condition.left_attr.relation_name;
+      if (relation_name->empty()) {
+        if (sub_query->relations.size() > 1) {
+          rc = RC::SCHEMA_FIELD_MISSING_TABLE;
+          return rc;
+        } else {
+          relation_name = &sub_query->relations[0];
+        }
+      } else {
+        bool in_subquery_relations = std::find(
+          sub_query->relations.begin(), 
+          sub_query->relations.end(),
+          *relation_name) != sub_query->relations.end();
+        bool in_father_relations = std::find(
+          father_tables->begin(),
+          father_tables->end(),
+          *relation_name) != father_tables->end();
+        if (!in_father_relations && !in_subquery_relations) {
+          rc = RC::SUB_QUERY_CORRELATED_TABLE_NOT_FOUND;
+          return rc;
+        }
+        if (!in_subquery_relations && in_father_relations) {
+          result = true;
+          return rc;
+        }
+      }
+    }
+
+    if (condition.left_type == CON_ATTR) {
+      const std::string *relation_name = &condition.right_attr.relation_name;
+      if (relation_name->empty()) {
+        if (sub_query->relations.size() > 1) {
+          rc = RC::SCHEMA_FIELD_MISSING_TABLE;
+          return rc;
+        } else {
+          relation_name = &sub_query->relations[0];
+        }
+      } else {
+        bool in_subquery_relations = std::find(
+          sub_query->relations.begin(), 
+          sub_query->relations.end(),
+          *relation_name) != sub_query->relations.end();
+        bool in_father_relations = std::find(
+          father_tables->begin(),
+          father_tables->end(),
+          *relation_name) != father_tables->end();
+        if (!in_father_relations && !in_subquery_relations) {
+          rc = RC::SUB_QUERY_CORRELATED_TABLE_NOT_FOUND;
+          return rc;
+        }
+        if (!in_subquery_relations && in_father_relations) {
+          result = true;
+          return rc;
+        }
+      }
+    }
+
+    // 如果值包含子查询，递归检查
+    if (condition.left_value.select != nullptr) {
+      rc = check_correlated_query(condition.left_value.select, father_tables, result);
+      if (rc != RC::SUCCESS) return rc;
+      if (result)
+        return rc;
+    }
+    if (condition.right_value.select != nullptr) {
+      check_correlated_query(condition.right_value.select, father_tables, result);
+      if (rc != RC::SUCCESS) return rc;
+      if (result)
+        return rc;
+    }
+  }
+
+  return rc;
+}
+
+
+RC value_extract(
+    ValueWrapper &value, SessionStage *ss, SQLStageEvent *sql_event, std::vector<std::string> *father_tables)
+{
+  if (value.select == nullptr)
+    return RC::SUCCESS;
+  // 检测关联查询
+  RC   rc = RC::SUCCESS;
+  if (father_tables) {
+    bool is_correlated_query;
+    rc = check_correlated_query(value.select, father_tables, is_correlated_query);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error in correlated query check %s", strrc(rc));
+      return rc;
+    }
+    if (is_correlated_query) {
+      value.sql_event = sql_event;
+      value.ss = ss;
+      return RC::SUCCESS;
+    }
+  }
 
   ParsedSqlNode *node = new ParsedSqlNode();
-  node->flag = SCF_SELECT;
-  node->selection = *value.select;
+  node->flag          = SCF_SELECT;
+  node->selection     = *value.select;
   SQLStageEvent stack_sql_event(*sql_event, false);
   stack_sql_event.set_sql_node(std::unique_ptr<ParsedSqlNode>(node));
 
-  RC rc = handle_sql(ss, &stack_sql_event, false);
+  rc = handle_sql(ss, &stack_sql_event, false);
   if (rc != RC::SUCCESS) {
     LOG_WARN("sub query failed. rc=%s", strrc(rc));
     return rc;
   }
 
-  Writer *thesw = new SilentWriter();
+  Writer       *thesw        = new SilentWriter();
   Communicator *communicator = stack_sql_event.session_event()->get_communicator();
-  Writer *writer_bak = communicator->writer();
-  communicator->set_writer(thesw); 
+  Writer       *writer_bak   = communicator->writer();
+  communicator->set_writer(thesw);
 
   bool need_disconnect = false;
-  rc = communicator->write_result(stack_sql_event.session_event(), need_disconnect);
+  rc                   = communicator->write_result(stack_sql_event.session_event(), need_disconnect);
   LOG_INFO("sub query write result return %s", strrc(rc));
   communicator->set_writer(writer_bak);
 
@@ -91,27 +211,49 @@ static RC value_extract(ValueWrapper &value, SessionStage *ss, SQLStageEvent *sq
   }
 
   SilentWriter *sw = static_cast<SilentWriter *>(thesw);
-  value.values = new std::vector<Value>;
-  rc = values_from_sql_stdout(sw->content(), *value.values);
+  value.values     = new std::vector<Value>;
+  rc               = values_from_sql_stdout(sw->content(), *value.values);
+  // sql_debug(sw->content().c_str());
 
   delete sw;
-  delete value.select;
-  value.select = nullptr;
+
+  if (value.values->size() == 0) {
+    value.values->push_back(Value(NULL_TYPE));
+  }  
+
+  if (!sql_event->correlated_query()) {
+    delete value.select;
+    value.select = nullptr;
+  }
 
   if (rc != RC::SUCCESS) {
     LOG_WARN("sub query parse values from std out failed. rc=%s", strrc(rc));
   }
   return rc;
-} 
+}
 
-RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionStage *ss, SQLStageEvent *sql_event) {
-  ParsedSqlNode *node = node_.get();
-  RC rc = RC::SUCCESS;
+RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionStage *ss, SQLStageEvent *sql_event)
+{
+  ParsedSqlNode       *node = node_.get();
+  RC                   rc   = RC::SUCCESS;
+  std::vector<std::string> *father_tables = new std::vector<std::string>;
+  Db                  *db = sql_event->session_event()->session()->get_current_db();
+  Table               *t  = nullptr;
+  assert(db);
+
   switch (node->flag) {
     case SCF_INSERT: {
+      t = db->find_table(node->insertion.relation_name.c_str());
+      if (!t) {
+        LOG_WARN("no such table");
+        rc = RC::SCHEMA_TABLE_NOT_EXIST;
+        goto deal_rc;
+      }
+      father_tables->push_back(node->insertion.relation_name);
+
       for (std::vector<ValueWrapper> &values : *(node->insertion.values_list)) {
         for (ValueWrapper &value : values) {
-          rc = value_extract(value, ss, sql_event);
+          rc = value_extract(value, ss, sql_event, father_tables);
           if (rc != RC::SUCCESS) {
             LOG_WARN("insert value extract error");
             goto deal_rc;
@@ -121,20 +263,28 @@ RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionSt
       break;
     }
     case SCF_UPDATE: {
+      t = db->find_table(node->update.relation_name.c_str());
+      if (!t) {
+        LOG_WARN("no such table");
+        rc = RC::SCHEMA_TABLE_NOT_EXIST;
+        goto deal_rc;
+      }
+      father_tables->push_back(node->update.relation_name);
+
       for (std::pair<std::string, ValueWrapper> &av_ : node->update.av) {
-        rc = value_extract(av_.second, ss, sql_event);
+        rc = value_extract(av_.second, ss, sql_event, father_tables);
         if (rc != RC::SUCCESS) {
           LOG_WARN("update.av value extract error");
           goto deal_rc;
         }
       }
       for (ConditionSqlNode &con : node->update.conditions) {
-        rc = value_extract(con.left_value, ss, sql_event);
+        rc = value_extract(con.left_value, ss, sql_event, father_tables);
         if (rc != RC::SUCCESS) {
           LOG_WARN("update.conditions.left value extract error");
           goto deal_rc;
         }
-        rc = value_extract(con.right_value, ss, sql_event);
+        rc = value_extract(con.right_value, ss, sql_event, father_tables);
         if (rc != RC::SUCCESS) {
           LOG_WARN("update.conditions.right value extract error");
           goto deal_rc;
@@ -143,13 +293,23 @@ RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionSt
       break;
     }
     case SCF_SELECT: {
+      for (std::string &relation_name : node->selection.relations) {
+        t = db->find_table(relation_name.c_str());
+        if (!t) {
+          LOG_WARN("no such table");
+          rc = RC::SCHEMA_TABLE_NOT_EXIST;
+          goto deal_rc;
+        }
+        father_tables->push_back(relation_name);
+      }
+
       for (ConditionSqlNode &con : node->selection.conditions) {
-        rc = value_extract(con.left_value, ss, sql_event);
+        rc = value_extract(con.left_value, ss, sql_event, father_tables);
         if (rc != RC::SUCCESS) {
           LOG_WARN("select.conditions.left value extract error");
           goto deal_rc;
         }
-        rc = value_extract(con.right_value, ss, sql_event);
+        rc = value_extract(con.right_value, ss, sql_event, father_tables);
         if (rc != RC::SUCCESS) {
           LOG_WARN("select.conditions.right value extract error");
           goto deal_rc;
@@ -157,12 +317,12 @@ RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionSt
       }
       for (JoinNode &jn : node->selection.joins) {
         for (ConditionSqlNode &con : jn.on) {
-          rc = value_extract(con.left_value, ss, sql_event);
+          rc = value_extract(con.left_value, ss, sql_event, father_tables);
           if (rc != RC::SUCCESS) {
             LOG_WARN("select.join.on.left value extract error");
             goto deal_rc;
           }
-          rc = value_extract(con.right_value, ss, sql_event);
+          rc = value_extract(con.right_value, ss, sql_event, father_tables);
           if (rc != RC::SUCCESS) {
             LOG_WARN("select.join.on.right value extract error");
             goto deal_rc;
@@ -172,14 +332,23 @@ RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionSt
       break;
     }
     case SCF_DELETE: {
+      t = db->find_table(node->deletion.relation_name.c_str());
+      if (!t) {
+        LOG_WARN("no such table");
+        rc = RC::SCHEMA_TABLE_NOT_EXIST;
+        goto deal_rc;
+      }
+      father_tables->push_back(node->deletion.relation_name);
+
       for (ConditionSqlNode &con : node->deletion.conditions) {
-        rc = value_extract(con.left_value, ss, sql_event);
+        rc = value_extract(con.left_value, ss, sql_event, father_tables);
         if (rc != RC::SUCCESS) {
           LOG_WARN("delete.condition.left value extract error");
           goto deal_rc;
         }
-        if (rc != RC::SUCCESS) goto deal_rc;
-        rc = value_extract(con.right_value, ss, sql_event);
+        if (rc != RC::SUCCESS)
+          goto deal_rc;
+        rc = value_extract(con.right_value, ss, sql_event, father_tables);
         if (rc != RC::SUCCESS) {
           LOG_WARN("delete.condition.right value extract error");
           goto deal_rc;
@@ -189,17 +358,18 @@ RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionSt
     }
     default: {
       break;
-    } 
+    }
   }
 deal_rc:
+  delete father_tables;
   return rc;
 }
 
 RC ResolveStage::handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
 {
-  RC rc = RC::SUCCESS;
+  RC            rc            = RC::SUCCESS;
   SessionEvent *session_event = sql_event->session_event();
-  SqlResult *sql_result = session_event->sql_result();
+  SqlResult    *sql_result    = session_event->sql_result();
 
   Db *db = session_event->session()->get_current_db();
   if (nullptr == db) {
@@ -218,7 +388,7 @@ RC ResolveStage::handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool
   }
 
   Stmt *stmt = nullptr;
-  rc = Stmt::create_stmt(db, *(sql_event->sql_node().get()), stmt);
+  rc         = Stmt::create_stmt(db, *(sql_event->sql_node().get()), stmt);
   if (rc != RC::SUCCESS && rc != RC::UNIMPLENMENT) {
     LOG_WARN("failed to create stmt. rc=%d:%s", rc, strrc(rc));
     sql_result->set_return_code(rc);

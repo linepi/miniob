@@ -133,6 +133,7 @@ NOT                                     RETURN_TOKEN(NOT);
 JOIN                                    RETURN_TOKEN(JOIN);
 INNER                                   RETURN_TOKEN(INNER);
 NULL                                    RETURN_TOKEN(NULL_TOKEN);
+NULLABLE                                RETURN_TOKEN(NULLABLE);
 IS                                      RETURN_TOKEN(IS_TOKEN);
 UNIQUE                                  RETURN_TOKEN(UNIQUE);
 IN                                      RETURN_TOKEN(IN_TOKEN);

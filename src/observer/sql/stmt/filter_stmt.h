@@ -35,7 +35,10 @@ struct FilterObj
   Field field;
   std::vector<Value> values;
 
-  void init_attr(const Field &field)
+  bool to_be_select = false;
+  ValueWrapper value;
+
+  void init_attr(const Field field)
   {
     is_attr = true;
     this->field = field;
@@ -47,10 +50,22 @@ struct FilterObj
     this->values.push_back(value);
   }
 
-  void init_values(const std::vector<Value> &values)
-  {
+  void init_value(ValueWrapper &value) {
     is_attr = false;
-    this->values = values;
+    if (value.values) {
+      if (value.values->size() == 0) {
+        value.values->push_back(Value(EMPTY_TYPE));
+      }
+      this->values.swap(*value.values);
+
+      delete value.values;
+      value.values = nullptr;  
+    } else if (value.select) {
+      to_be_select = true;
+      this->value = value;
+    } else {
+      this->values.push_back(value.value);
+    }
   }
 };
 

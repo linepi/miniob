@@ -54,10 +54,20 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt)
       return RC::SCHEMA_FIELD_MISSING;
     }
 
+    if (value.select) {
+      LOG_WARN("update value must not be correlated sub query!");
+      return RC::SUB_QUERY_CORRELATED;
+    }
+
     if (value.values && value.values->size() != 1) {
-      LOG_WARN("only one sub query value!");
+      LOG_WARN("must one sub query value!");
       return RC::SUB_QUERY_MULTI_VALUE;
     }
+
+    if (value.values && (*value.values)[0].attr_type() == EMPTY_TYPE) {
+      (*value.values)[0].set_null();
+    }
+
     const Value &value_impl = value.values ? (*value.values)[0] : value.value;
 
     if (!field_meta->match(const_cast<Value &>(value_impl))) {

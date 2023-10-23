@@ -46,6 +46,7 @@ See the Mulan PSL v2 for more details. */
   DEFINE_RC(SCHEMA_TABLE_EXIST)             \
   DEFINE_RC(SCHEMA_FIELD_NOT_EXIST)         \
   DEFINE_RC(SCHEMA_FIELD_MISSING)           \
+  DEFINE_RC(SCHEMA_FIELD_MISSING_TABLE)     \
   DEFINE_RC(SCHEMA_FIELD_SIZE)              \
   DEFINE_RC(SCHEMA_FIELD_TYPE_MISMATCH)     \
   DEFINE_RC(SCHEMA_INDEX_NAME_REPEAT)       \
@@ -78,6 +79,8 @@ See the Mulan PSL v2 for more details. */
   DEFINE_RC(LOGBUF_FULL)                    \
   DEFINE_RC(SUB_QUERY_MULTI_COLUMN)         \
   DEFINE_RC(SUB_QUERY_FAILURE)              \
+  DEFINE_RC(SUB_QUERY_CORRELATED)              \
+  DEFINE_RC(SUB_QUERY_CORRELATED_TABLE_NOT_FOUND)         \
   DEFINE_RC(SUB_QUERY_OP_IN)                \
   DEFINE_RC(SUB_QUERY_MULTI_VALUE)                \
   DEFINE_RC(OPERAND_COLUMNS)                \

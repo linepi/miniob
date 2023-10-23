@@ -58,10 +58,22 @@ RC InsertStmt::create(Db *db, const InsertSqlNode &inserts, Stmt *&stmt)
     const int sys_field_num = table_meta.sys_field_num();
     for (int j = 0; j < value_num; j++) {
       ValueWrapper &value = values[j];
+
       if (value.values && value.values->size() != 1) {
+        assert(0);
         LOG_WARN("only one sub query value!");
         return RC::SUB_QUERY_MULTI_VALUE;
       }
+
+      if (value.values && (*value.values)[0].attr_type() == EMPTY_TYPE) {
+        (*value.values)[0].set_null();
+      }
+
+      if (value.select) {
+        LOG_WARN("update value must not be correlated sub query!");
+        return RC::SUB_QUERY_CORRELATED;
+      }
+
       Value &value_impl = value.values ? (*value.values)[0] : value.value;
       FieldMeta *field_meta = const_cast<FieldMeta *>(table_meta.field(j + sys_field_num));
       bool match = field_meta->match(value_impl);

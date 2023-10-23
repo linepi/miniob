@@ -105,7 +105,7 @@ RC PlainCommunicator::write_state(SessionEvent *event, bool &need_disconnect)
   } else {
     snprintf(buf, buf_size, "%s > %s\n", strrc(sql_result->return_code()), state_string.c_str());
   }
-  sql_debug(strrc(sql_result->return_code()));
+  // if (sql_result->return_code() != RC::SUCCESS) sql_debug(strrc(sql_result->return_code()));
 
   RC rc = writer_->writen(buf, strlen(buf) + 1);
   if (OB_FAIL(rc)) {
