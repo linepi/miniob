@@ -169,8 +169,8 @@ RC CastExpr::try_get_value(Value &value) const
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ComparisonExpr::ComparisonExpr(CompOp comp, unique_ptr<Expression> left, unique_ptr<Expression> right)
-    : comp_(comp), left_(std::move(left)), right_(std::move(right))
+ComparisonExpr::ComparisonExpr(CompOp comp, unique_ptr<Expression> left, unique_ptr<Expression> right, ConjuctType right_op)
+    : comp_(comp), left_(std::move(left)), right_(std::move(right)), right_op_(right_op)
 {}
 
 ComparisonExpr::~ComparisonExpr()
@@ -373,7 +373,7 @@ RC ComparisonExpr::get_value(const Tuple &tuple, Value &value) const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-ConjunctionExpr::ConjunctionExpr(Type type, vector<unique_ptr<Expression>> &children)
+ConjunctionExpr::ConjunctionExpr(ConjuctType type, vector<unique_ptr<Expression>> &children)
     : conjunction_type_(type), children_(std::move(children))
 {}
 
@@ -393,13 +393,13 @@ RC ConjunctionExpr::get_value(const Tuple &tuple, Value &value) const
       return rc;
     }
     bool bool_value = tmp_value.get_boolean();
-    if ((conjunction_type_ == Type::AND && !bool_value) || (conjunction_type_ == Type::OR && bool_value)) {
+    if ((conjunction_type_ == CONJ_AND && !bool_value) || (conjunction_type_ == CONJ_OR && bool_value)) {
       value.set_boolean(bool_value);
       return rc;
     }
   }
 
-  bool default_value = (conjunction_type_ == Type::AND);
+  bool default_value = (conjunction_type_ == CONJ_AND);
   value.set_boolean(default_value);
   return rc;
 }

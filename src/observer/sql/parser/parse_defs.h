@@ -68,6 +68,8 @@ struct ConditionSqlNode
   ConType             right_type;   
   RelAttrSqlNode      right_attr;    
   ValueWrapper       right_value;
+
+  ConjuctType right_op = CONJ_AND;
 };
 
 enum JoinType

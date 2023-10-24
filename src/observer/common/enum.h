@@ -55,3 +55,25 @@ enum ConType
   CON_ATTR,
   CON_VALUE,
 };
+
+enum ConjuctType
+{
+  CONJ_AND,
+  CONJ_OR
+};
+
+/**
+ * @brief 表达式类型
+ * @ingroup Expression
+ */
+enum class ExprType 
+{
+  NONE,
+  STAR,         ///< 星号，表示所有字段
+  FIELD,        ///< 字段。在实际执行时，根据行数据内容提取对应字段的值
+  VALUE,        ///< 常量值
+  CAST,         ///< 需要做类型转换的表达式
+  COMPARISON,   ///< 需要做比较的表达式
+  CONJUNCTION,  ///< 多个表达式使用同一种关系(AND或OR)来联结
+  ARITHMETIC,   ///< 算术运算
+};

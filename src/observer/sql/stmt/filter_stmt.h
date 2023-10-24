@@ -104,10 +104,19 @@ public:
     return right_;
   }
 
+  const ConjuctType right_op() const {
+    return right_op_;
+  }
+
+  void set_right_op(ConjuctType right_op) {
+    right_op_ = right_op;
+  }
+
 private:
   CompOp comp_ = NO_OP;
   FilterObj left_;
   FilterObj right_;
+  ConjuctType right_op_;
 };
 
 /**

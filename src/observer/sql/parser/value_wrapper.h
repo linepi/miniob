@@ -1,5 +1,6 @@
 #pragma once
 #include <sql/parser/value.h>
+#include <vector>
 
 struct SelectSqlNode;
 class SessionStage; 

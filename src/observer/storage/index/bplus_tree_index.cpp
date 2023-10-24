@@ -15,10 +15,7 @@ See the Mulan PSL v2 for more details. */
 #include "storage/index/bplus_tree_index.h"
 #include "common/log/log.h"
 
-BplusTreeIndex::~BplusTreeIndex() noexcept
-{
-  close();
-}
+BplusTreeIndex::~BplusTreeIndex() noexcept { close(); }
 
 RC BplusTreeIndex::create(const char *file_name, const IndexMeta &index_meta, const std::vector<FieldMeta> &field_meta)
 {
@@ -33,9 +30,8 @@ RC BplusTreeIndex::create(const char *file_name, const IndexMeta &index_meta, co
   Index::init(index_meta, field_meta);
 
   std::vector<AttrType> type;
-  std::vector<int> len;
-  for (FieldMeta f_m : field_meta)
-  {
+  std::vector<int>      len;
+  for (FieldMeta f_m : field_meta) {
     type.push_back(f_m.type());
     len.push_back(f_m.len());
   }
@@ -98,14 +94,13 @@ RC BplusTreeIndex::close()
 RC BplusTreeIndex::isunique(const char *record, const RID *rid)
 {
   std::string rel;
-  for(FieldMeta f_m : field_meta_)
-  {
-    const char* fieldData = record + f_m.offset();
+  for (FieldMeta f_m : field_meta_) {
+    const char *fieldData = record + f_m.offset();
     rel += std::string(fieldData, f_m.len());
   }
-  if(get_index_meta_unique()){
+  if (get_index_meta_unique()) {
     RC rc = index_handler_.is_unique_index(rel.c_str(), rid);
-    if (rc == RC::UNIQUE_INDEX){
+    if (rc == RC::UNIQUE_INDEX) {
       return rc;
     }
   }
@@ -115,14 +110,13 @@ RC BplusTreeIndex::isunique(const char *record, const RID *rid)
 RC BplusTreeIndex::insert_entry(const char *record, const RID *rid)
 {
   std::string rel;
-  for(FieldMeta f_m : field_meta_)
-  {
-    const char* fieldData = record + f_m.offset();
+  for (FieldMeta f_m : field_meta_) {
+    const char *fieldData = record + f_m.offset();
     rel += std::string(fieldData, f_m.len());
   }
-  if(get_index_meta_unique()){
+  if (get_index_meta_unique()) {
     RC rc = index_handler_.is_unique_index(rel.c_str(), rid);
-    if (rc == RC::UNIQUE_INDEX){
+    if (rc == RC::UNIQUE_INDEX) {
       return rc;
     }
   }
@@ -132,9 +126,8 @@ RC BplusTreeIndex::insert_entry(const char *record, const RID *rid)
 RC BplusTreeIndex::insert_entry_first(const char *record, const RID *rid)
 {
   std::string rel;
-  for(FieldMeta f_m : field_meta_)
-  {
-    const char* fieldData = record + f_m.offset();
+  for (FieldMeta f_m : field_meta_) {
+    const char *fieldData = record + f_m.offset();
     rel += std::string(fieldData, f_m.len());
   }
   return index_handler_.insert_entry(rel.c_str(), rid);
@@ -143,9 +136,8 @@ RC BplusTreeIndex::insert_entry_first(const char *record, const RID *rid)
 RC BplusTreeIndex::delete_entry(const char *record, const RID *rid)
 {
   std::string rel;
-  for(FieldMeta f_m : field_meta_)
-  {
-    const char* fieldData = record + f_m.offset();
+  for (FieldMeta f_m : field_meta_) {
+    const char *fieldData = record + f_m.offset();
     rel += std::string(fieldData, f_m.len());
   }
   return index_handler_.delete_entry(rel.c_str(), rid);
@@ -164,19 +156,12 @@ IndexScanner *BplusTreeIndex::create_scanner(
   return index_scanner;
 }
 
-RC BplusTreeIndex::sync()
-{
-  return index_handler_.sync();
-}
+RC BplusTreeIndex::sync() { return index_handler_.sync(); }
 
 ////////////////////////////////////////////////////////////////////////////////
-BplusTreeIndexScanner::BplusTreeIndexScanner(BplusTreeHandler &tree_handler) : tree_scanner_(tree_handler)
-{}
+BplusTreeIndexScanner::BplusTreeIndexScanner(BplusTreeHandler &tree_handler) : tree_scanner_(tree_handler) {}
 
-BplusTreeIndexScanner::~BplusTreeIndexScanner() noexcept
-{
-  tree_scanner_.close();
-}
+BplusTreeIndexScanner::~BplusTreeIndexScanner() noexcept { tree_scanner_.close(); }
 
 RC BplusTreeIndexScanner::open(
     const char *left_key, int left_len, bool left_inclusive, const char *right_key, int right_len, bool right_inclusive)
@@ -184,10 +169,7 @@ RC BplusTreeIndexScanner::open(
   return tree_scanner_.open(left_key, left_len, left_inclusive, right_key, right_len, right_inclusive);
 }
 
-RC BplusTreeIndexScanner::next_entry(RID *rid)
-{
-  return tree_scanner_.next_entry(*rid);
-}
+RC BplusTreeIndexScanner::next_entry(RID *rid) { return tree_scanner_.next_entry(*rid); }
 
 RC BplusTreeIndexScanner::destroy()
 {

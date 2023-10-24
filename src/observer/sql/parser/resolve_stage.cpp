@@ -121,7 +121,7 @@ static RC check_correlated_query(SelectSqlNode *sub_query, std::vector<std::stri
       }
     }
 
-    if (condition.left_type == CON_ATTR) {
+    if (condition.right_type == CON_ATTR) {
       const std::string *relation_name = &condition.right_attr.relation_name;
       if (relation_name->empty()) {
         if (sub_query->relations.size() > 1) {

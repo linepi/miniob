@@ -199,23 +199,10 @@ public:
 
     FieldExpr *field_expr = speces_[index];
     const FieldMeta *field_meta = field_expr->field().meta();
-    int column_idx = -1;
-    const TableMeta table_meta = field_expr->field().table()->table_meta();
-    const std::vector<FieldMeta> *fields = table_meta.field_metas();
-    for (size_t i = 0; i < fields->size(); i++) {
-      if (0 == strcasecmp(field_meta->name(), (*fields)[i].name())) {
-        column_idx = i;
-        break;
-      }
-    }
-    assert(column_idx != -1);
 
-    int column = table_meta.field_num();
-    int nr_null_bytes = NR_NULL_BYTE(column);
+    bool isnull;
+    this->record_->get_null(field_meta->name(), field_expr->field().table(), isnull);
 
-    char *null_byte_start = this->record_->data() + table_meta.record_size() - nr_null_bytes;
-    char thing = ~(null_byte_start[column_idx/8]);
-    bool isnull = (thing & (1 << (column_idx % 8))) != 0;
     if (!isnull) {
       cell.set_type(field_meta->type());
       cell.set_data(this->record_->data() + field_meta->offset(), field_meta->len());

@@ -94,6 +94,7 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
   CompOp filter_comp = comp;
   ValueWrapper &rv = const_cast<ValueWrapper &>(condition.right_value);
   ValueWrapper &lv = const_cast<ValueWrapper &>(condition.left_value);
+  filter_unit->set_right_op(condition.right_op);
 
 
   if (comp == EXISTS || comp == NOT_EXISTS) {

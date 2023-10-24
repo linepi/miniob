@@ -86,7 +86,7 @@ public:
   RC visit_record(const RID &rid, bool readonly, std::function<void(Record &)> visitor);
   RC get_record(const RID &rid, Record &record);
   RC update_record(std::vector<const FieldMeta *> &field_metas, std::vector<Value> &values, Record &record);
-  RC update_record_impl(std::vector<const FieldMeta *> &field_metas, std::vector<Value> &values, char *data);
+  RC update_record_impl(std::vector<const FieldMeta *> &field_metas, std::vector<Value> &values, Record &record);
 
   std::vector<Index *> indexes();
 
@@ -112,8 +112,8 @@ public:
   RC sync();
 
 private:
-  RC insert_entry_of_indexes(const char *record, const RID &rid);
-  RC delete_entry_of_indexes(const char *record, const RID &rid, bool error_on_not_exists,  bool if_update);
+  RC insert_entry_of_indexes(const Record &record, const RID &rid);
+  RC delete_entry_of_indexes(const Record &record, const RID &rid, bool error_on_not_exists,  bool if_update);
 
 private:
   RC init_record_handler(const char *base_dir);

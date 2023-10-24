@@ -381,11 +381,18 @@ RC Value::compare(const Value &other, int &result) const
       case DATES: {
         result = common::compare_date(this->str_value_.c_str(), other.str_value_.c_str());
       } break;
+      case NULL_TYPE: {
+        result = 0;
+      } break;
       default: {
         LOG_WARN("unsupported type: %d", this->attr_type_);
         rc = RC::VALUE_COMPERR;
       }
     }
+  } else if (this->attr_type_ != NULL_TYPE && other.attr_type_ == NULL_TYPE) {
+    result = 1;
+  } else if (this->attr_type_ == NULL_TYPE && other.attr_type_ != NULL_TYPE) {
+    result = -1;
   } else if (this->attr_type_ == INTS && other.attr_type_ == FLOATS) {
     float this_data = this->num_value_.int_value_;
     result = common::compare_float((void *)&this_data, (void *)&other.num_value_.float_value_);

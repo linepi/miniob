@@ -86,6 +86,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         FROM
         WHERE
         AND
+        OR
         SET
         ON
         LOAD
@@ -466,7 +467,7 @@ number:
     ;
 
 type_note:
-  { $$ = 0; }
+  { $$ = 1; }
   | NULLABLE { $$ = 1; }
   | NULL_TOKEN { $$ = 1; }
   | NOT NULL_TOKEN { $$ = 0; }
@@ -954,6 +955,7 @@ where:
       delete $2;
     }
     ;
+
 condition_list:
     /* empty */
     {
@@ -965,10 +967,22 @@ condition_list:
       } else {
         $$ = new std::vector<ConditionSqlNode>;
       }
+      $3->right_op = CONJ_AND;
+      $$->emplace_back(*$3);
+      delete $3;
+    }
+    | condition_list OR condition {
+      if ($1 != nullptr) {
+        $$ = $1;
+      } else {
+        $$ = new std::vector<ConditionSqlNode>;
+      }
+      $3->right_op = CONJ_OR;
       $$->emplace_back(*$3);
       delete $3;
     }
     ;
+
 condition:
     rel_attr comp_op value
     {

@@ -191,13 +191,13 @@ RC LogicalPlanGenerator::create_plan(
           ? new ValueExpr(filter_obj_right.value) 
           : new ValueExpr(filter_obj_right.values)));
 
-    ComparisonExpr *cmp_expr = new ComparisonExpr(filter_unit->comp(), std::move(left), std::move(right));
+    ComparisonExpr *cmp_expr = new ComparisonExpr(filter_unit->comp(), std::move(left), std::move(right), filter_unit->right_op());
     cmp_exprs.emplace_back(cmp_expr);
   }
 
   unique_ptr<PredicateLogicalOperator> predicate_oper;
   if (!cmp_exprs.empty()) {
-    unique_ptr<ConjunctionExpr> conjunction_expr(new ConjunctionExpr(ConjunctionExpr::Type::AND, cmp_exprs));
+    unique_ptr<ConjunctionExpr> conjunction_expr(new ConjunctionExpr(filter_units[0]->right_op(), cmp_exprs));
     predicate_oper = unique_ptr<PredicateLogicalOperator>(new PredicateLogicalOperator(std::move(conjunction_expr)));
   }
 

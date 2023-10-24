@@ -220,7 +220,7 @@ RC Table::insert_record(Record &record)
     return rc;
   }
 
-  rc = insert_entry_of_indexes(record.data(), record.rid());
+  rc = insert_entry_of_indexes(record, record.rid());
   if (rc == RC::UNIQUE_INDEX){
     RC rc2 = record_handler_->delete_record(&record.rid());
     if (rc2 != RC::SUCCESS) {
@@ -229,8 +229,9 @@ RC Table::insert_record(Record &record)
     }
     return rc;
   }
+
   if (rc != RC::SUCCESS) { // 可能出现了键值重复
-    RC rc2 = delete_entry_of_indexes(record.data(), record.rid(), false/*error_on_not_exists*/,false);
+    RC rc2 = delete_entry_of_indexes(record, record.rid(), false/*error_on_not_exists*/,false);
     if (rc2 != RC::SUCCESS) {
       LOG_ERROR("Failed to rollback index data when insert index entries failed. table name=%s, rc=%d:%s",
                 name(), rc2, strrc(rc2));
@@ -244,7 +245,7 @@ RC Table::insert_record(Record &record)
   return rc;
 }
 
-RC Table::update_record_impl(std::vector<const FieldMeta *> &field_metas, std::vector<Value> &values, char *data) {
+RC Table::update_record_impl(std::vector<const FieldMeta *> &field_metas, std::vector<Value> &values, Record &record) {
   assert(field_metas.size() == values.size());
   for (size_t i = 0; i < field_metas.size(); i++) {
     Value *value = &values[i];
@@ -256,24 +257,12 @@ RC Table::update_record_impl(std::vector<const FieldMeta *> &field_metas, std::v
       } else {
         len = min(value->length(), field_meta->len());
       }
-      memcpy(data + field_meta->offset(), value->data(), len);
+      memcpy(record.data() + field_meta->offset(), value->data(), len);
     } 
-    int column_idx = -1;
-    for (size_t i = table_meta_.sys_field_num(); i < (size_t)table_meta_.field_num(); i++) {
-      if (strcmp(field_meta->name(), (*table_meta_.field_metas())[i].name()) == 0) 
-        column_idx = i; 
-    }
-    assert(column_idx != -1);
-    column_idx -= table_meta_.sys_field_num();
-
-    char *null_byte_start = data + table_meta_.record_size() - NR_NULL_BYTE(table_meta_.field_num());
-
     if (value->attr_type() == NULL_TYPE) {
-      char thing = ~(1 << (column_idx % 8));
-      null_byte_start[column_idx/8] &= thing;
+      record.set_null(field_metas[i]->name(), this);
     } else {
-      char thing = (1 << (column_idx % 8));
-      null_byte_start[column_idx/8] |= thing;
+      record.unset_null(field_metas[i]->name(), this);
     }
   }
   return RC::SUCCESS;
@@ -286,11 +275,15 @@ RC Table::update_record(std::vector<const FieldMeta *> &field_metas, std::vector
   char *data_bak = (char *)malloc(table_meta_.record_size());
   memcpy(data_bak, record.data(), table_meta_.record_size());
 
-  update_record_impl(field_metas, values, record.data());
+  update_record_impl(field_metas, values, record);
 
   record_handler_->update_record(record.data(), table_meta_.record_size(), &record.rid());
 
   for (Index *index : indexes_) {
+    bool isnull;
+    record.get_null(index->index_meta().field(), this, isnull);
+    if (isnull) continue;
+
     rc = index->isunique(record.data(), &record.rid());
     if (rc != RC::SUCCESS) {
       record_handler_->update_record(data_bak, table_meta_.record_size(), &record.rid());
@@ -300,6 +293,10 @@ RC Table::update_record(std::vector<const FieldMeta *> &field_metas, std::vector
   }
 
   for (Index *index : indexes_) {
+    bool isnull;
+    record.get_null(index->index_meta().field(), this, isnull);
+    if (isnull) continue;
+
     rc = index->delete_entry(data_bak, &record.rid());
     ASSERT(RC::SUCCESS == rc, 
            "failed to delete entry from index. table name=%s, index name=%s, rid=%s, rc=%s",
@@ -351,9 +348,9 @@ RC Table::recover_insert_record(Record &record)
     return rc;
   }
 
-  rc = insert_entry_of_indexes(record.data(), record.rid());
+  rc = insert_entry_of_indexes(record, record.rid());
   if (rc != RC::SUCCESS) { // 可能出现了键值重复
-    RC rc2 = delete_entry_of_indexes(record.data(), record.rid(), false/*error_on_not_exists*/,false);
+    RC rc2 = delete_entry_of_indexes(record, record.rid(), false/*error_on_not_exists*/,false);
     if (rc2 != RC::SUCCESS) {
       LOG_ERROR("Failed to rollback index data when insert index entries failed. table name=%s, rc=%d:%s",
                 name(), rc2, strrc(rc2));
@@ -408,7 +405,7 @@ RC Table::make_record(int value_num, const Value *values, Record &record)
   int column = table_meta_.field_num();
   int nr_null_bytes = NR_NULL_BYTE(column);
   char null_bytes[nr_null_bytes];
-  memset(null_bytes, 0x0, nr_null_bytes);
+  memset(null_bytes, 0x00, nr_null_bytes);
 
   for (int i = 0; i < value_num; i++) {
     const FieldMeta *field = table_meta_.field(i + normal_field_start_index);
@@ -562,6 +559,10 @@ RC Table::delete_record(const Record &record)
 {
   RC rc = RC::SUCCESS;
   for (Index *index : indexes_) {
+    bool isnull;
+    record.get_null(index->index_meta().field(), this, isnull);
+    if (isnull) continue;
+
     rc = index->delete_entry(record.data(), &record.rid());
     ASSERT(RC::SUCCESS == rc, 
            "failed to delete entry from index. table name=%s, index name=%s, rid=%s, rc=%s",
@@ -571,11 +572,15 @@ RC Table::delete_record(const Record &record)
   return rc;
 }
 
-RC Table::insert_entry_of_indexes(const char *record, const RID &rid)
+RC Table::insert_entry_of_indexes(const Record &record, const RID &rid)
 {
   RC rc = RC::SUCCESS;
   for (Index *index : indexes_) {
-    rc = index->insert_entry(record, &rid);
+    bool isnull;
+    record.get_null(index->index_meta().field(), this, isnull);
+    if (isnull) continue;
+
+    rc = index->insert_entry(record.data(), &rid);
     if (rc != RC::SUCCESS) {
       break;
     }
@@ -583,11 +588,15 @@ RC Table::insert_entry_of_indexes(const char *record, const RID &rid)
   return rc;
 }
 
-RC Table::delete_entry_of_indexes(const char *record, const RID &rid, bool error_on_not_exists, bool if_update)
+RC Table::delete_entry_of_indexes(const Record &record, const RID &rid, bool error_on_not_exists, bool if_update)
 {
   RC rc = RC::SUCCESS;
   for (Index *index : indexes_) {
-    rc = index->delete_entry(record, &rid);
+    bool isnull;
+    record.get_null(index->index_meta().field(), this, isnull);
+    if (isnull) continue;
+
+    rc = index->delete_entry(record.data(), &rid);
     if(rc == RC::UNIQUE_INDEX){
       return rc;
     }

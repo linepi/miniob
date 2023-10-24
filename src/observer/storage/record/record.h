@@ -28,6 +28,7 @@ See the Mulan PSL v2 for more details. */
 #define NR_NULL_BYTE(column) ((column & 0x7) ? (column / 8 + 1) : (column / 8))
 
 class Field;
+class Table;
 
 /**
  * @brief 标识一个记录的位置
@@ -161,6 +162,13 @@ public:
   }
   RID       &rid() { return rid_; }
   const RID &rid() const { return rid_; }
+
+  RC set_null(const std::string &field_name, const Table *) const;
+  RC unset_null(const std::string &field_name, const Table *) const;
+  RC get_null(const std::string &field_name, const Table *, bool &last) const;
+
+private:
+  RC set_null_impl(const std::string &field_name, const Table *, int mode, bool &last) const;
 
 private:
   RID rid_;
