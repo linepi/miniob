@@ -134,11 +134,11 @@ RC Table::drop()
   std::string table_meta_path = table_meta_file(base_dir_.c_str(), table_meta_.name());
   std::string table_data_path = table_data_file(base_dir_.c_str(), table_meta_.name()); 
   if (::remove(table_meta_path.c_str()) != 0) {
-    LOG_ERROR(strerror(errno));
+    LOG_ERROR("%s", strerror(errno));
     rc = RC::FILE_REMOVE;
   }
   if (::remove(table_data_path.c_str()) != 0) {
-    LOG_ERROR(strerror(errno));
+    LOG_ERROR("%s", strerror(errno));
     rc = RC::FILE_REMOVE;
   }
 
@@ -147,7 +147,7 @@ RC Table::drop()
     const IndexMeta *index_meta = table_meta_.index(i);
     std::string index_path = table_index_file(base_dir_.c_str(), name(), index_meta->name());
     if (::remove(index_path.c_str()) != 0) {
-      LOG_ERROR(strerror(errno));
+      LOG_ERROR("%s", strerror(errno));
       rc = RC::FILE_REMOVE;
     }
   }

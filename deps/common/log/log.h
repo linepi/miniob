@@ -28,6 +28,7 @@ See the Mulan PSL v2 for more details. */
 #include <functional>
 
 #include "common/defs.h"
+void sql_debug(const char *fmt, ...);
 
 namespace common {
 
@@ -212,6 +213,8 @@ extern Log *g_log;
     if (g_log && g_log->check_output(level, __FILE_NAME__)) {          \
       char prefix[ONE_KILO] = {0};                                     \
       LOG_HEAD(prefix, level);                                         \
+      if (level <= common::LOG_LEVEL_WARN)                              \
+        ::sql_debug("[%s:%d] " fmt, __FILE__, __LINE__, ##__VA_ARGS__); \
       g_log->output(level, __FILE_NAME__, prefix, fmt, ##__VA_ARGS__); \
     }                                                                  \
   } while (0)

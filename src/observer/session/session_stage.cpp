@@ -109,13 +109,15 @@ void SessionStage::handle_request(StageEvent *event)
 
   std::vector<std::string> sqls;
   common::split_string(query_str, ";", sqls);
+
   for (std::string &sql : sqls) {
     SQLStageEvent sql_event(sev, sql);
     
     (void)handle_sql(this, &sql_event, true);
 
     Communicator *communicator = sev->get_communicator();
-    // communicator->session()->set_sql_debug(true);
+    communicator->session()->set_sql_debug(true);
+
     bool need_disconnect = false;
     RC rc = communicator->write_result(sev, need_disconnect);
     LOG_INFO("write result return %s", strrc(rc));
@@ -123,7 +125,8 @@ void SessionStage::handle_request(StageEvent *event)
       Server::close_connection(communicator);
     }
 
-    if (sev->sql_result()->return_code() != RC::SUCCESS) break;
+    if (sev->sql_result()->return_code() != RC::SUCCESS) 
+      break;
   }
   sev->session()->set_current_request(nullptr);
   Session::set_current_session(nullptr);

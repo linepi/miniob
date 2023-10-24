@@ -15,6 +15,7 @@ See the Mulan PSL v2 for more details. */
 #include <string.h>
 #include <string>
 #include <algorithm>
+#include <unordered_set>
 
 #include "resolve_stage.h"
 #include "storage/db/db.h"
@@ -39,8 +40,12 @@ See the Mulan PSL v2 for more details. */
 using namespace common;
 
 RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query);
+void select_to_string(SelectSqlNode *select, std::string &out);
+void select_extract_relation(SelectSqlNode *select, std::unordered_set<std::string> &relations);
+void update_extract_relation(UpdateSqlNode *update, std::unordered_set<std::string> &relations);
+void show_relations(std::unordered_set<std::string> &relations, SessionStage *ss, SQLStageEvent *sql_event);
 
-static RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &values)
+RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &values)
 {
   std::vector<std::string> lines;
   common::split_string(std_out, "\n", lines);
@@ -54,9 +59,11 @@ static RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &value
     }
     if (i != 0) {
       Value v;
-      int   rc = v.from_string(line);
-      if (rc == 0)  // 是否为空白
-        values.push_back(v);
+      int rc = v.from_string(line);
+      if (rc == 0) { // 是否为空白
+        if (!(v.attr_type() == CHARS && v.to_string().size() == 0))
+          values.push_back(v);
+      }
     }
   }
   if (values.size() == 0) {
@@ -189,6 +196,11 @@ RC value_extract(
   SQLStageEvent stack_sql_event(*sql_event, false);
   stack_sql_event.set_sql_node(std::unique_ptr<ParsedSqlNode>(node));
 
+  // for debug
+  std::string select_string;
+  select_to_string(value.select, select_string);
+  // end for debug
+
   rc = handle_sql(ss, &stack_sql_event, false);
   if (rc != RC::SUCCESS) {
     LOG_WARN("sub query failed. rc=%s", strrc(rc));
@@ -213,7 +225,18 @@ RC value_extract(
   SilentWriter *sw = static_cast<SilentWriter *>(thesw);
   value.values     = new std::vector<Value>;
   rc               = values_from_sql_stdout(sw->content(), *value.values);
-  // sql_debug(sw->content().c_str());
+
+  // for debug
+  select_string += " = [";
+  for (Value &v : *value.values) {
+    select_string += v.to_string() + "(" + attr_type_to_string(v.attr_type()) + ")";
+    if (&v != &((*value.values).back())) {
+      select_string += ", ";
+    }
+  }
+  select_string += "];";
+  sql_debug(select_string.c_str());
+  // end for debug
 
   delete sw;
 
@@ -367,6 +390,21 @@ deal_rc:
 
 RC ResolveStage::handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
 {
+  // for debug
+  if (main_query) {
+    if (sql_event->sql_node().get()->flag == SCF_SELECT) {
+      std::unordered_set<std::string> relations;
+      select_extract_relation(&(sql_event->sql_node().get()->selection), relations); 
+      sql_debug("Number of relations is %d", relations.size());
+      show_relations(relations, ss, sql_event);
+    } else if (sql_event->sql_node().get()->flag == SCF_UPDATE) {
+      std::unordered_set<std::string> relations;
+      update_extract_relation(&(sql_event->sql_node().get()->update), relations); 
+      show_relations(relations, ss, sql_event);
+    }
+  }
+  // end for debug
+
   RC            rc            = RC::SUCCESS;
   SessionEvent *session_event = sql_event->session_event();
   SqlResult    *sql_result    = session_event->sql_result();

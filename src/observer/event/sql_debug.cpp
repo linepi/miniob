@@ -20,6 +20,8 @@ See the Mulan PSL v2 for more details. */
 
 using namespace std;
 
+std::string gsdb;
+
 void SqlDebug::add_debug_info(const std::string &debug_info)
 {
   debug_infos_.push_back(debug_info);
@@ -34,6 +36,7 @@ const list<string> &SqlDebug::get_debug_infos() const
 {
   return debug_infos_;
 }
+
 
 void sql_debug(const char *fmt, ...)
 {
@@ -58,7 +61,6 @@ void sql_debug(const char *fmt, ...)
   va_end(ap);
 
   sql_debug.add_debug_info(str);
-  LOG_DEBUG("sql debug info: [%s]", str);
 
   delete[] str;
 }

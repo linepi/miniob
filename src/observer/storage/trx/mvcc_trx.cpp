@@ -273,7 +273,7 @@ RC MvccTrx::commit_with_trx_id(int32_t commit_xid)
 
         auto record_updater = [ this, &begin_xid_field, commit_xid](Record &record) {
           LOG_DEBUG("before commit insert record. trx id=%d, begin xid=%d, commit xid=%d, lbt=%s",
-                    trx_id_, begin_xid_field.get_int(record), commit_xid, lbt());
+                    trx_id_, begin_xid_field.get_int(record), commit_xid, common::lbt());
           ASSERT(begin_xid_field.get_int(record) == -this->trx_id_, 
                  "got an invalid record while committing. begin xid=%d, this trx id=%d", 
                  begin_xid_field.get_int(record), trx_id_);

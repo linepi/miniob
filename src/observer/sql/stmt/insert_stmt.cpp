@@ -60,13 +60,8 @@ RC InsertStmt::create(Db *db, const InsertSqlNode &inserts, Stmt *&stmt)
       ValueWrapper &value = values[j];
 
       if (value.values && value.values->size() != 1) {
-        assert(0);
-        LOG_WARN("only one sub query value!");
+        LOG_WARN("only one sub query value(values size: %d)!", value.values->size());
         return RC::SUB_QUERY_MULTI_VALUE;
-      }
-
-      if (value.values && (*value.values)[0].attr_type() == EMPTY_TYPE) {
-        (*value.values)[0].set_null();
       }
 
       if (value.select) {
@@ -78,7 +73,9 @@ RC InsertStmt::create(Db *db, const InsertSqlNode &inserts, Stmt *&stmt)
       FieldMeta *field_meta = const_cast<FieldMeta *>(table_meta.field(j + sys_field_num));
       bool match = field_meta->match(value_impl);
       if (!match) {
-        LOG_WARN("field does not match value");
+        LOG_WARN("field does not match value(%s and %s)", 
+          attr_type_to_string(field_meta->type()), 
+          attr_type_to_string(value_impl.attr_type()));
         return RC::SCHEMA_FIELD_TYPE_MISMATCH;
       }
       values_impl.emplace_back(value_impl);

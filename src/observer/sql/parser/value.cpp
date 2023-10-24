@@ -26,7 +26,7 @@ const char *ATTR_TYPE_NAME[] = {"undefined", "chars", "ints", "floats", "dates",
 
 const char *attr_type_to_string(AttrType type)
 {
-  if (type >= UNDEFINED && type <= DATES) {
+  if (type >= UNDEFINED && type <= EMPTY_TYPE) {
     return ATTR_TYPE_NAME[type];
   }
   return "unknown";
@@ -258,7 +258,9 @@ Value Value::operator+(const Value &other) {
         result.set_float(this->num_value_.float_value_ + other.num_value_.float_value_);
       } break;
       case CHARS: {
-        LOG_PANIC("cannot add two chars value");
+        float this_f = std::stof(this->to_string());
+        float other_f = std::stof(other.to_string());
+        result.set_float(this_f + other_f);
       } break;
       default: {
         LOG_PANIC("unsupported type: %d + %d", 
@@ -271,9 +273,9 @@ Value Value::operator+(const Value &other) {
   } else if (this->attr_type_ == FLOATS && other.attr_type_ == INTS) {
     result.set_float(this->num_value_.float_value_ + other.num_value_.int_value_);
   } else {
-    LOG_PANIC("unsupported type: %d + %d", 
-      attr_type_to_string(this->attr_type_), 
-      attr_type_to_string(other.attr_type_));
+    float this_f = std::stof(this->to_string());
+    float other_f = std::stof(other.to_string());
+    result.set_float(this_f + other_f);
   }
   return result;
 }
@@ -296,6 +298,9 @@ std::string Value::to_string() const
     } break;
     case NULL_TYPE: {
       os << "null";
+    } break;
+    case EMPTY_TYPE: {
+      os << "empty";
     } break;
     default: {
       LOG_WARN("unsupported attr type: %d", attr_type_);

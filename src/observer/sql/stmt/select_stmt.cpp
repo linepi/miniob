@@ -154,7 +154,7 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
         return RC::SCHEMA_FIELD_MISSING;
       }
       if (select_attr.agg_type != AGG_UNDEFINED) {
-        if ((field_meta->type() == CHARS || field_meta->type() == DATES) &&
+        if ((field_meta->type() == DATES) &&
             (select_attr.agg_type == AGG_AVG || select_attr.agg_type == AGG_SUM)) 
         {
           LOG_WARN("avg and sum can not be used on chars and dates");

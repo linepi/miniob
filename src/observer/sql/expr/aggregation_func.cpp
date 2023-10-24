@@ -33,6 +33,13 @@ Value AggregationFunc::result() {
 
 RC AggregationFunc::aggregate(Value *value) {
   if (value->attr_type() == NULL_TYPE) return RC::SUCCESS;
+  if (value->attr_type() == CHARS && (agg_type_ == AGG_AVG || agg_type_ == AGG_SUM)) {
+    try {
+      std::stof(value->to_string());
+    } catch (std::exception const &ex) {
+      return RC::INVALID_ARGUMENT;
+    }
+  }
   switch (agg_type_) {
     case AGG_AVG:
       avg(value);

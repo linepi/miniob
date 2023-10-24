@@ -102,6 +102,10 @@ bool FieldMeta::match(Value &value) const {
   if (value.attr_type() == NULL_TYPE && nullable_) {
     return true;
   }
+  if (value.attr_type() == EMPTY_TYPE && nullable_) {
+    value.set_null();
+    return true;
+  }
   if (attr_type_ == FLOATS && value.attr_type() == INTS) {
     value.set_float(value.get_int());
     return true;
