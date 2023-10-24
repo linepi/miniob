@@ -70,7 +70,7 @@ struct ConditionSqlNode
   std::vector<Value> *left_values;
   CompOp              comp;            ///< comparison operator
   ConType             right_type;   ///< TRUE if right-hand side is an attribute
-                                       ///< 1时，操作符右边是属性名，0时，是属性值
+                                       ///< 1时，操作符右边是属性名，0时，是属性值, -1时，是排序
   RelAttrSqlNode      right_attr;      ///< right-hand side attribute if right_is_attr = TRUE 右边的属性
   Value               right_value;     ///< right-hand side value if right_is_attr = FALSE
   SelectSqlNode      *right_select;
@@ -90,6 +90,11 @@ struct JoinNode
   std::vector<ConditionSqlNode> on;
 };
 
+struct SortNode
+{
+  RelAttrSqlNode field;
+  SortType order = ASCEND;
+};
 /**
  * @brief 描述一个select语句
  * @ingroup SQLParser
@@ -107,7 +112,9 @@ struct SelectSqlNode
   std::vector<std::string>        relations;     ///< 查询的表
   std::vector<ConditionSqlNode>   conditions;    ///< 查询条件，使用AND串联起来多个条件
   std::vector<JoinNode>           joins;
+  std::vector<SortNode>           sort;
 };
+
 
 /**
  * @brief 算术表达式计算的语法树

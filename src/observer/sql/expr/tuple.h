@@ -18,6 +18,8 @@ See the Mulan PSL v2 for more details. */
 #include <vector>
 #include <string>
 
+#include "json/json.h"
+#include "common/lang/serializable.h"
 #include "common/log/log.h"
 #include "sql/expr/tuple_cell.h"
 #include "sql/parser/parse.h"
@@ -94,6 +96,8 @@ public:
    */
   virtual int cell_num() const = 0;
 
+  virtual Tuple* clone() const = 0; 
+
   /**
    * @brief 获取指定位置的Cell
    * 
@@ -141,16 +145,36 @@ public:
   RowTuple() = default;
   virtual ~RowTuple()
   {
-    for (FieldExpr *spec : speces_) {
-      delete spec;
+    // if(!speces_.empty()){
+    //   for (FieldExpr *spec : speces_) {
+    //     if(spec != nullptr && spec->field().field_name() !=nullptr){
+    //       delete spec;
+    //     }
+    //     spec = nullptr;
+    //   }
+    //   speces_.clear();
+    // }
+  }
+  RowTuple(const RowTuple& other)
+  {
+    record_ = new Record(*(other.record_)); // Assuming Record has a copy constructor
+    table_ = other.table_; // Assuming table_ does not need deep copying
+    
+    speces_.reserve(other.speces_.size());
+    for(const FieldExpr* spec : other.speces_) {
+        speces_.push_back(new FieldExpr(*spec)); // Assuming FieldExpr has a copy constructor
     }
-    speces_.clear();
+  }
+
+  RowTuple* clone() const override {
+      return new RowTuple(*this);
   }
 
   void set_record(Record *record)
   {
     this->record_ = record;
   }
+
 
   void set_schema(const Table *table, const std::vector<FieldMeta> *fields)
   {
@@ -241,6 +265,8 @@ public:
     return *record_;
   }
 
+  const Table *table() const { return table_; }
+
 private:
   Record *record_ = nullptr;
   const Table *table_ = nullptr;
@@ -269,6 +295,10 @@ public:
   void set_tuple(Tuple *tuple)
   {
     this->tuple_ = tuple;
+  }
+
+  ProjectTuple* clone() const override {
+      return new ProjectTuple(*this);
   }
 
   void add_cell_spec(TupleCellSpec *spec)
@@ -335,6 +365,10 @@ public:
   {
   }
 
+  ExpressionTuple* clone() const override {
+      return new ExpressionTuple(*this);
+  }
+
   int cell_num() const override
   {
     return expressions_.size();
@@ -380,6 +414,10 @@ public:
     cells_ = cells;
   }
 
+  ValueListTuple* clone() const override {
+      return new ValueListTuple(*this);
+  }
+
   virtual int cell_num() const override
   {
     return static_cast<int>(cells_.size());
@@ -414,6 +452,20 @@ class JoinedTuple : public Tuple
 public:
   JoinedTuple() = default;
   virtual ~JoinedTuple() = default;
+
+  JoinedTuple* clone() const override {
+    return new JoinedTuple(*this);
+  }
+
+  JoinedTuple(const JoinedTuple& other) {
+      if (other.left_) {
+        left_ = other.left_->clone(); 
+      }
+
+      if (other.right_) {
+        right_ = other.right_->clone();
+      }
+    }
 
   void set_left(Tuple *left)
   {

@@ -23,7 +23,11 @@ enum CompOp
   NOT_EXISTS,
 };
 
-
+enum SortType
+{
+  ASCEND,
+  DECLINE,
+};
 /**
  * @brief 属性的类型
  * 
@@ -47,5 +51,6 @@ enum ConType
 {
   CON_ATTR,
   CON_VALUE,
-  CON_SUB_SELECT
+  CON_SUB_SELECT,
+  CON_NULL
 };
