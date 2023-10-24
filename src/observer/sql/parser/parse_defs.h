@@ -83,6 +83,11 @@ struct JoinNode
   std::vector<ConditionSqlNode> on;
 };
 
+struct SortNode
+{
+  RelAttrSqlNode field;
+  SortType order = ASCEND;
+};
 /**
  * @brief 描述一个select语句
  * @ingroup SQLParser
@@ -100,7 +105,9 @@ struct SelectSqlNode
   std::vector<std::string>        relations;     ///< 查询的表
   std::vector<ConditionSqlNode>   conditions;    ///< 查询条件，使用AND串联起来多个条件
   std::vector<JoinNode>           joins;
+  std::vector<SortNode>           sort;
 };
+
 
 /**
  * @brief 算术表达式计算的语法树

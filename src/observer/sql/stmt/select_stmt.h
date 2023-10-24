@@ -62,9 +62,27 @@ public:
     return &aggregation_funcs_;
   }
 
+  bool has_order_by(){
+    return order_by_;
+  }
+
+  const std::vector<Field> &order_fields() const
+  {
+    return order_fields_;
+  }
+
+  const std::vector<bool> &order_infos() const
+  {
+    return order_info;
+  }
+
 private:
   std::vector<Field> query_fields_;
   std::vector<Table *> tables_;
   FilterStmt *filter_stmt_ = nullptr;
   std::vector<AggregationFunc *> aggregation_funcs_;
+
+  bool order_by_;
+  std::vector<Field> order_fields_;
+  std::vector<bool> order_info;
 };

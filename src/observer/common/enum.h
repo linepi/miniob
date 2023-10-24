@@ -24,7 +24,11 @@ enum CompOp
   NO_OP,
 };
 
-
+enum SortType
+{
+  ASCEND,
+  DECLINE,
+};
 /**
  * @brief 属性的类型
  * 

@@ -25,7 +25,8 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/update_logical_operator.h"
 #include "sql/operator/project_logical_operator.h"
 #include "sql/operator/explain_logical_operator.h"
-
+#include "sql/operator/order_by_logical_operator.h"
+#include "sql/operator/order_by_physical_operator.h"
 
 #include "sql/stmt/stmt.h"
 #include "sql/stmt/calc_stmt.h"
@@ -93,6 +94,8 @@ RC LogicalPlanGenerator::create_plan(
 
   const std::vector<Table *> &tables = select_stmt->tables();
   const std::vector<Field> &all_fields = select_stmt->query_fields();
+
+
   for (Table *table : tables) {
     std::vector<Field> fields;
     for (const Field &field : all_fields) {
@@ -112,12 +115,44 @@ RC LogicalPlanGenerator::create_plan(
     }
   }
 
+
+  if (select_stmt->has_order_by()) {
+    // 创建临时表操作符
+    std::vector<Field> orderByColumns = select_stmt->order_fields();
+    std::vector<bool> sort_info = select_stmt->order_infos();
+    unique_ptr<LogicalOperator> order_by_oper(new OrderByLogicalOperator(orderByColumns,sort_info,!(tables.size()==1)));
+
+    order_by_oper->add_child(std::move(table_oper));
+
+    unique_ptr<LogicalOperator> predicate_oper;
+    RC rc = create_plan(select_stmt->filter_stmt(), predicate_oper);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to create predicate logical plan. rc=%s", strrc(rc));
+      return rc;
+    }
+
+    unique_ptr<LogicalOperator> project_oper(new ProjectLogicalOperator(all_fields));
+    if (predicate_oper) {
+      if (order_by_oper) {
+        predicate_oper->add_child(std::move(order_by_oper));
+      }
+      project_oper->add_child(std::move(predicate_oper));
+    } else {
+      if (order_by_oper) {
+        project_oper->add_child(std::move(order_by_oper));
+      }
+    }
+    logical_operator.swap(project_oper);
+    return RC::SUCCESS;
+  }
+
   unique_ptr<LogicalOperator> predicate_oper;
   RC rc = create_plan(select_stmt->filter_stmt(), predicate_oper);
   if (rc != RC::SUCCESS) {
     LOG_WARN("failed to create predicate logical plan. rc=%s", strrc(rc));
     return rc;
   }
+
 
   unique_ptr<LogicalOperator> project_oper(new ProjectLogicalOperator(all_fields));
   if (predicate_oper) {

@@ -37,6 +37,8 @@ std::string physical_operator_type_name(PhysicalOperatorType type)
       return "PROJECT";
     case PhysicalOperatorType::STRING_LIST:
       return "STRING_LIST";
+    case PhysicalOperatorType::ORDER_BY:
+      return "ORDER_BY";
     default:
       return "UNKNOWN";
   }

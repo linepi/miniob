@@ -113,6 +113,10 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         IN_TOKEN
         EXISTS_TOKEN
         NULLABLE
+        ORDER
+        BY
+        ASC
+
 
 /** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
 %union {
@@ -124,12 +128,14 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
   std::vector<ValueWrapper> *              value_list;
   std::vector<std::vector<ValueWrapper>> * values_list;
 
+  enum SortType                     sort_type;
   enum CompOp                       comp;
   std::vector<AttrInfoSqlNode> *    attr_infos;
   AttrInfoSqlNode *                 attr_info;
   Expression *                      expression;
   std::vector<Expression *> *       expression_list;
   std::vector<ConditionSqlNode> *   condition_list;
+  RelAttrSqlNode *                  sort_attr;
   RelAttrSqlNode *                  rel_attr;
   std::vector<RelAttrSqlNode> *     rel_attr_list;
   SelectAttr *                      select_attr;
@@ -138,6 +144,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
   std::vector<JoinNode> *           join_list;
   JoinNode *                        join_node;
   std::vector<std::pair<std::string, ValueWrapper>> * set_list;
+  SortNode *                        sort_condition;
+  std::vector<SortNode> *           sort_condition_list;
   char *                            string;
   int                               number;
   float                             floats;
@@ -155,20 +163,25 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <number>              type_note
 %type <number>              join_type
 %type <number>              aggregation_func
+%type <sort_condition>      sort_condition
 %type <condition>           condition
 %type <value>               value
 %type <value_list>          value_list
 %type <number>              number
 %type <comp>                comp_op
 %type <comp>                comp_op_single
+%type <sort_type>           sort_type
 
 %type <attr_infos>          attr_def_list
 %type <attr_info>           attr_def
 %type <value_list>          insert_data
 %type <values_list>         insert_data_list
+%type <sort_condition_list> order_by  
 %type <condition_list>      where
+%type <sort_condition_list> sort_condition_list
 %type <condition_list>      condition_list
 
+%type <sort_attr>           sort_attr
 %type <rel_attr>            rel_attr
 %type <select_attr>         select_attr_impl
 %type <select_attr_list>    select_attr
@@ -721,7 +734,7 @@ join_type:
   | INNER JOIN { $$ = (JoinType)JOIN_INNER; }
 
 select_stmt:        /*  select 语句的语法解析树*/
-    SELECT select_attr FROM ID id_list joins where 
+    SELECT select_attr FROM ID id_list joins where order_by
     {
       $$ = new ParsedSqlNode(SCF_SELECT);
       if ($2 != nullptr) {
@@ -740,6 +753,11 @@ select_stmt:        /*  select 语句的语法解析树*/
         $$->selection.conditions.swap(*$7);
         delete $7;
       }
+      if ($8 != nullptr) {
+        $$->selection.sort.swap(*$8);
+        std::reverse($$->selection.sort.begin(),$$->selection.sort.end());
+        delete $8;
+      }
       if ($6 != nullptr) {
         $$->selection.joins.swap(*$6);
         std::reverse($$->selection.joins.begin(), $$->selection.joins.end());
@@ -748,6 +766,67 @@ select_stmt:        /*  select 语句的语法解析树*/
       free($4);
     }
     ;
+
+order_by:
+  {
+    $$ = nullptr;
+  }
+  | ORDER BY sort_condition sort_condition_list
+  {
+    if ($4 == nullptr) {
+      $$ = new std::vector<SortNode>;
+      $$->emplace_back(*$3);
+    } else {
+      $$ = $4;
+      $$->emplace_back(*$3);
+    }
+    delete $3;
+  }
+
+sort_attr:
+    ID {
+      $$ = new RelAttrSqlNode;
+      $$->attribute_name = $1;
+      free($1);
+    }
+    | ID DOT ID {
+      $$ = new RelAttrSqlNode;
+      $$->relation_name  = $1;
+      $$->attribute_name = $3;
+      free($1);
+      free($3);
+    }
+    ;
+
+sort_condition:
+  sort_attr sort_type {
+    $$ = new SortNode;
+    $$->field = *$1;
+    $$->order = $2;
+    delete $1;
+  }
+  | sort_attr {
+    $$ = new SortNode;
+    $$->field = *$1;
+    delete $1;
+  }
+  ;
+
+sort_condition_list:
+  {
+    $$ = nullptr;
+  }
+  | COMMA sort_condition sort_condition_list {
+    if($3 == nullptr){
+      $$ = new std::vector<SortNode>;
+      $$->emplace_back(*$2);
+    } else {
+      $$ = $3;
+      $$->emplace_back(*$2);
+    }
+    delete $2;
+  }
+
 
 select_attr:
   select_attr_impl select_attr_impl_list {
@@ -971,6 +1050,10 @@ comp_op_single:
   | EXISTS_TOKEN { $$ = EXISTS; }
   ;
 
+sort_type:
+      ASC { $$ = ASCEND; }
+    | DESC { $$ = DECLINE; }
+    ;
 
 load_data_stmt:
     LOAD DATA INFILE SSS INTO TABLE ID 

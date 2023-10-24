@@ -93,6 +93,7 @@ DATE             {QUOTE}(({YEAR_RANGE}-({PING_2}|{BIG_MONTH}|{SMALL_MONTH}))|({R
 EXIT                                    RETURN_TOKEN(EXIT);
 HELP                                    RETURN_TOKEN(HELP);
 DESC                                    RETURN_TOKEN(DESC);
+ASC                                     RETURN_TOKEN(ASC);
 CREATE                                  RETURN_TOKEN(CREATE);
 DROP                                    RETURN_TOKEN(DROP);
 TABLE                                   RETURN_TOKEN(TABLE);
@@ -138,6 +139,8 @@ IS                                      RETURN_TOKEN(IS_TOKEN);
 UNIQUE                                  RETURN_TOKEN(UNIQUE);
 IN                                      RETURN_TOKEN(IN_TOKEN);
 EXISTS                                  RETURN_TOKEN(EXISTS_TOKEN);
+ORDER                                   RETURN_TOKEN(ORDER);
+BY                                      RETURN_TOKEN(BY);
 {ID}                                    yylval->string=strdup(yytext); RETURN_TOKEN(ID);
 "("                                     RETURN_TOKEN(LBRACE);
 ")"                                     RETURN_TOKEN(RBRACE);

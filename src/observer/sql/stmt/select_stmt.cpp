@@ -11,10 +11,11 @@ See the Mulan PSL v2 for more details. */
 //
 // Created by Wangyunlai on 2022/6/6.
 //
-
+#include <map>
 #include "sql/stmt/select_stmt.h"
 #include "sql/stmt/filter_stmt.h"
 #include "common/log/log.h"
+#include "common/enum.h"
 #include "common/lang/string.h"
 #include "storage/db/db.h"
 #include "storage/table/table.h"
@@ -186,6 +187,38 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
     return rc;
   }
 
+  std::vector<Field> order_fields_;
+  std::vector<bool> order_info_;
+
+  for(SortNode s_node: select_sql.sort)
+  {
+    order_info_.push_back(s_node.order == ASCEND);
+    
+    if(s_node.field.relation_name.empty()){
+      int f=0;
+      for (size_t i = 0; i < select_sql.relations.size(); i++){
+        const char *table_name = select_sql.relations[i].c_str();
+        Table *table1 = db->find_table(table_name);
+        const FieldMeta *F_m = table1->table_meta().field(s_node.field.attribute_name.c_str());
+        if(F_m){
+          std::string str(table_name);
+          s_node.field.relation_name = str;
+          f =1;
+        }
+      }
+      if(!f){
+        return RC::NOTFOUND;
+      }
+    }
+
+    Table *table = db->find_table(s_node.field.relation_name.c_str());
+    if (nullptr == table) {
+      LOG_WARN("no such table. db=%s, table_name=%s", db->name(), s_node.field.relation_name.c_str());
+      return RC::SCHEMA_TABLE_NOT_EXIST;
+    }
+    order_fields_.push_back(Field(table,table->table_meta().field(s_node.field.attribute_name.c_str())));
+  }
+
   // everything alright
   SelectStmt *select_stmt = new SelectStmt();
   // TODO add expression copy
@@ -193,6 +226,9 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
   select_stmt->query_fields_.swap(query_fields);
   select_stmt->filter_stmt_ = filter_stmt;
   select_stmt->aggregation_funcs_.swap(aggregation_funcs);
+  select_stmt->order_fields_ = order_fields_;
+  select_stmt->order_info = order_info_;
+  select_stmt->order_by_ = !(select_sql.sort.size() == 0);
   stmt = select_stmt;
   return RC::SUCCESS;
 }
