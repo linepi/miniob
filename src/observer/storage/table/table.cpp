@@ -277,28 +277,27 @@ RC Table::update_record(std::vector<const FieldMeta *> &field_metas, std::vector
   memcpy(data_bak, record.data(), table_meta_.record_size());
 
   // check valid
-  std::vector<Value> values_impl;
+  std::vector<Value> values_impls;
   for (size_t i = 0; i < values.size(); i++) {
     const FieldMeta *field_meta = field_metas[i];
     ValueWrapper &value = values[i];
 
     if (value.values && value.values->size() != 1) {
-      LOG_WARN("sub query return more than one row");
+      LOG_WARN("values size(%d) != 1", value.values->size());
       return RC::SUB_QUERY_MULTI_VALUE;
     }
 
     Value &value_impl = value.values ? (*value.values)[0] : value.value;
     if (!field_meta->match(value_impl)) {
-      LOG_WARN("value does not match field");
+      LOG_WARN("field does not match value(%s and %s)", 
+          attr_type_to_string(field_meta->type()), 
+          attr_type_to_string(value_impl.attr_type()));
       return RC::SCHEMA_FIELD_TYPE_MISMATCH;
     }
 
-    values_impl.push_back(value_impl);
-    if (value.values) {
-      delete value.values;
-    }
+    values_impls.push_back(value_impl);
   }
-  update_record_impl(field_metas, values_impl, record);
+  update_record_impl(field_metas, values_impls, record);
 
   for (Index *index : indexes_) {
     if (ignore_index(index, record))
@@ -310,7 +309,15 @@ RC Table::update_record(std::vector<const FieldMeta *> &field_metas, std::vector
     }
   }
 
-  record_handler_->update_record(record.data(), table_meta_.record_size(), &record.rid());
+  rc = record_handler_->update_record(record.data(), table_meta_.record_size(), &record.rid());
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("update record error %s, undo change...", strrc(rc));
+    rc = record_handler_->delete_record(&record.rid());
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("undo change error %s", strrc(rc));
+    }
+    return rc;
+  }
 
   for (Index *index : indexes_) {
     rc = index->delete_entry(data_bak, &record.rid());

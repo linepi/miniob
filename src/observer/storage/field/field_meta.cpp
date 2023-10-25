@@ -18,6 +18,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/parser/parse_defs.h"
 
 #include "json/json.h"
+#include <cmath>
 
 const static Json::StaticString FIELD_NAME("name");
 const static Json::StaticString FIELD_TYPE("type");
@@ -111,19 +112,18 @@ bool FieldMeta::match(Value &value) const {
     return true;
   }
   if (attr_type_ == INTS && value.attr_type() == FLOATS) {
-    value.set_int(value.get_float());
+    value.set_int(std::round(value.get_float()));
     return true;
   }
-  if (attr_type_ == CHARS && (value.attr_type() == INTS || value.attr_type() == FLOATS)) {
+  if (attr_type_ == CHARS) {
     value.set_string(value.to_string().c_str());
     return true;
   }
-  if ((attr_type_ == INTS || attr_type_ == FLOATS) && value.attr_type() == CHARS) {
+  if (value.attr_type() == CHARS) {
     if (!is_float(value.to_string())) return false;
     if (attr_type_ == INTS) {
       value.set_int(std::stoi(value.to_string()));
-    }
-    if (attr_type_ == FLOATS) {
+    } else if (attr_type_ == FLOATS) {
       value.set_int(std::stof(value.to_string()));
     }
     return true;

@@ -150,7 +150,6 @@ struct DeleteSqlNode
 struct UpdateSqlNode
 {
   std::string                   relation_name;         ///< Relation to update
-  std::string                   attribute_name;       
   std::vector<std::pair<std::string, ValueWrapper>> av;
   std::vector<ConditionSqlNode> conditions;
 };

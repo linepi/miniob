@@ -625,7 +625,6 @@ update_stmt:      /*  update 语句的语法解析树*/
     {
       $$ = new ParsedSqlNode(SCF_UPDATE);
       $$->update.relation_name = $2;
-      $$->update.attribute_name = $4;
 
       if ($7 != nullptr) {
         $$->update.av.swap(*$7);

@@ -41,12 +41,17 @@ using namespace common;
 
 RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query);
 void select_to_string(SelectSqlNode *select, std::string &out);
-void select_extract_relation(SelectSqlNode *select, std::unordered_set<std::string> &relations);
-void update_extract_relation(UpdateSqlNode *update, std::unordered_set<std::string> &relations);
+void get_relation_from_select(SelectSqlNode *select, std::unordered_set<std::string> &relations);
+void get_relation_from_update(UpdateSqlNode *update, std::unordered_set<std::string> &relations);
 void show_relations(std::unordered_set<std::string> &relations, SessionStage *ss, SQLStageEvent *sql_event);
+std::string values_to_string(std::vector<Value> &values);
 
 RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &values)
 {
+  while (std_out.back() == '\0') {
+    std_out = std_out.substr(0, std_out.size() - 1);
+  }
+
   std::vector<std::string> lines;
   common::split_string(std_out, "\n", lines);
   for (size_t i = 0; i < lines.size(); i++) {
@@ -61,8 +66,7 @@ RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &values)
       Value v;
       int rc = v.from_string(line);
       if (rc == 0) { // 是否为空白
-        if (!(v.attr_type() == CHARS && v.to_string().size() == 0))
-          values.push_back(v);
+        values.push_back(v);
       }
     }
   }
@@ -227,16 +231,14 @@ RC value_extract(
   SilentWriter *sw = static_cast<SilentWriter *>(thesw);
   value.values     = new std::vector<Value>;
   rc               = values_from_sql_stdout(sw->content(), *value.values);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("values_from_sql_stdout gives %s", strrc(rc));
+    delete sw;
+    return rc;
+  }
 
   // for debug
-  select_string += " = [";
-  for (Value &v : *value.values) {
-    select_string += v.to_string() + "(" + attr_type_to_string(v.attr_type()) + ")";
-    if (&v != &((*value.values).back())) {
-      select_string += ", ";
-    }
-  }
-  select_string += "];";
+  select_string += " = " + values_to_string(*value.values) + ";";
   sql_debug(select_string.c_str());
   // end for debug
 
@@ -396,14 +398,16 @@ RC ResolveStage::handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool
   if (main_query) {
     if (sql_event->sql_node().get()->flag == SCF_SELECT) {
       std::unordered_set<std::string> relations;
-      select_extract_relation(&(sql_event->sql_node().get()->selection), relations); 
+      get_relation_from_select(&(sql_event->sql_node().get()->selection), relations); 
       show_relations(relations, ss, sql_event);
     } else if (sql_event->sql_node().get()->flag == SCF_UPDATE) {
       std::unordered_set<std::string> relations;
-      update_extract_relation(&(sql_event->sql_node().get()->update), relations); 
+      get_relation_from_update(&(sql_event->sql_node().get()->update), relations); 
       show_relations(relations, ss, sql_event);
     }
   }
+  void test_main();
+  // test_main();
   // end for debug
 
   RC            rc            = RC::SUCCESS;

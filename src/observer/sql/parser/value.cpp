@@ -204,7 +204,7 @@ bool is_float(const std::string& str) {
 }
 
 bool is_date(const std::string& str) {
-  std::regex datePattern(R"(\d{4}-\d{2}-\d{2})");
+  std::regex datePattern(R"(\d{4}-\d{1,2}-\d{1,2})");
   return std::regex_match(str, datePattern);
 }
 

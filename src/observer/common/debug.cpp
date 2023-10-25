@@ -2,6 +2,7 @@
 #include <string>
 #include <algorithm>
 #include <regex>
+#include <unordered_set>
 
 #include "storage/db/db.h"
 #include "common/conf/ini.h"
@@ -22,12 +23,12 @@
 #include "sql/stmt/delete_stmt.h"
 #include "sql/stmt/select_stmt.h"
 #include "sql/stmt/update_stmt.h"
-#include <unordered_set>
+#include "storage/index/index.h"
 
-static void condition_extract_relation(std::vector<ConditionSqlNode> &conditions, std::unordered_set<std::string> &relations);
+static void get_relation_from_condition(std::vector<ConditionSqlNode> &conditions, std::unordered_set<std::string> &relations);
 void select_to_string(SelectSqlNode *select, std::string &out);
 RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query);
-void select_extract_relation(SelectSqlNode *select, std::unordered_set<std::string> &relations);
+void get_relation_from_select(SelectSqlNode *select, std::unordered_set<std::string> &relations);
 
 std::string rel_attr_to_string(RelAttrSqlNode &rel) {
   if (rel.relation_name.empty()) {
@@ -37,25 +38,37 @@ std::string rel_attr_to_string(RelAttrSqlNode &rel) {
   }
 }
 
+std::string values_to_string(std::vector<Value> &values) {
+  std::string out = "["; 
+  for (Value &v : values) {
+    out += v.to_string() + "(" + attr_type_to_string(v.attr_type()) + ")";
+    if (&v != &values.back()) {
+      out += ", ";
+    }
+  }
+  out += "](size " + std::to_string(values.size()) + ")";;
+  return out;
+}
+
 static void add_relation(std::unordered_set<std::string> &relations, std::string &relation) {
   if (!relation.empty()) {
     relations.insert(relation);
   }
 }
 
-void update_extract_relation(UpdateSqlNode *update, std::unordered_set<std::string> &relations) {
+void get_relation_from_update(UpdateSqlNode *update, std::unordered_set<std::string> &relations) {
   relations.insert(update->relation_name);
   for (auto av : update->av) {
     if (av.second.select) {
-      select_extract_relation(av.second.select, relations);
+      get_relation_from_select(av.second.select, relations);
     }
   }
   if (update->conditions.size() > 0) {
-    condition_extract_relation(update->conditions, relations);
+    get_relation_from_condition(update->conditions, relations);
   } 
 }
 
-void select_extract_relation(SelectSqlNode *select, std::unordered_set<std::string> &relations) {
+void get_relation_from_select(SelectSqlNode *select, std::unordered_set<std::string> &relations) {
   for (SelectAttr &attr : select->attributes) {
     if (attr.nodes.size() > 0)
       add_relation(relations, attr.nodes[0].relation_name);
@@ -64,28 +77,28 @@ void select_extract_relation(SelectSqlNode *select, std::unordered_set<std::stri
     add_relation(relations, rela);
   }
   for (JoinNode &jn : select->joins) {
-    condition_extract_relation(jn.on, relations);
+    get_relation_from_condition(jn.on, relations);
   }
   if (select->conditions.size() > 0) {
-    condition_extract_relation(select->conditions, relations);
+    get_relation_from_condition(select->conditions, relations);
   } 
 }
 
-static void condition_extract_relation(
+static void get_relation_from_condition(
 	std::vector<ConditionSqlNode> &conditions, std::unordered_set<std::string> &relations) {
   for (ConditionSqlNode &con : conditions) {
     if (con.left_type == CON_ATTR) {
       add_relation(relations, con.left_attr.relation_name);
     } else {
       if (con.left_value.select) {
-        select_extract_relation(con.left_value.select, relations);
+        get_relation_from_select(con.left_value.select, relations);
       } 
     }
     if (con.right_type == CON_ATTR) {
       add_relation(relations, con.right_attr.relation_name);
     } else {
       if (con.right_value.select) {
-        select_extract_relation(con.right_value.select, relations);
+        get_relation_from_select(con.right_value.select, relations);
       } 
     }
   }
@@ -152,7 +165,7 @@ void select_to_string(SelectSqlNode *select, std::string &out) {
   }
 }
 
-RC extract_content_from_relation(const std::string &relation, SessionStage *ss, SQLStageEvent *sql_event, std::string &content)
+RC stdout_of_relation(const std::string &relation, SessionStage *ss, SQLStageEvent *sql_event, std::string &content)
 {
   RC rc = RC::SUCCESS;
   SelectSqlNode select;
@@ -198,15 +211,49 @@ RC extract_content_from_relation(const std::string &relation, SessionStage *ss, 
   return rc;
 }
 
+
+RC get_relation_index_info(Table *table, std::string &out) {
+  if (!table || table->indexes().size() == 0) return RC::SUCCESS;
+  out += "(index: ";
+  for (Index *index : table->indexes()) {
+    out += "["; 
+    out += index->index_meta().field();
+    out += "]";
+    if (index->get_index_meta_unique()) {
+      out += ":unique";
+    }
+    if (index != table->indexes().back()) {
+      out += ", ";
+    }
+  }
+  out += ")";
+  return RC::SUCCESS;
+}
+
+std::string string_to_bytes(const std::string& str) {
+  std::stringstream ss;
+  for (unsigned char c : str) {
+      ss << std::hex << (int)c << " ";
+  }
+  return ss.str();
+}
+
 void show_relations(std::unordered_set<std::string> &relations, SessionStage *ss, SQLStageEvent *sql_event) {
   for (auto &relation : relations) {
     std::string out;
     std::string content;
-    RC rc = extract_content_from_relation(relation, ss, sql_event, content);
-    out += "\33[1;33m[Table] \33[0m" + relation + ": [";
+    RC rc = stdout_of_relation(relation, ss, sql_event, content);
     if (rc != RC::SUCCESS) {
       continue;
     }
+
+    std::string index_info;
+    rc = get_relation_index_info(
+      sql_event->session_event()->session()->get_current_db()->find_table(relation.c_str()), index_info);
+    if (rc != RC::SUCCESS) {
+      continue;
+    }
+    out += "\33[1;33m[Table] \33[0m" + relation + index_info + ": [";
     out += content;
     out = std::regex_replace(out, std::regex(" \\| "), ", ");
     out = std::regex_replace(out, std::regex("\n\n"), "\n");
@@ -214,4 +261,14 @@ void show_relations(std::unordered_set<std::string> &relations, SessionStage *ss
     out = out.substr(0, out.size() - 3);
     sql_debug(out.c_str());
   }
+}
+
+RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &values);
+
+void test_main() {
+  // std::vector<Value> values;
+  // values_from_sql_stdout(output, values);
+  // for (Value v : values) {
+  //   sql_debug("%s", v.to_string());
+  // }
 }
