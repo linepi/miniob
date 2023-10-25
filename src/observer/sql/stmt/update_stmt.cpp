@@ -59,17 +59,15 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt)
       return RC::SUB_QUERY_CORRELATED;
     }
 
-    const Value &value_impl = value.values ? (*value.values)[0] : value.value;
-
-    if (!field_meta->match(const_cast<Value &>(value_impl))) {
-      LOG_WARN("field does not match value(%s and %s)", 
-        attr_type_to_string(field_meta->type()), 
-        attr_type_to_string(value_impl.attr_type()));
-      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
-    }
+    // if (!field_meta->match(const_cast<Value &>(value_impl))) {
+    //   LOG_WARN("field does not match value(%s and %s)", 
+    //     attr_type_to_string(field_meta->type()), 
+    //     attr_type_to_string(value_impl.attr_type()));
+    //   return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+    // }
 
     update_stmt->field_metas_.push_back(field_meta);
-    update_stmt->values_.push_back(value_impl);
+    update_stmt->values_.push_back(value);
   }
 
 

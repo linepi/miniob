@@ -27,7 +27,7 @@ class UpdateStmt;
 class UpdatePhysicalOperator : public PhysicalOperator
 {
 public:
-  UpdatePhysicalOperator(Table *table, std::vector<Value> values, std::vector<const FieldMeta *> field_metas) 
+  UpdatePhysicalOperator(Table *table, std::vector<ValueWrapper> values, std::vector<const FieldMeta *> field_metas) 
     : table_(table), values_(values), field_metas_(field_metas)
   {}
 
@@ -46,7 +46,7 @@ public:
 
 private:
   Table *table_ = nullptr;
-  std::vector<Value> values_;
+  std::vector<ValueWrapper> values_;
   std::vector<const FieldMeta *> field_metas_;
   Trx *trx_ = nullptr;
 };

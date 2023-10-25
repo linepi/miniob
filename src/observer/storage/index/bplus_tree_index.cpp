@@ -91,7 +91,7 @@ RC BplusTreeIndex::close()
   return RC::SUCCESS;
 }
 
-RC BplusTreeIndex::isunique(const char *record, const RID *rid)
+RC BplusTreeIndex::unique_check(const char *record, const RID *rid)
 {
   std::string rel;
   for (FieldMeta f_m : field_meta_) {

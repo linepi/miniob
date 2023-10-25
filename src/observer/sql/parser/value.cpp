@@ -229,16 +229,16 @@ int Value::from_string(std::string str) {
     set_null();
     return 0;
   }
+  if (is_date(str)) {
+    set_date(str.c_str());
+    return 0;
+  }
   if (is_int(str)) {
     set_int(std::stoi(str));
     return 0;
   }
   if (is_float(str)) {
     set_float(std::stof(str));
-    return 0;
-  }
-  if (is_date(str)) {
-    set_date(str.c_str());
     return 0;
   }
   set_string(str.c_str(), str.size());

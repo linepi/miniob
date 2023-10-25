@@ -27,6 +27,7 @@
 static void condition_extract_relation(std::vector<ConditionSqlNode> &conditions, std::unordered_set<std::string> &relations);
 void select_to_string(SelectSqlNode *select, std::string &out);
 RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query);
+void select_extract_relation(SelectSqlNode *select, std::unordered_set<std::string> &relations);
 
 std::string rel_attr_to_string(RelAttrSqlNode &rel) {
   if (rel.relation_name.empty()) {
@@ -44,6 +45,11 @@ static void add_relation(std::unordered_set<std::string> &relations, std::string
 
 void update_extract_relation(UpdateSqlNode *update, std::unordered_set<std::string> &relations) {
   relations.insert(update->relation_name);
+  for (auto av : update->av) {
+    if (av.second.select) {
+      select_extract_relation(av.second.select, relations);
+    }
+  }
   if (update->conditions.size() > 0) {
     condition_extract_relation(update->conditions, relations);
   } 
@@ -197,12 +203,15 @@ void show_relations(std::unordered_set<std::string> &relations, SessionStage *ss
     std::string out;
     std::string content;
     RC rc = extract_content_from_relation(relation, ss, sql_event, content);
-    out += relation + ": ";
+    out += "\33[1;33m[Table] \33[0m" + relation + ": [";
     if (rc != RC::SUCCESS) {
       continue;
     }
     out += content;
-    out = std::regex_replace(out, std::regex("\n"), ";");
+    out = std::regex_replace(out, std::regex(" \\| "), ", ");
+    out = std::regex_replace(out, std::regex("\n\n"), "\n");
+    out = std::regex_replace(out, std::regex("\n"), "], [");
+    out = out.substr(0, out.size() - 3);
     sql_debug(out.c_str());
   }
 }

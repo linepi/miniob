@@ -214,6 +214,16 @@ RC Table::open(const char *meta_file, const char *base_dir)
 RC Table::insert_record(Record &record)
 {
   RC rc = RC::SUCCESS;
+
+  for (Index *index : indexes_) {
+    if (ignore_index(index, record))
+      continue;
+    rc = index->unique_check(record.data(), &record.rid());
+    if (rc != RC::SUCCESS) {
+      return rc;
+    }
+  }
+
   rc = record_handler_->insert_record(record.data(), table_meta_.record_size(), &record.rid());
   if (rc != RC::SUCCESS) {
     LOG_ERROR("Insert record failed. table name=%s, rc=%s", table_meta_.name(), strrc(rc));
@@ -221,26 +231,8 @@ RC Table::insert_record(Record &record)
   }
 
   rc = insert_entry_of_indexes(record, record.rid());
-  if (rc == RC::UNIQUE_INDEX){
-    RC rc2 = record_handler_->delete_record(&record.rid());
-    if (rc2 != RC::SUCCESS) {
-      LOG_PANIC("Failed to rollback record data when insert index entries failed. table name=%s, rc=%d:%s",
-                name(), rc2, strrc(rc2));
-    }
-    return rc;
-  }
-
-  if (rc != RC::SUCCESS) { // 可能出现了键值重复
-    RC rc2 = delete_entry_of_indexes(record, record.rid(), false/*error_on_not_exists*/,false);
-    if (rc2 != RC::SUCCESS) {
-      LOG_ERROR("Failed to rollback index data when insert index entries failed. table name=%s, rc=%d:%s",
-                name(), rc2, strrc(rc2));
-    }
-    rc2 = record_handler_->delete_record(&record.rid());
-    if (rc2 != RC::SUCCESS) {
-      LOG_PANIC("Failed to rollback record data when insert index entries failed. table name=%s, rc=%d:%s",
-                name(), rc2, strrc(rc2));
-    }
+  if (rc != RC::SUCCESS) { 
+    LOG_WARN("insert entry of indexes error");
   }
   return rc;
 }
@@ -268,44 +260,73 @@ RC Table::update_record_impl(std::vector<const FieldMeta *> &field_metas, std::v
   return RC::SUCCESS;
 }
 
-RC Table::update_record(std::vector<const FieldMeta *> &field_metas, std::vector<Value> &values, Record &record)
+bool Table::ignore_index(Index *index, const Record &record) {
+  for (const FieldMeta &fm : index->field_meta()) {
+    bool isnull;
+    record.get_null(fm.name(), this, isnull);
+    if (isnull) return true;
+  }
+  return false;
+}
+
+RC Table::update_record(std::vector<const FieldMeta *> &field_metas, std::vector<ValueWrapper> &values, Record &record)
 {
   RC rc = RC::SUCCESS;
   
   char *data_bak = (char *)malloc(table_meta_.record_size());
   memcpy(data_bak, record.data(), table_meta_.record_size());
 
-  update_record_impl(field_metas, values, record);
+  // check valid
+  std::vector<Value> values_impl;
+  for (size_t i = 0; i < values.size(); i++) {
+    const FieldMeta *field_meta = field_metas[i];
+    ValueWrapper &value = values[i];
 
-  record_handler_->update_record(record.data(), table_meta_.record_size(), &record.rid());
+    if (value.values && value.values->size() != 1) {
+      LOG_WARN("sub query return more than one row");
+      return RC::SUB_QUERY_MULTI_VALUE;
+    }
+
+    Value &value_impl = value.values ? (*value.values)[0] : value.value;
+    if (!field_meta->match(value_impl)) {
+      LOG_WARN("value does not match field");
+      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+    }
+
+    values_impl.push_back(value_impl);
+    if (value.values) {
+      delete value.values;
+    }
+  }
+  update_record_impl(field_metas, values_impl, record);
 
   for (Index *index : indexes_) {
-    bool isnull;
-    record.get_null(index->index_meta().field(), this, isnull);
-    if (isnull) continue;
-
-    rc = index->isunique(record.data(), &record.rid());
+    if (ignore_index(index, record))
+      continue;
+    rc = index->unique_check(record.data(), &record.rid());
     if (rc != RC::SUCCESS) {
-      record_handler_->update_record(data_bak, table_meta_.record_size(), &record.rid());
       free(data_bak);
       return rc;
     }
   }
 
+  record_handler_->update_record(record.data(), table_meta_.record_size(), &record.rid());
+
   for (Index *index : indexes_) {
-    bool isnull;
-    record.get_null(index->index_meta().field(), this, isnull);
-    if (isnull) continue;
-
     rc = index->delete_entry(data_bak, &record.rid());
-    ASSERT(RC::SUCCESS == rc, 
-           "failed to delete entry from index. table name=%s, index name=%s, rid=%s, rc=%s",
+    if (RC::SUCCESS != rc) {
+      LOG_WARN("failed to delete entry from index. table name=%s, index name=%s, rid=%s, rc=%s",
            name(), index->index_meta().name(), record.rid().to_string().c_str(), strrc(rc));
-
+      return rc;
+    }
+    if (ignore_index(index, record))
+      continue;
     rc = index->insert_entry(record.data(), &record.rid());
-    ASSERT(RC::SUCCESS == rc, 
-           "failed to insert entry into index. table name=%s, index name=%s, rid=%s, rc=%s",
+    if (RC::SUCCESS != rc) {
+      LOG_WARN("failed to delete entry from index. table name=%s, index name=%s, rid=%s, rc=%s",
            name(), index->index_meta().name(), record.rid().to_string().c_str(), strrc(rc));
+      return rc;
+    }
   }
 
   free(data_bak);
@@ -559,9 +580,7 @@ RC Table::delete_record(const Record &record)
 {
   RC rc = RC::SUCCESS;
   for (Index *index : indexes_) {
-    bool isnull;
-    record.get_null(index->index_meta().field(), this, isnull);
-    if (isnull) continue;
+    if (ignore_index(index, record)) continue;
 
     rc = index->delete_entry(record.data(), &record.rid());
     ASSERT(RC::SUCCESS == rc, 
@@ -576,13 +595,11 @@ RC Table::insert_entry_of_indexes(const Record &record, const RID &rid)
 {
   RC rc = RC::SUCCESS;
   for (Index *index : indexes_) {
-    bool isnull;
-    record.get_null(index->index_meta().field(), this, isnull);
-    if (isnull) continue;
+    if (ignore_index(index, record)) continue;
 
     rc = index->insert_entry(record.data(), &rid);
     if (rc != RC::SUCCESS) {
-      break;
+      return rc;
     }
   }
   return rc;
@@ -592,10 +609,7 @@ RC Table::delete_entry_of_indexes(const Record &record, const RID &rid, bool err
 {
   RC rc = RC::SUCCESS;
   for (Index *index : indexes_) {
-    bool isnull;
-    record.get_null(index->index_meta().field(), this, isnull);
-    if (isnull) continue;
-
+    assert(!ignore_index(index, record));
     rc = index->delete_entry(record.data(), &rid);
     if(rc == RC::UNIQUE_INDEX){
       return rc;

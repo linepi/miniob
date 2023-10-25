@@ -40,6 +40,6 @@ public:
   static RC create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt);
   Table *table_;
   std::vector<const FieldMeta *> field_metas_;
-  std::vector<Value> values_;
+  std::vector<ValueWrapper> values_;
   FilterStmt *filter_stmt_;
 };

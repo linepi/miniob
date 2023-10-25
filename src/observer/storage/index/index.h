@@ -51,7 +51,11 @@ public:
 
   bool get_index_meta_unique()
   {
-    return index_meta_.isunique();
+    return index_meta_.unique_check();
+  }
+
+  const std::vector<FieldMeta> &field_meta() {
+    return field_meta_;
   }
 
   /**
@@ -70,7 +74,7 @@ public:
    */
   virtual RC delete_entry(const char *record, const RID *rid) = 0;
 
-  virtual RC isunique(const char *record, const RID *rid) = 0;
+  virtual RC unique_check(const char *record, const RID *rid) = 0;
 
   virtual RC insert_entry_first(const char *record, const RID *rid) = 0;
 

@@ -41,10 +41,8 @@ public:
 public:
   const char *name() const;
   const char *field() const;
-  bool ismult () {
-    return mult_index;
-  }
-  bool isunique(){
+
+  bool unique_check() const {
     return unique_index;
   }
   void set_unique(bool f){
@@ -60,6 +58,5 @@ public:
 protected:
   std::string name_;   // index's name
   std::string field_;  // field's name
-  bool mult_index = false;
   bool unique_index = false;
 };

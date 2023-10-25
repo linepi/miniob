@@ -198,7 +198,9 @@ RC value_extract(
 
   // for debug
   std::string select_string;
+  select_string += "\33[1;33m[sub-query]\33[0m: [";
   select_to_string(value.select, select_string);
+  select_string += "]";
   // end for debug
 
   rc = handle_sql(ss, &stack_sql_event, false);
@@ -395,7 +397,6 @@ RC ResolveStage::handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool
     if (sql_event->sql_node().get()->flag == SCF_SELECT) {
       std::unordered_set<std::string> relations;
       select_extract_relation(&(sql_event->sql_node().get()->selection), relations); 
-      sql_debug("Number of relations is %d", relations.size());
       show_relations(relations, ss, sql_event);
     } else if (sql_event->sql_node().get()->flag == SCF_UPDATE) {
       std::unordered_set<std::string> relations;

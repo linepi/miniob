@@ -35,6 +35,8 @@ public:
 
   const std::list<std::string> &get_debug_infos() const;
 
+  int trace_depth = 3;
+
 private:
   std::list<std::string> debug_infos_;
 };
@@ -46,3 +48,5 @@ private:
  * 在普通文本场景下，调试信息会直接输出到客户端，并增加 '#' 作为前缀。
  */
 void sql_debug(const char *fmt, ...);
+
+void sql_debug_log(const char *fmt, ...);

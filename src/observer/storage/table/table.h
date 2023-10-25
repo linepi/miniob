@@ -85,7 +85,7 @@ public:
   RC delete_record(const Record &record);
   RC visit_record(const RID &rid, bool readonly, std::function<void(Record &)> visitor);
   RC get_record(const RID &rid, Record &record);
-  RC update_record(std::vector<const FieldMeta *> &field_metas, std::vector<Value> &values, Record &record);
+  RC update_record(std::vector<const FieldMeta *> &field_metas, std::vector<ValueWrapper> &values, Record &record);
   RC update_record_impl(std::vector<const FieldMeta *> &field_metas, std::vector<Value> &values, Record &record);
 
   std::vector<Index *> indexes();
@@ -94,6 +94,7 @@ public:
 
   // TODO refactor
   RC create_index(Trx *trx, const std::vector<FieldMeta> field_meta, const char *index_name, bool unique);
+  bool ignore_index(Index *index, const Record &record);
 
   RC get_record_scanner(RecordFileScanner &scanner, Trx *trx, bool readonly);
 
