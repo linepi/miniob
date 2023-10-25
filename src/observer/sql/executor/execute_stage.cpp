@@ -52,6 +52,15 @@ RC ExecuteStage::handle_request(SQLStageEvent *sql_event, bool main_query)
   return rc;
 }
 
+std::string findKeyByValue(const std::map<std::string, std::string>& myMap, const std::string& targetValue) {
+    for (const auto& pair : myMap) {
+        if (pair.second == targetValue) {
+            return pair.first;
+        }
+    }
+    return "";
+}
+
 RC ExecuteStage::handle_request_with_physical_operator(SQLStageEvent *sql_event)
 {
   RC rc = RC::SUCCESS;
@@ -61,6 +70,11 @@ RC ExecuteStage::handle_request_with_physical_operator(SQLStageEvent *sql_event)
 
   unique_ptr<PhysicalOperator> &physical_operator = sql_event->physical_operator();
   ASSERT(physical_operator != nullptr, "physical operator should not be null");
+
+
+  extern std::map<std::string, std::string> field2alias_mp;
+
+  std::cout<< field2alias_mp.size() << std::endl;
 
   // TODO 这里也可以优化一下，是否可以让physical operator自己设置tuple schema
   TupleSchema schema;
@@ -72,9 +86,19 @@ RC ExecuteStage::handle_request_with_physical_operator(SQLStageEvent *sql_event)
       schema.aggregation_funcs_ = select_stmt->aggregation_funcs();
       for (const Field &field : select_stmt->query_fields()) {
         if (with_table_name) {
-          schema.append_cell(field.table_name(), field.field_name());
+          std::string field_alias = findKeyByValue(field2alias_mp, field.field_name());
+          if(field_alias.empty()){
+            schema.append_cell(field.table_name(), field.field_name());
+          }else {
+            schema.append_cell(field.table_name(), field_alias.c_str());
+          }
         } else {
-          schema.append_cell(field.field_name());
+          std::string field_alias = findKeyByValue(field2alias_mp, field.field_name());
+          if(field_alias.empty()){
+            schema.append_cell(field.field_name());
+          }else {
+            schema.append_cell(field_alias.c_str());
+          }
         }
       }
     } break;

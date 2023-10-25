@@ -43,6 +43,7 @@ struct RelAttrSqlNode
 {
   std::string relation_name;   ///< relation name (may be NULL) 表名
   std::string attribute_name;  ///< attribute name              属性名
+  std::string alias;  ///< relation name (may be NULL) 表名别名
 };
 
 struct SelectAttr
@@ -82,6 +83,7 @@ struct JoinNode
 {
   JoinType type;
   std::string relation_name;
+  std::string table_alias;
   std::vector<ConditionSqlNode> on;
 };
 
@@ -105,6 +107,7 @@ struct SelectSqlNode
 {
   std::vector<SelectAttr>         attributes;    ///< attributes in select clause
   std::vector<std::string>        relations;     ///< 查询的表
+  std::vector<std::string>        table_alias;
   std::vector<ConditionSqlNode>   conditions;    ///< 查询条件，使用AND串联起来多个条件
   std::vector<JoinNode>           joins;
   std::vector<SortNode>           sort;
@@ -149,8 +152,9 @@ struct DeleteSqlNode
  */
 struct UpdateSqlNode
 {
-  std::string                   relation_name;         ///< Relation to update
-  std::string                   attribute_name;       
+  std::string   relation_name;    ///< Relation to update
+  std::string   table_alias;         
+  std::string   attribute_name;       
   std::vector<std::pair<std::string, ValueWrapper>> av;
   std::vector<ConditionSqlNode> conditions;
 };

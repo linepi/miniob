@@ -15,6 +15,8 @@ See the Mulan PSL v2 for more details. */
 #include "sql/expr/expression.h"
 #include "sql/expr/tuple.h"
 #include "event/sql_event.h"
+#include <unordered_map>
+#include <algorithm>
 
 using namespace std;
 RC value_extract(ValueWrapper &value, SessionStage *ss, SQLStageEvent *sql_event, std::vector<std::string> *father_tables);

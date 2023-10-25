@@ -117,6 +117,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         ORDER
         BY
         ASC
+        AS
 
 
 /** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
@@ -136,11 +137,14 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
   Expression *                      expression;
   std::vector<Expression *> *       expression_list;
   std::vector<ConditionSqlNode> *   condition_list;
+  RelAttrSqlNode *                  alias_attr;  
+  std::pair<std::string, std::string> *                  alias_id;
   RelAttrSqlNode *                  sort_attr;
   RelAttrSqlNode *                  rel_attr;
   std::vector<RelAttrSqlNode> *     rel_attr_list;
   SelectAttr *                      select_attr;
   std::vector<SelectAttr> *         select_attr_list;
+  std::vector<std::pair<std::string, std::string>> *     alias_id_list;
   std::vector<std::string> *        relation_list;
   std::vector<JoinNode> *           join_list;
   JoinNode *                        join_node;
@@ -182,6 +186,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <sort_condition_list> sort_condition_list
 %type <condition_list>      condition_list
 
+%type <alias_id>            alias_id
+%type <alias_attr>          alias_attr
 %type <sort_attr>           sort_attr
 %type <rel_attr>            rel_attr
 %type <select_attr>         select_attr_impl
@@ -192,6 +198,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <join_list>           joins
 %type <join_node>           join 
 
+%type <alias_id_list>       alias_id_list
 %type <relation_list>       id_list
 %type <expression>          expression
 %type <expression_list>     expression_list
@@ -621,10 +628,11 @@ set_list:
   }
 
 update_stmt:      /*  update 语句的语法解析树*/
-    UPDATE ID SET ID EQ value set_list where 
+    UPDATE alias_id SET ID EQ value set_list where 
     {
       $$ = new ParsedSqlNode(SCF_UPDATE);
-      $$->update.relation_name = $2;
+      $$->update.relation_name = $2->first;
+      $$->update.table_alias = $2->second;
       $$->update.attribute_name = $4;
 
       if ($7 != nullptr) {
@@ -709,18 +717,27 @@ joins:
     $$->emplace_back(*$1);
     free($1);
   }
+  ;
 
-join: 
+join:
   join_type ID {
     $$ = new JoinNode();
     $$->type = (JoinType)$1;
     $$->relation_name = $2;
     free($2);
   }
-  | join_type ID ON condition condition_list {
+  | join_type ID AS ID {
     $$ = new JoinNode();
     $$->type = (JoinType)$1;
     $$->relation_name = $2;
+    $$->table_alias = $4;
+    free($2);
+    free($4);
+  }
+  | join_type ID ON condition condition_list {
+    $$ = new JoinNode();
+    $$->type = (JoinType)$1;
+    $$->relation_name = *$2;
     if ($5 != nullptr) {
       $$->on.swap(*$5);
       delete $5;
@@ -729,13 +746,14 @@ join:
     delete $4;
     free($2);
   }
-
+  ;
 join_type:
     JOIN { $$ = (JoinType)JOIN_INNER; }
   | INNER JOIN { $$ = (JoinType)JOIN_INNER; }
+  ;
 
 select_stmt:        /*  select 语句的语法解析树*/
-    SELECT select_attr FROM ID id_list joins where order_by
+    SELECT select_attr FROM alias_id alias_id_list joins where order_by
     {
       $$ = new ParsedSqlNode(SCF_SELECT);
       if ($2 != nullptr) {
@@ -743,12 +761,18 @@ select_stmt:        /*  select 语句的语法解析树*/
         $$->selection.attributes.swap(*$2);
         delete $2;
       }
-      if ($5 != nullptr) {
-        $$->selection.relations.swap(*$5);
-        delete $5;
+
+      for (auto p : *$5) {
+        $$->selection.relations.emplace_back(p.first);
+        $$->selection.table_alias.emplace_back(p.second);
       }
-      $$->selection.relations.push_back($4);
+      $$->selection.relations.emplace_back($4->first);
+      $$->selection.table_alias.emplace_back($4->second);
+      
+      delete $4;
+      delete $5;
       std::reverse($$->selection.relations.begin(), $$->selection.relations.end());
+      std::reverse($$->selection.table_alias.begin(), $$->selection.table_alias.end());
 
       if ($7 != nullptr) {
         $$->selection.conditions.swap(*$7);
@@ -783,6 +807,7 @@ order_by:
     }
     delete $3;
   }
+  ;
 
 sort_attr:
     ID {
@@ -796,6 +821,22 @@ sort_attr:
       $$->attribute_name = $3;
       free($1);
       free($3);
+    }
+    | ID AS ID {
+      $$ = new RelAttrSqlNode;
+      $$->attribute_name = $1;
+      $$->alias = $3;
+      free($1);
+      free($3);      
+    }
+    | ID DOT ID AS ID {
+      $$ = new RelAttrSqlNode;
+      $$->relation_name  = $1;
+      $$->attribute_name = $3;
+      $$->alias = $5;
+      free($1);
+      free($3);
+      free($5);
     }
     ;
 
@@ -872,7 +913,44 @@ select_attr_impl:
     $$->agg_type = (AggType)$1;
     delete $3;
   }
+  | alias_attr {
+    $$ = new SelectAttr();
+    $$->nodes.emplace_back(*$1);
+    $$->agg_type = AGG_UNDEFINED;
+    delete $1;
+  }
   ;
+
+alias_attr:
+    ID {
+      $$ = new RelAttrSqlNode;
+      $$->attribute_name = $1;
+      free($1);
+    }
+    | ID DOT ID {
+      $$ = new RelAttrSqlNode;
+      $$->relation_name  = $1;
+      $$->attribute_name = $3;
+      free($1);
+      free($3);
+    }
+    | ID AS ID {
+      $$ = new RelAttrSqlNode;
+      $$->attribute_name = $1;
+      $$->alias = $3;
+      free($1);
+      free($3);      
+    }
+    | ID DOT ID AS ID {
+      $$ = new RelAttrSqlNode;
+      $$->relation_name  = $1;
+      $$->attribute_name = $3;
+      $$->alias = $5;
+      free($1);
+      free($3);
+      free($5);
+    }
+    ;
 
 select_attr_impl_piece:
     rel_attr rel_attr_list {
@@ -923,6 +1001,37 @@ rel_attr_list:
     }
     ;
 
+alias_id:
+    ID {
+      $$ = new std::pair<std::string, std::string>;
+      $$->first = $1;
+      free($1);
+    }
+    | ID AS ID {
+      $$ = new std::pair<std::string, std::string>;
+      $$->first = $1;
+      $$->second = $3;
+      free($1);
+      free($3);      
+    }
+    ;
+
+alias_id_list:
+    /* empty */
+    {
+      $$ = nullptr;
+    }
+    | COMMA alias_id alias_id_list {
+      if ($3 != nullptr) {
+        $$ = $3;
+      } else {
+        $$ = new std::vector<std::pair<std::string, std::string>>;
+      }
+      $$->emplace_back(*$2);
+      delete $2;
+    }
+    ;  
+
 id_list:
     /* empty */
     {
@@ -934,7 +1043,6 @@ id_list:
       } else {
         $$ = new std::vector<std::string>;
       }
-
       $$->push_back($2);
       free($2);
     }

@@ -144,8 +144,13 @@ void SessionStage::handle_request(StageEvent *event)
  * 调试或者看代码执行过程即可。
  */
 
+std::map<std::string, std::string> field2alias_mp;
+std::map<std::string, int> field_exis;
+
 RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
 {
+  field2alias_mp.clear();
+
   RC rc = RC::SUCCESS;
   rc = ss->query_cache_stage_.handle_request(sql_event, main_query);
   if (OB_FAIL(rc)) {
