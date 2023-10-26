@@ -28,7 +28,7 @@ SelectStmt::~SelectStmt()
   }
 }
 
-static void wildcard_fields(Table *table, std::vector<Field> &field_metas)
+void wildcard_fields(Table *table, std::vector<Field> &field_metas)
 {
   const TableMeta &table_meta = table->table_meta();
   const int field_num = table_meta.field_num();
@@ -37,7 +37,7 @@ static void wildcard_fields(Table *table, std::vector<Field> &field_metas)
   }
 }
 
-static RC add_table(
+RC add_table(
   Db *db,
   std::vector<Table *> &tables, 
   std::unordered_map<std::string, Table *> &table_map, 

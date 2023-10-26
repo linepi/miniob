@@ -117,6 +117,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         ORDER
         BY
         ASC
+        AS
 
 
 /** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
@@ -174,6 +175,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <sort_type>           sort_type
 
 %type <attr_infos>          attr_def_list
+%type <attr_infos>          attr_def_list_for_create
 %type <attr_info>           attr_def
 %type <value_list>          insert_data
 %type <values_list>         insert_data_list
@@ -200,6 +202,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 
 %type <sql_node>            calc_stmt
 %type <sql_node>            select_stmt
+%type <sql_node>            as_select_wrapper
 %type <sql_node>            insert_stmt
 %type <sql_node>            update_stmt
 %type <sql_node>            delete_stmt
@@ -247,13 +250,13 @@ command_list:
   {
     $$ = nullptr;
   }
-  | command_wrapper opt_semicolon command_list {
-    if ($3 == nullptr) {
+  | SEMICOLON command_wrapper opt_semicolon command_list {
+    if ($4 == nullptr) {
       $$ = new std::vector<ParsedSqlNode *>;
-      $$->emplace_back($1);
+      $$->emplace_back($2);
     } else {
-      $3->emplace_back($1);
-      $$ = $3;
+      $4->emplace_back($2);
+      $$ = $4;
     }
   }
   ;
@@ -406,22 +409,50 @@ drop_index_stmt:      /*drop index 语句的语法解析树*/
       free($5);
     }
     ;
+
+as_select_wrapper:
+  {
+    $$ = nullptr;
+  }
+  | AS select_stmt {
+    $$ = $2;
+  }
+  | select_stmt {
+    $$ = $1;
+  }
+
+attr_def_list_for_create:
+  {
+    $$ = nullptr;
+  }
+  | LBRACE attr_def attr_def_list RBRACE {
+    if ($3 != nullptr) {
+      $$ = $3;
+    } else {
+      $$ = new std::vector<AttrInfoSqlNode>;
+    }
+    $$->emplace_back(*$2);
+    std::reverse($$->begin(), $$->end());
+    delete $2;
+  }
+
 create_table_stmt:    /*create table 语句的语法解析树*/
-    CREATE TABLE ID LBRACE attr_def attr_def_list RBRACE
+    CREATE TABLE ID attr_def_list_for_create as_select_wrapper
     {
       $$ = new ParsedSqlNode(SCF_CREATE_TABLE);
       CreateTableSqlNode &create_table = $$->create_table;
       create_table.relation_name = $3;
       free($3);
 
-      std::vector<AttrInfoSqlNode> *src_attrs = $6;
-
-      if (src_attrs != nullptr) {
-        create_table.attr_infos.swap(*src_attrs);
+      if ($4 != nullptr) {
+        create_table.attr_infos.swap(*$4);
+        delete $4;
       }
-      create_table.attr_infos.emplace_back(*$5);
-      std::reverse(create_table.attr_infos.begin(), create_table.attr_infos.end());
-      delete $5;
+      if ($5 != nullptr) {
+        create_table.select = new SelectSqlNode;
+        *(create_table.select) = $5->selection;
+        delete $5;
+      }
     }
     ;
 attr_def_list:

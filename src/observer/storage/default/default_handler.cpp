@@ -165,7 +165,7 @@ RC DefaultHandler::create_table(
   if (db == nullptr) {
     return RC::SCHEMA_DB_NOT_OPENED;
   }
-  return db->create_table(relation_name, attribute_count, attributes);
+  return db->create_table(relation_name, attribute_count, attributes, nullptr);
 }
 
 RC DefaultHandler::drop_table(const char *dbname, const char *relation_name)

@@ -142,6 +142,7 @@ IN                                      RETURN_TOKEN(IN_TOKEN);
 EXISTS                                  RETURN_TOKEN(EXISTS_TOKEN);
 ORDER                                   RETURN_TOKEN(ORDER);
 BY                                      RETURN_TOKEN(BY);
+AS                                      RETURN_TOKEN(AS);
 {ID}                                    yylval->string=strdup(yytext); RETURN_TOKEN(ID);
 "("                                     RETURN_TOKEN(LBRACE);
 ")"                                     RETURN_TOKEN(RBRACE);

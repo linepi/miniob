@@ -194,8 +194,16 @@ const char *Value::data() const
 
 bool is_float(const std::string& str) {
   try {
-    std::stof(str); 
-    return true; 
+    size_t pos; // 用于保存解析后的位置
+    std::stof(str, &pos); 
+
+    // 检查是否解析了整个字符串
+    if (pos == str.size()) {
+        return true;
+    } else {
+        return false;
+    }
+
   } catch (const std::invalid_argument& e) {
     return false; 
   } catch (const std::out_of_range& e) {

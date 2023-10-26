@@ -46,7 +46,7 @@ public:
    */
   RC init(const char *name, const char *dbpath);
 
-  RC create_table(const char *table_name, int attribute_count, const AttrInfoSqlNode *attributes);
+  RC create_table(const char *table_name, int attribute_count, const AttrInfoSqlNode *attributes, std::vector<std::vector<Value>> *values_list);
   RC drop_table(const char *table_name);
   RC show_index(const char *table_name, TableMeta &table_meta);
 

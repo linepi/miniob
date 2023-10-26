@@ -84,6 +84,13 @@ public:
     return correlated_query_;
   }
 
+  void set_for_create_table(bool v) {
+    for_create_table_ = v;
+  }
+  bool for_create_table() const {
+    return for_create_table_;
+  }
+
 private:
   SessionEvent *session_event_ = nullptr;
   std::string sql_;  ///< 处理的SQL语句
@@ -92,4 +99,5 @@ private:
   std::unique_ptr<PhysicalOperator> operator_; ///< 生成的执行计划，也可能没有
   bool main_query_ = true;
   bool correlated_query_ = false;
+  bool for_create_table_ = false;
 };

@@ -178,6 +178,8 @@ struct CreateTableSqlNode
 {
   std::string                  relation_name;         ///< Relation name
   std::vector<AttrInfoSqlNode> attr_infos;            ///< attributes
+  SelectSqlNode                *select = nullptr;
+  std::vector<std::vector<Value>> *values_list = nullptr;
 };
 
 /**

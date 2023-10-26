@@ -39,6 +39,7 @@ public:
         ANSI_FMT("          ",   ANSI_FG_GREEN) " index from `table name`;",
         ANSI_FMT("  desc    ",   ANSI_FG_GREEN) " `table name`;",
         ANSI_FMT("  create  ", ANSI_FG_GREEN) " table `table name` (`column name` `column type`, ...);",
+        ANSI_FMT("          ", ANSI_FG_GREEN) " table `table name` as select ...;",
         ANSI_FMT("          ", ANSI_FG_GREEN) " index `index name` on `table` (`column`);",
         ANSI_FMT("  drop    ",   ANSI_FG_GREEN) " table `table name`;",
         ANSI_FMT("  insert  ", ANSI_FG_GREEN) " into `table` values(`value1`,`value2`);",

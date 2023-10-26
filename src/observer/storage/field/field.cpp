@@ -52,6 +52,11 @@ AttrType Field::attr_type() const
   return field_->type();
 }
 
+int Field::attr_len() const
+{
+  return field_->len();
+}
+
 const char *Field::table_name() const
 {
   return table_->name();

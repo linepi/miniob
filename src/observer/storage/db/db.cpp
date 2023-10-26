@@ -80,7 +80,8 @@ RC Db::init(const char *name, const char *dbpath)
   return rc;
 }
 
-RC Db::create_table(const char *table_name, int attribute_count, const AttrInfoSqlNode *attributes)
+RC Db::create_table(const char *table_name, int attribute_count, 
+  const AttrInfoSqlNode *attributes, std::vector<std::vector<Value>> *values_list)
 {
   RC rc = RC::SUCCESS;
   // check table_name
@@ -98,6 +99,25 @@ RC Db::create_table(const char *table_name, int attribute_count, const AttrInfoS
     LOG_ERROR("Failed to create table %s.", table_name);
     delete table;
     return rc;
+  }
+
+  if (values_list) {
+    for (vector<Value> &values : *values_list) {
+      Record record;
+      RC rc = table->make_record(static_cast<int>(values.size()), values.data(), record);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to make record. rc=%s", strrc(rc));
+        delete table;
+        return rc;
+      }
+
+      rc = table->insert_record(record);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to insert record by transaction. rc=%s", strrc(rc));
+        delete table;
+        return rc;
+      }
+    }
   }
 
   opened_tables_[table_name] = table;

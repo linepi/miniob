@@ -29,9 +29,12 @@ class Db;
 class CreateTableStmt : public Stmt
 {
 public:
-  CreateTableStmt(const std::string &table_name, const std::vector<AttrInfoSqlNode> &attr_infos)
+  CreateTableStmt(const std::string &table_name, const std::vector<AttrInfoSqlNode> &attr_infos,  
+    std::vector<std::vector<Value>> *values_list, SelectSqlNode *select)
         : table_name_(table_name),
-          attr_infos_(attr_infos)
+          attr_infos_(attr_infos),
+          values_list_(values_list),
+          select_(select)
   {}
   virtual ~CreateTableStmt() = default;
 
@@ -39,10 +42,14 @@ public:
 
   const std::string &table_name() const { return table_name_; }
   const std::vector<AttrInfoSqlNode> &attr_infos() const { return attr_infos_; }
+  std::vector<std::vector<Value>> * values_list() const { return values_list_; }
+  SelectSqlNode * select() const { return select_; }
 
   static RC create(Db *db, const CreateTableSqlNode &create_table, Stmt *&stmt);
 
 private:
   std::string table_name_;
   std::vector<AttrInfoSqlNode> attr_infos_;
+  std::vector<std::vector<Value>> * values_list_ = nullptr;
+  SelectSqlNode *select_ = nullptr;
 };

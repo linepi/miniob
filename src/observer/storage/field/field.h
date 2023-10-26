@@ -35,6 +35,7 @@ public:
   const FieldMeta *meta() const;
 
   AttrType attr_type() const;
+  int attr_len() const;
 
   const char *table_name() const;
   const char *field_name() const;

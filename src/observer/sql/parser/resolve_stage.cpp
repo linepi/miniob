@@ -172,6 +172,73 @@ static RC check_correlated_query(SelectSqlNode *sub_query, std::vector<std::stri
   return rc;
 }
 
+RC create_select_extract(
+    CreateTableSqlNode &cts, SessionStage *ss, SQLStageEvent *sql_event)
+{
+  if (cts.select == nullptr)
+    return RC::SUCCESS;
+  RC rc = RC::SUCCESS;
+
+  ParsedSqlNode *node = new ParsedSqlNode();
+  node->flag          = SCF_SELECT;
+  node->selection     = *cts.select;
+  SQLStageEvent stack_sql_event(*sql_event, false);
+  stack_sql_event.set_sql_node(std::unique_ptr<ParsedSqlNode>(node));
+
+  rc = handle_sql(ss, &stack_sql_event, false);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("sub query failed. rc=%s", strrc(rc));
+    return rc;
+  }
+
+  Writer       *thesw        = new SilentWriter();
+  Communicator *communicator = stack_sql_event.session_event()->get_communicator();
+  Writer       *writer_bak   = communicator->writer();
+  communicator->set_writer(thesw);
+
+  bool need_disconnect = false;
+  rc                   = communicator->write_result(stack_sql_event.session_event(), need_disconnect);
+  LOG_INFO("sub query write result return %s", strrc(rc));
+  communicator->set_writer(writer_bak);
+
+  if ((rc = stack_sql_event.session_event()->sql_result()->return_code()) != RC::SUCCESS) {
+    LOG_WARN("sub query failed. rc=%s", strrc(rc));
+    return rc;
+  }
+
+  SilentWriter *sw = static_cast<SilentWriter *>(thesw);
+  cts.values_list     = new std::vector<std::vector<Value>>;
+
+  std::string &std_out = sw->content();
+
+  while (std_out.back() == '\0') {
+    std_out = std_out.substr(0, std_out.size() - 1);
+  }
+
+  std::vector<std::string> lines;
+  common::split_string(std_out, "\n", lines);
+  for (size_t i = 0; i < lines.size(); i++) {
+    std::string &line = lines[i];
+    if (i == 0 && line.find("FALIURE", 0) != std::string::npos) {
+      return RC::SUB_QUERY_FAILURE;
+    }
+    if (i != 0) {
+      std::vector<Value> values;
+      std::vector<std::string> tokens;
+      common::split_string(line, " | ", tokens);
+      for (std::string &token : tokens) {
+        Value v;
+        int rc = v.from_string(token);
+        assert(rc == 0);
+        values.push_back(std::move(v));
+      }
+      if (tokens.size() > 0)
+        cts.values_list->push_back(std::move(values));
+    }
+  }
+  delete sw;
+  return rc;
+}
 
 RC value_extract(
     ValueWrapper &value, SessionStage *ss, SQLStageEvent *sql_event, std::vector<std::string> *father_tables)
@@ -245,10 +312,10 @@ RC value_extract(
   delete sw;
 
   if (value.values->size() == 0) {
-    value.values->push_back(Value(NULL_TYPE));
+    value.values->push_back(Value(EMPTY_TYPE));
   }  
 
-  if (!sql_event->correlated_query()) {
+  if (!sql_event->correlated_query() && !sql_event->for_create_table()) {
     delete value.select;
     value.select = nullptr;
   }
@@ -383,12 +450,22 @@ RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionSt
       }
       break;
     }
+    case SCF_CREATE_TABLE: {
+      rc = create_select_extract(node->create_table, ss, sql_event);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("create_table value extract error");
+        goto deal_rc;
+      }
+    }
     default: {
       break;
     }
   }
 deal_rc:
-  delete father_tables;
+  if (father_tables) {
+    delete father_tables;
+    father_tables = nullptr;
+  }
   return rc;
 }
 
@@ -403,6 +480,11 @@ RC ResolveStage::handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool
     } else if (sql_event->sql_node().get()->flag == SCF_UPDATE) {
       std::unordered_set<std::string> relations;
       get_relation_from_update(&(sql_event->sql_node().get()->update), relations); 
+      show_relations(relations, ss, sql_event);
+    } else if (sql_event->sql_node().get()->flag == SCF_CREATE_TABLE) {
+      std::unordered_set<std::string> relations;
+      if (sql_event->sql_node().get()->create_table.select)
+        get_relation_from_select(sql_event->sql_node().get()->create_table.select, relations);
       show_relations(relations, ss, sql_event);
     }
   }
