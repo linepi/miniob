@@ -8,6 +8,7 @@
 
 #include "common/log/log.h"
 #include "common/lang/string.h"
+#include "event/sql_debug.h"
 #include "sql/parser/parse_defs.h"
 #include "sql/parser/yacc_sql.hpp"
 #include "sql/parser/lex_sql.h"
@@ -139,12 +140,12 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
   std::vector<ConditionSqlNode> *   condition_list;
   RelAttrSqlNode *                  alias_attr;  
   std::pair<std::string, std::string> *                  alias_id;
+  std::vector<std::pair<std::string, std::string>> *     alias_id_list;
   RelAttrSqlNode *                  sort_attr;
   RelAttrSqlNode *                  rel_attr;
   std::vector<RelAttrSqlNode> *     rel_attr_list;
   SelectAttr *                      select_attr;
   std::vector<SelectAttr> *         select_attr_list;
-  std::vector<std::pair<std::string, std::string>> *     alias_id_list;
   std::vector<std::string> *        relation_list;
   std::vector<JoinNode> *           join_list;
   JoinNode *                        join_node;
@@ -734,6 +735,14 @@ join:
     free($2);
     free($4);
   }
+  | join_type ID ID {
+    $$ = new JoinNode();
+    $$->type = (JoinType)$1;
+    $$->relation_name = $2;
+    $$->table_alias = $3;
+    free($2);
+    free($3);
+  }
   | join_type ID ON condition condition_list {
     $$ = new JoinNode();
     $$->type = (JoinType)$1;
@@ -762,17 +771,19 @@ select_stmt:        /*  select 语句的语法解析树*/
         delete $2;
       }
 
-      for (auto p : *$5) {
-        $$->selection.relations.emplace_back(p.first);
-        $$->selection.table_alias.emplace_back(p.second);
+      if ($5) {
+        for (auto p : *$5) {
+          $$->selection.relations.emplace_back(p.first);
+          $$->selection.table_alias.emplace_back(p.second);
+        }
       }
       $$->selection.relations.emplace_back($4->first);
       $$->selection.table_alias.emplace_back($4->second);
       
-      delete $4;
-      delete $5;
       std::reverse($$->selection.relations.begin(), $$->selection.relations.end());
       std::reverse($$->selection.table_alias.begin(), $$->selection.table_alias.end());
+      delete $4;
+      delete $5;
 
       if ($7 != nullptr) {
         $$->selection.conditions.swap(*$7);
@@ -788,7 +799,6 @@ select_stmt:        /*  select 语句的语法解析树*/
         std::reverse($$->selection.joins.begin(), $$->selection.joins.end());
         delete $6;
       }
-      free($4);
     }
     ;
 
@@ -829,6 +839,13 @@ sort_attr:
       free($1);
       free($3);      
     }
+    | ID ID {
+      $$ = new RelAttrSqlNode;
+      $$->attribute_name = $1;
+      $$->alias = $2;
+      free($1);
+      free($2);      
+    }
     | ID DOT ID AS ID {
       $$ = new RelAttrSqlNode;
       $$->relation_name  = $1;
@@ -837,6 +854,15 @@ sort_attr:
       free($1);
       free($3);
       free($5);
+    }
+    | ID DOT ID ID {
+      $$ = new RelAttrSqlNode;
+      $$->relation_name  = $1;
+      $$->attribute_name = $3;
+      $$->alias = $4;
+      free($1);
+      free($3);
+      free($4);
     }
     ;
 
@@ -1013,6 +1039,13 @@ alias_id:
       $$->second = $3;
       free($1);
       free($3);      
+    }
+    | ID ID {
+      $$ = new std::pair<std::string, std::string>;
+      $$->first = $1;
+      $$->second = $2;
+      free($1);
+      free($2);      
     }
     ;
 

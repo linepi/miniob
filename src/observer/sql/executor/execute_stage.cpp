@@ -17,6 +17,7 @@ See the Mulan PSL v2 for more details. */
 
 #include "sql/executor/execute_stage.h"
 
+#include "session/alias.h"
 #include "common/log/log.h"
 #include "session/session.h"
 #include "event/storage_event.h"
@@ -71,10 +72,6 @@ RC ExecuteStage::handle_request_with_physical_operator(SQLStageEvent *sql_event)
   unique_ptr<PhysicalOperator> &physical_operator = sql_event->physical_operator();
   ASSERT(physical_operator != nullptr, "physical operator should not be null");
 
-
-  extern std::map<std::string, std::string> field2alias_mp;
-
-  std::cout<< field2alias_mp.size() << std::endl;
 
   // TODO 这里也可以优化一下，是否可以让physical operator自己设置tuple schema
   TupleSchema schema;

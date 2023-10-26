@@ -63,107 +63,6 @@ static RC add_table(
   return RC::SUCCESS;
 }
 
-std::map<std::string, std::string> table2alias_mp; ///< alias-->table_name
-std::map<std::string, int> alias_exis;          /// if alias exis (1 or 0)
-
-extern std::map<std::string, std::string> field2alias_mp;
-extern std::map<std::string, int> field_exis;
-
-RC select_pre_process(SelectSqlNode *select_sql)
-{
-  for (size_t i= 0; i< select_sql->relations.size(); i++)
-  {
-    if (select_sql->table_alias[i].empty() && !alias_exis[select_sql->table_alias[i]])continue;
-    if (select_sql->table_alias[i].empty()) {
-      select_sql->relations[i] = table2alias_mp[select_sql->table_alias[i]]; 
-      continue;
-    }
-    if (alias_exis[select_sql->table_alias[i]]){
-      return RC::SAME_ALIAS;
-    }
-    table2alias_mp[select_sql->table_alias[i]] = select_sql->relations[i];
-    alias_exis[select_sql->table_alias[i]] = 1;
-  }
-
-  for (JoinNode node : select_sql->joins)
-  {
-    if (node.table_alias.empty() && !alias_exis[node.table_alias])continue;
-    if (node.table_alias.empty()) {
-      node.relation_name = table2alias_mp[node.table_alias]; 
-      continue;
-    }
-    if (alias_exis[node.table_alias]){
-      return RC::SAME_ALIAS;
-    }
-    table2alias_mp[node.table_alias] = node.relation_name;
-    alias_exis[node.table_alias] = 1;
-  }
-
-  for (SelectAttr select_node : select_sql->attributes)
-  {
-    if (select_node.agg_type != AGG_UNDEFINED)continue;
-    RelAttrSqlNode node = select_node.nodes.front();
-    if (!field_exis[node.alias]){
-      field2alias_mp[node.alias] = node.attribute_name;
-      field_exis[node.alias] = 1;
-    }
-    if (alias_exis[node.relation_name]){
-      node.relation_name = table2alias_mp[node.relation_name];
-    }
-  }
-
-  for (SortNode sort_node : select_sql->sort)
-  {
-    RelAttrSqlNode node = sort_node.field;
-    if (!field_exis[node.alias]){
-      field2alias_mp[node.alias] = node.attribute_name;
-      field_exis[node.alias] = 1;
-    }
-    if (alias_exis[node.relation_name]){
-      node.relation_name = table2alias_mp[node.relation_name];
-    }
-  }
-
-  for (JoinNode join_node : select_sql->joins)
-  {
-    for (ConditionSqlNode con_node : join_node.on)
-    {
-      if (con_node.left_value.select != nullptr)
-      {
-        if(select_pre_process(con_node.left_value.select) != RC::SUCCESS)
-        {
-          return RC::SAME_ALIAS;
-        }
-      }
-      if (con_node.right_value.select != nullptr)
-      {
-        if(select_pre_process(con_node.right_value.select) != RC::SUCCESS)
-        {
-          return RC::SAME_ALIAS;
-        }
-      }
-    }
-  }
-
-  for (ConditionSqlNode con_node : select_sql->conditions)
-  {
-    if (con_node.left_value.select != nullptr)
-      {
-        if(select_pre_process(con_node.left_value.select) != RC::SUCCESS)
-        {
-          return RC::SAME_ALIAS;
-        }
-      }
-      if (con_node.right_value.select != nullptr)
-      {
-        if(select_pre_process(con_node.right_value.select) != RC::SUCCESS)
-        {
-          return RC::SAME_ALIAS;
-        }
-      }
-  }
-  return RC::SUCCESS;
-}
 
 RC SelectStmt::create(Db *db, SelectSqlNode select_sql, Stmt *&stmt)
 {
@@ -172,7 +71,7 @@ RC SelectStmt::create(Db *db, SelectSqlNode select_sql, Stmt *&stmt)
     return RC::INVALID_ARGUMENT;
   }
 
-  select_pre_process(&select_sql);
+  //select_pre_process(&select_sql);
 
   RC rc;
   // collect tables in `from` statement

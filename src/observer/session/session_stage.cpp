@@ -17,6 +17,7 @@ See the Mulan PSL v2 for more details. */
 #include <string.h>
 #include <string>
 
+#include "alias.h"
 #include "common/conf/ini.h"
 #include "common/log/log.h"
 #include "common/lang/mutex.h"
@@ -27,6 +28,13 @@ See the Mulan PSL v2 for more details. */
 #include "net/server.h"
 #include "net/communicator.h"
 #include "session/session.h"
+#include <map>
+#include "sql/stmt/select_stmt.h"
+#include "sql/stmt/filter_stmt.h"
+#include "common/enum.h"
+#include "storage/db/db.h"
+#include "storage/table/table.h"
+#include "sql/parser/parse_defs.h"
 
 using namespace common;
 
@@ -144,13 +152,146 @@ void SessionStage::handle_request(StageEvent *event)
  * 调试或者看代码执行过程即可。
  */
 
+
+
 std::map<std::string, std::string> field2alias_mp;
 std::map<std::string, int> field_exis;
 
+std::map<std::string, std::string> table2alias_mp; ///< alias-->table_name
+std::map<std::string, int> alias_exis;          /// if alias exis (1 or 0)
+
+RC select_pre_process(SelectSqlNode *select_sql)
+{
+  for (size_t i= 0; i< select_sql->relations.size(); i++)
+  {
+    if (select_sql->table_alias[i].empty() && !alias_exis[select_sql->table_alias[i]])continue;
+    if (select_sql->table_alias[i].empty()) {
+      select_sql->relations[i] = table2alias_mp[select_sql->table_alias[i]]; 
+      continue;
+    }
+    if (alias_exis[select_sql->table_alias[i]]){
+      return RC::SAME_ALIAS;
+    }
+    table2alias_mp[select_sql->table_alias[i]] = select_sql->relations[i];
+    alias_exis[select_sql->table_alias[i]] = 1;
+  }
+
+  for (JoinNode &node : select_sql->joins)
+  {
+    if (node.table_alias.empty() && !alias_exis[node.table_alias])continue;
+    if (node.table_alias.empty()) {
+      node.relation_name = table2alias_mp[node.table_alias]; 
+      continue;
+    }
+    if (alias_exis[node.table_alias]){
+      return RC::SAME_ALIAS;
+    }
+    table2alias_mp[node.table_alias] = node.relation_name;
+    alias_exis[node.table_alias] = 1;
+  }
+
+  for (SelectAttr &select_node : select_sql->attributes)
+  {
+    if(select_node.nodes.front().attribute_name == "*")continue;
+    if (select_node.agg_type != AGG_UNDEFINED)continue;
+    RelAttrSqlNode &node = select_node.nodes.front();
+    if (!field_exis[node.alias] && !node.alias.empty()){
+      field2alias_mp[node.alias] = node.attribute_name;
+      field_exis[node.alias] = 1;
+    }
+    if (alias_exis[node.relation_name]){
+      node.relation_name = table2alias_mp[node.relation_name];
+    }
+  }
+
+  for (SortNode &sort_node : select_sql->sort)
+  {
+    RelAttrSqlNode &node = sort_node.field;
+    if (!field_exis[node.alias]){
+      field2alias_mp[node.alias] = node.attribute_name;
+      field_exis[node.alias] = 1;
+    }
+    if (alias_exis[node.relation_name]){
+      node.relation_name = table2alias_mp[node.relation_name];
+    }
+  }
+
+  for (JoinNode &join_node : select_sql->joins)
+  {
+    for (ConditionSqlNode con_node : join_node.on)
+    {
+      if (con_node.left_type == CON_ATTR){
+        if (field_exis[con_node.left_attr.attribute_name]){
+          con_node.left_attr.attribute_name = field2alias_mp[con_node.left_attr.attribute_name];
+        }
+        if (alias_exis[con_node.left_attr.relation_name]){
+          con_node.left_attr.relation_name = table2alias_mp[con_node.left_attr.relation_name];
+        }
+      }
+      if (con_node.right_type == CON_ATTR){
+        if (field_exis[con_node.right_attr.attribute_name]){
+          con_node.right_attr.attribute_name = field2alias_mp[con_node.right_attr.attribute_name];
+        }
+        if (alias_exis[con_node.right_attr.relation_name]){
+          con_node.right_attr.relation_name = table2alias_mp[con_node.right_attr.relation_name];
+        }
+      }
+      if (con_node.left_value.select != nullptr)
+      {
+        if(select_pre_process(con_node.left_value.select) != RC::SUCCESS)
+        {
+          return RC::SAME_ALIAS;
+        }
+      }
+      if (con_node.right_value.select != nullptr)
+      {
+        if(select_pre_process(con_node.right_value.select) != RC::SUCCESS)
+        {
+          return RC::SAME_ALIAS;
+        }
+      }
+    }
+  }
+
+  for (ConditionSqlNode &con_node : select_sql->conditions)
+  {
+    if (con_node.left_type == CON_ATTR){
+      if (field_exis[con_node.left_attr.attribute_name]){
+        con_node.left_attr.attribute_name = field2alias_mp[con_node.left_attr.attribute_name];
+      }
+      if (alias_exis[con_node.left_attr.relation_name]){
+        con_node.left_attr.relation_name = table2alias_mp[con_node.left_attr.relation_name];
+      }
+    }
+    if (con_node.right_type == CON_ATTR){
+      if (field_exis[con_node.right_attr.attribute_name]){
+        con_node.right_attr.attribute_name = field2alias_mp[con_node.right_attr.attribute_name];
+      }
+      if (alias_exis[con_node.right_attr.relation_name]){
+        con_node.right_attr.relation_name = table2alias_mp[con_node.right_attr.relation_name];
+      }
+    }
+    if (con_node.left_value.select != nullptr)
+    {
+      if(select_pre_process(con_node.left_value.select) != RC::SUCCESS)
+      {
+        return RC::SAME_ALIAS;
+      }
+    }
+    if (con_node.right_value.select != nullptr)
+    {
+      if(select_pre_process(con_node.right_value.select) != RC::SUCCESS)
+      {
+        return RC::SAME_ALIAS;
+      }
+    }
+  }
+  return RC::SUCCESS;
+}
+
+
 RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
 {
-  field2alias_mp.clear();
-
   RC rc = RC::SUCCESS;
   rc = ss->query_cache_stage_.handle_request(sql_event, main_query);
   if (OB_FAIL(rc)) {
@@ -162,6 +303,17 @@ RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
   if (OB_FAIL(rc)) {
     LOG_TRACE("failed to do parse. rc=%s", strrc(rc));
     return rc;
+  }
+
+  //判断sql_event是否为selectsqlnode，若是的话，调用RC select_pre_process(SelectSqlNode *select_sql)对其select_sql进行预处理
+  if (sql_event->getSqlNodeRawPointer() && 
+    sql_event->getSqlNodeRawPointer()->flag == SqlCommandFlag::SCF_SELECT && main_query) {
+    SelectSqlNode* select_sql = &sql_event->getSqlNodeRawPointer()->selection;
+    rc = select_pre_process(select_sql);
+    if (OB_FAIL(rc)) {
+      LOG_TRACE("failed to do select pre-process. rc=%s", strrc(rc));
+      return rc;
+    }
   }
 
   rc = ss->resolve_stage_.handle_request(ss, sql_event, main_query);

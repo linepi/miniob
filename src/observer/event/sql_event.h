@@ -84,6 +84,10 @@ public:
     return correlated_query_;
   }
 
+  ParsedSqlNode* getSqlNodeRawPointer() const {
+    return sql_node_.get();
+  }
+
 private:
   SessionEvent *session_event_ = nullptr;
   std::string sql_;  ///< 处理的SQL语句
