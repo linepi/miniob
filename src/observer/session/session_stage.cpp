@@ -162,30 +162,65 @@ std::map<std::string, int> alias_exis;          /// if alias exis (1 or 0)
 
 RC select_pre_process(SelectSqlNode *select_sql)
 {
+  std::map<std::string, std::string> table2alias_map_tmp; ///< alias-->table_name
+  std::map<std::string, int> alias_exist_tmp;  
+
   for (size_t i= 0; i< select_sql->relations.size(); i++)
   {
-    if (select_sql->table_alias[i].empty() && !alias_exis[select_sql->table_alias[i]])continue;
-    if (select_sql->table_alias[i].empty()) {
-      select_sql->relations[i] = table2alias_mp[select_sql->table_alias[i]]; 
-      continue;
+    if (select_sql->table_alias[i].empty()){
+      if (!alias_exist_tmp[select_sql->table_alias[i]]){
+        if (!alias_exis[select_sql->table_alias[i]])continue;
+      }
+      if (alias_exist_tmp[select_sql->table_alias[i]]){
+        select_sql->relations[i] = table2alias_map_tmp[select_sql->table_alias[i]]; 
+        continue;
+      }
+      if (alias_exis[select_sql->table_alias[i]]){
+        select_sql->relations[i] = table2alias_mp[select_sql->table_alias[i]]; 
+        continue;
+      }
     }
-    if (alias_exis[select_sql->table_alias[i]]){
+    if (alias_exist_tmp[select_sql->table_alias[i]]){
       return RC::SAME_ALIAS;
     }
+    // if (alias_exis[select_sql->table_alias[i]]){
+    //   return RC::SAME_ALIAS;
+    // }
+    table2alias_map_tmp[select_sql->table_alias[i]] = select_sql->relations[i];
+    alias_exist_tmp[select_sql->table_alias[i]] = 1;
+
+    if (alias_exis[select_sql->table_alias[i]])continue;
+    
     table2alias_mp[select_sql->table_alias[i]] = select_sql->relations[i];
     alias_exis[select_sql->table_alias[i]] = 1;
   }
 
   for (JoinNode &node : select_sql->joins)
   {
-    if (node.table_alias.empty() && !alias_exis[node.table_alias])continue;
-    if (node.table_alias.empty()) {
-      node.relation_name = table2alias_mp[node.table_alias]; 
-      continue;
+    if (node.table_alias.empty()){
+      if (!alias_exist_tmp[node.table_alias] && !alias_exis[node.table_alias]){
+        continue;
+      }
+      if (alias_exist_tmp[node.table_alias]){
+        node.relation_name = table2alias_map_tmp[node.table_alias]; 
+        continue;
+      }
+      if (alias_exis[node.table_alias]){
+        node.relation_name = table2alias_mp[node.table_alias]; 
+        continue;
+      }
     }
-    if (alias_exis[node.table_alias]){
+    if (alias_exist_tmp[node.table_alias]){
       return RC::SAME_ALIAS;
     }
+    // if (alias_exis[select_sql->table_alias[i]]){
+    //   return RC::SAME_ALIAS;
+    // }
+    table2alias_map_tmp[node.table_alias] = node.relation_name;
+    alias_exist_tmp[node.table_alias] = 1;
+
+    if (alias_exis[node.table_alias])continue;
+    
     table2alias_mp[node.table_alias] = node.relation_name;
     alias_exis[node.table_alias] = 1;
   }
@@ -202,6 +237,10 @@ RC select_pre_process(SelectSqlNode *select_sql)
         field2alias_mp[node.alias] = node.attribute_name;
         field_exis[node.alias] = 1;
       }
+      if (alias_exist_tmp[node.relation_name]){
+        node.relation_name = table2alias_map_tmp[node.relation_name];
+        continue;
+      }
       if (alias_exis[node.relation_name]){
         node.relation_name = table2alias_mp[node.relation_name];
       }
@@ -214,6 +253,9 @@ RC select_pre_process(SelectSqlNode *select_sql)
     if (!field_exis[node.alias]){
       field2alias_mp[node.alias] = node.attribute_name;
       field_exis[node.alias] = 1;
+    }
+    if (alias_exist_tmp[node.relation_name]){
+      node.relation_name = table2alias_map_tmp[node.relation_name];
     }
     if (alias_exis[node.relation_name]){
       node.relation_name = table2alias_mp[node.relation_name];
@@ -229,7 +271,10 @@ RC select_pre_process(SelectSqlNode *select_sql)
         if (field_exis[con_node.left_attr.attribute_name]){
           con_node.left_attr.attribute_name = field2alias_mp[con_node.left_attr.attribute_name];
         }
-        if (alias_exis[con_node.left_attr.relation_name]){
+        if (alias_exist_tmp[con_node.left_attr.relation_name]){
+          con_node.left_attr.relation_name = table2alias_map_tmp[con_node.left_attr.relation_name];
+        }
+        else if (alias_exis[con_node.left_attr.relation_name]){
           con_node.left_attr.relation_name = table2alias_mp[con_node.left_attr.relation_name];
         }
       }
@@ -237,7 +282,10 @@ RC select_pre_process(SelectSqlNode *select_sql)
         if (field_exis[con_node.right_attr.attribute_name]){
           con_node.right_attr.attribute_name = field2alias_mp[con_node.right_attr.attribute_name];
         }
-        if (alias_exis[con_node.right_attr.relation_name]){
+        if (alias_exist_tmp[con_node.right_attr.relation_name]){
+          con_node.right_attr.relation_name = table2alias_map_tmp[con_node.right_attr.relation_name];
+        } 
+        else if (alias_exis[con_node.right_attr.relation_name]){
           con_node.right_attr.relation_name = table2alias_mp[con_node.right_attr.relation_name];
         }
       }
@@ -264,7 +312,10 @@ RC select_pre_process(SelectSqlNode *select_sql)
       if (field_exis[con_node.left_attr.attribute_name]){
         con_node.left_attr.attribute_name = field2alias_mp[con_node.left_attr.attribute_name];
       }
-      if (alias_exis[con_node.left_attr.relation_name]){
+      if (alias_exist_tmp[con_node.left_attr.relation_name]){
+        con_node.left_attr.relation_name = table2alias_map_tmp[con_node.left_attr.relation_name];
+      }
+      else if (alias_exis[con_node.left_attr.relation_name]){
         con_node.left_attr.relation_name = table2alias_mp[con_node.left_attr.relation_name];
       }
     }
@@ -272,7 +323,10 @@ RC select_pre_process(SelectSqlNode *select_sql)
       if (field_exis[con_node.right_attr.attribute_name]){
         con_node.right_attr.attribute_name = field2alias_mp[con_node.right_attr.attribute_name];
       }
-      if (alias_exis[con_node.right_attr.relation_name]){
+      if (alias_exist_tmp[con_node.right_attr.relation_name]){
+        con_node.right_attr.relation_name = table2alias_map_tmp[con_node.right_attr.relation_name];
+      } 
+      else if (alias_exis[con_node.right_attr.relation_name]){
         con_node.right_attr.relation_name = table2alias_mp[con_node.right_attr.relation_name];
       }
     }
