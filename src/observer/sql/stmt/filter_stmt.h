@@ -130,18 +130,10 @@ public:
   virtual ~FilterStmt();
 
 public:
-  const std::vector<FilterUnit *> &filter_units() const
-  {
-    return filter_units_;
-  }
-
-public:
   static RC create(Db *db, Table *default_table, std::unordered_map<std::string, Table *> *tables,
-      const ConditionSqlNode *conditions, int condition_num, FilterStmt *&stmt);
-
-  static RC create_filter_unit(Db *db, Table *default_table, std::unordered_map<std::string, Table *> *tables,
-      const ConditionSqlNode &condition, FilterUnit *&filter_unit);
+      Expression *condition, FilterStmt *&stmt);
+  Expression *condition() const { return condition_; }
 
 private:
-  std::vector<FilterUnit *> filter_units_;  // 默认当前都是AND关系
+  Expression *condition_;
 };

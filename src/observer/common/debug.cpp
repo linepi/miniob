@@ -25,10 +25,8 @@
 #include "sql/stmt/update_stmt.h"
 #include "storage/index/index.h"
 
-static void get_relation_from_condition(std::vector<ConditionSqlNode> &conditions, std::unordered_set<std::string> &relations);
-void select_to_string(SelectSqlNode *select, std::string &out);
 RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query);
-void get_relation_from_select(SelectSqlNode *select, std::unordered_set<std::string> &relations);
+RC sub_query_extract(SelectSqlNode *select, SessionStage *ss, SQLStageEvent *sql_event, std::string &std_out);
 
 std::string rel_attr_to_string(RelAttrSqlNode &rel) {
   if (rel.relation_name.empty()) {
@@ -36,18 +34,6 @@ std::string rel_attr_to_string(RelAttrSqlNode &rel) {
   } else {
     return rel.relation_name + "." + rel.attribute_name;
   }
-}
-
-std::string values_to_string(std::vector<Value> &values) {
-  std::string out = "["; 
-  for (Value &v : values) {
-    out += v.to_string() + "(" + attr_type_to_string(v.attr_type()) + ")";
-    if (&v != &values.back()) {
-      out += ", ";
-    }
-  }
-  out += "](size " + std::to_string(values.size()) + ")";;
-  return out;
 }
 
 static void add_relation(std::unordered_set<std::string> &relations, std::string &relation) {
@@ -59,158 +45,47 @@ static void add_relation(std::unordered_set<std::string> &relations, std::string
 void get_relation_from_update(UpdateSqlNode *update, std::unordered_set<std::string> &relations) {
   relations.insert(update->relation_name);
   for (auto av : update->av) {
-    if (av.second.select) {
-      get_relation_from_select(av.second.select, relations);
-    }
+    av.second->get_relations(relations);
   }
-  if (update->conditions.size() > 0) {
-    get_relation_from_condition(update->conditions, relations);
-  } 
+  if (update->condition)
+    update->condition->get_relations(relations);
 }
 
 void get_relation_from_select(SelectSqlNode *select, std::unordered_set<std::string> &relations) {
   for (SelectAttr &attr : select->attributes) {
-    if (attr.nodes.size() > 0)
-      add_relation(relations, attr.nodes[0].relation_name);
+    assert(attr.expr_nodes.size() > 0);
+    attr.expr_nodes[0]->get_relations(relations);
   }
   for (std::string &rela : select->relations) {
     add_relation(relations, rela);
   }
   for (JoinNode &jn : select->joins) {
-    get_relation_from_condition(jn.on, relations);
+    if (jn.condition)
+      jn.condition->get_relations(relations);
   }
-  if (select->conditions.size() > 0) {
-    get_relation_from_condition(select->conditions, relations);
-  } 
-}
-
-static void get_relation_from_condition(
-	std::vector<ConditionSqlNode> &conditions, std::unordered_set<std::string> &relations) {
-  for (ConditionSqlNode &con : conditions) {
-    if (con.left_type == CON_ATTR) {
-      add_relation(relations, con.left_attr.relation_name);
-    } else {
-      if (con.left_value.select) {
-        get_relation_from_select(con.left_value.select, relations);
-      } 
-    }
-    if (con.right_type == CON_ATTR) {
-      add_relation(relations, con.right_attr.relation_name);
-    } else {
-      if (con.right_value.select) {
-        get_relation_from_select(con.right_value.select, relations);
-      } 
-    }
-  }
-}
-
-static void condition_to_string(std::vector<ConditionSqlNode> &conditions, std::string &out) {
-  for (ConditionSqlNode &con : conditions) {
-    if (con.left_type == CON_ATTR) {
-      out += rel_attr_to_string(con.left_attr);
-    } else {
-      if (con.left_value.select) {
-        out += "(";
-        select_to_string(con.left_value.select, out);
-        out += ")";
-      } else {
-        out += con.left_value.value.to_string();
-      } 
-    }
-    out += " " + std::string(COMPOP_NAME[con.comp]) + " ";
-    if (con.right_type == CON_ATTR) {
-      out += rel_attr_to_string(con.right_attr);
-    } else {
-      if (con.right_value.select) {
-        out += "(";
-        select_to_string(con.right_value.select, out);
-        out += ")";
-      } else {
-        out += con.right_value.value.to_string();
-      } 
-    }
-    if (&con != &conditions.back()) {
-      out += " and ";
-    }
-  }
-}
-
-void select_to_string(SelectSqlNode *select, std::string &out) {
-  if (select) out += "select ";
-  for (SelectAttr &attr : select->attributes) {
-    if (attr.agg_type != AGG_UNDEFINED) {
-      out += std::string(AGG_TYPE_NAME[attr.agg_type]) + "(" + rel_attr_to_string(attr.nodes[0]) + ")";
-    } else {
-      out += rel_attr_to_string(attr.nodes[0]);
-    }
-    if (&attr != &select->attributes.back())
-      out += ", ";
-  }
-  out += " from ";
-  for (std::string &rela : select->relations) {
-    out += rela;
-    if (&rela != &select->relations.back())
-      out += ", ";
-  }
-  for (JoinNode &jn : select->joins) {
-    out += " join " + jn.relation_name; 
-    if (jn.on.size() > 0) {
-      out += " on ";
-      condition_to_string(jn.on, out);
-    }
-  }
-  if (select->conditions.size() > 0) {
-    out += " where ";
-    condition_to_string(select->conditions, out);
-  }
+  if (select->condition)
+    select->condition->get_relations(relations);
 }
 
 RC stdout_of_relation(const std::string &relation, SessionStage *ss, SQLStageEvent *sql_event, std::string &content)
 {
   RC rc = RC::SUCCESS;
-  SelectSqlNode select;
-  select.relations.push_back(relation);
+  SelectSqlNode *select = new SelectSqlNode();
+
   SelectAttr attr;
   attr.agg_type = AGG_UNDEFINED;
-  attr.nodes.push_back(RelAttrSqlNode{"", "*"});
-  select.attributes.push_back(attr);
+  attr.expr_nodes.push_back(new StarExpr());
+  attr.expr_nodes[0]->set_name("*");
 
-  ParsedSqlNode *node = new ParsedSqlNode();
-  node->flag          = SCF_SELECT;
-  node->selection     = select;
-  SQLStageEvent stack_sql_event(*sql_event, false);
-  stack_sql_event.set_sql_node(std::unique_ptr<ParsedSqlNode>(node));
+  select->attributes.push_back(attr);
+  select->relations.push_back(relation);
 
-  rc = handle_sql(ss, &stack_sql_event, false);
+  rc = sub_query_extract(select, ss, sql_event, content);
   if (rc != RC::SUCCESS) {
-    LOG_WARN("sub query failed. rc=%s", strrc(rc));
-    return rc;
-  }
-
-  Writer       *thesw        = new SilentWriter();
-  Communicator *communicator = stack_sql_event.session_event()->get_communicator();
-  Writer       *writer_bak   = communicator->writer();
-  communicator->set_writer(thesw);
-
-  bool need_disconnect = false;
-  rc                   = communicator->write_result(stack_sql_event.session_event(), need_disconnect);
-  LOG_INFO("sub query write result return %s", strrc(rc));
-  communicator->set_writer(writer_bak);
-
-  if ((rc = stack_sql_event.session_event()->sql_result()->return_code()) != RC::SUCCESS) {
-    LOG_WARN("sub query failed. rc=%s", strrc(rc));
-    return rc;
-  }
-
-  SilentWriter *sw = static_cast<SilentWriter *>(thesw);
-  content = sw->content();
-
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("sub query parse values from std out failed. rc=%s", strrc(rc));
+    LOG_WARN("sub_query_extract error: %s", strrc(rc));
   }
   return rc;
 }
-
 
 RC get_relation_index_info(Table *table, std::string &out) {
   if (!table || table->indexes().size() == 0) return RC::SUCCESS;
@@ -263,7 +138,40 @@ void show_relations(std::unordered_set<std::string> &relations, SessionStage *ss
   }
 }
 
-RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &values);
+void show_expressions(ParsedSqlNode *node) {
+  std::vector<Expression *> exprs;
+  if (node->flag == SCF_SELECT) {
+    exprs.push_back(node->selection.condition);
+    for (const auto &join : node->selection.joins) {
+      exprs.push_back(join.condition);
+    }
+    for (SelectAttr &attr : node->selection.attributes) {
+      exprs.push_back(attr.expr_nodes[0]);
+    }
+  } else if (node->flag == SCF_UPDATE) {
+    exprs.push_back(node->update.condition);
+  } else if (node->flag == SCF_CREATE_TABLE) {
+    if (node->create_table.select) {
+      exprs.push_back(node->create_table.select->condition);
+      for (const auto &join : node->create_table.select->joins) {
+        exprs.push_back(join.condition);
+      }
+      for (SelectAttr &attr : node->create_table.select->attributes) {
+        exprs.push_back(attr.expr_nodes[0]);
+      }
+    }
+  } else if (node->flag == SCF_CALC) {
+    for (Expression *expr : node->calc.expressions)
+      exprs.push_back(expr);
+  }
+
+  for (Expression *expr : exprs) {
+    if (expr) {
+      sql_debug("\33[1;33m[expr]\33[0m");
+      sql_debug(expr->dump_tree().c_str());
+    }
+  }
+}
 
 void test_main() {
   // std::vector<Value> values;

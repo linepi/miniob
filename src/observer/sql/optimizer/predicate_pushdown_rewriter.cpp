@@ -81,7 +81,7 @@ RC PredicatePushdownRewriter::get_exprs_can_pushdown(
       return rc;
     }
 
-    std::vector<std::unique_ptr<Expression>> &child_exprs = conjunction_expr->children();
+    std::vector<std::unique_ptr<Expression>> child_exprs;
     for (auto iter = child_exprs.begin(); iter != child_exprs.end();) {
       // 对每个子表达式，判断是否可以下放到table get 算子
       // 如果可以的话，就从当前孩子节点中删除他

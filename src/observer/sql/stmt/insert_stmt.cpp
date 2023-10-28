@@ -16,6 +16,7 @@ See the Mulan PSL v2 for more details. */
 #include "common/log/log.h"
 #include "storage/db/db.h"
 #include "storage/table/table.h"
+#include "sql/expr/expression.h"
 
 InsertStmt::InsertStmt(Table *table,  std::vector<std::vector<Value>> * values_list)
     : table_(table), values_list_(values_list)
@@ -23,6 +24,7 @@ InsertStmt::InsertStmt(Table *table,  std::vector<std::vector<Value>> * values_l
 
 RC InsertStmt::create(Db *db, const InsertSqlNode &inserts, Stmt *&stmt)
 {
+  RC rc = RC::SUCCESS;
   const char *table_name = inserts.relation_name.c_str();
 
   // check whether the table exists
@@ -40,13 +42,12 @@ RC InsertStmt::create(Db *db, const InsertSqlNode &inserts, Stmt *&stmt)
   std::vector<std::vector<Value>> * values_list_impl = new std::vector<std::vector<Value>>;
   for (size_t i = 0; i < inserts.values_list->size(); i++) {
     std::vector<Value> values_impl;
-    std::vector<ValueWrapper> values = (*inserts.values_list)[i];
-    if (values.empty()) {
-      LOG_WARN("invalid argument. %dth values: db=%p, table_name=%p, value_num=%d",
-          i + 1, db, table_name, static_cast<int>(values.size()));
+    std::vector<Expression *> exprs = (*inserts.values_list)[i];
+    if (exprs.empty()) {
+      LOG_WARN("insert exprs num is zero");
       return RC::INVALID_ARGUMENT;
     }
-    const int value_num = static_cast<int>(values.size());
+    const int value_num = static_cast<int>(exprs.size());
     const TableMeta &table_meta = table->table_meta();
     const int field_num = table_meta.field_num() - table_meta.sys_field_num();
     if (field_num != value_num) {
@@ -57,19 +58,14 @@ RC InsertStmt::create(Db *db, const InsertSqlNode &inserts, Stmt *&stmt)
     // check fields type
     const int sys_field_num = table_meta.sys_field_num();
     for (int j = 0; j < value_num; j++) {
-      ValueWrapper &value = values[j];
-
-      if (value.values && value.values->size() != 1) {
-        LOG_WARN("only one sub query value(values size: %d)!", value.values->size());
-        return RC::SUB_QUERY_MULTI_VALUE;
+      Expression *expr = exprs[j];
+      Value value_impl;
+      rc = expr->try_get_value(value_impl);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("try get value error");
+        return rc;
       }
 
-      if (value.select) {
-        LOG_WARN("update value must not be correlated sub query!");
-        return RC::SUB_QUERY_CORRELATED;
-      }
-
-      Value &value_impl = value.values ? (*value.values)[0] : value.value;
       FieldMeta *field_meta = const_cast<FieldMeta *>(table_meta.field(j + sys_field_num));
       bool match = field_meta->match(value_impl);
       if (!match) {

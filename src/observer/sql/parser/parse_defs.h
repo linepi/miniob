@@ -50,7 +50,6 @@ struct RelAttrSqlNode
 struct SelectAttr
 {
   std::vector<Expression *> expr_nodes;
-  std::vector<RelAttrSqlNode> nodes;
   AggType agg_type = AGG_UNDEFINED;  
 };
 
@@ -66,15 +65,11 @@ struct ConditionSqlNode
 {
   ConType             left_type;    
   RelAttrSqlNode      left_attr;      
-  ValueWrapper       left_value;
-  Expression         *left_expr;
+  Value               left_value;
   CompOp              comp;           
   ConType             right_type;   
   RelAttrSqlNode      right_attr;    
-  ValueWrapper       right_value;
-  Expression         *right_expr;
-
-  ConjuctType right_op = CONJ_AND;
+  Value               right_value;
 };
 
 enum JoinType
@@ -87,7 +82,7 @@ struct JoinNode
 {
   JoinType type;
   std::string relation_name;
-  std::vector<ConditionSqlNode> on;
+  Expression *condition = nullptr;
 };
 
 struct SortNode
@@ -110,7 +105,7 @@ struct SelectSqlNode
 {
   std::vector<SelectAttr>         attributes;    ///< attributes in select clause
   std::vector<std::string>        relations;     ///< 查询的表
-  std::vector<ConditionSqlNode>   conditions;    ///< 查询条件，使用AND串联起来多个条件
+  Expression                     *condition = nullptr;
   std::vector<JoinNode>           joins;
   std::vector<SortNode>           sort;
 };
@@ -135,7 +130,7 @@ struct CalcSqlNode
 struct InsertSqlNode
 {
   std::string        relation_name;  ///< Relation to insert into
-  std::vector<std::vector<ValueWrapper>> * values_list;         ///< 要插入的值
+  std::vector<std::vector<Expression *>> * values_list;         ///< 要插入的值
 };
 
 /**
@@ -145,7 +140,7 @@ struct InsertSqlNode
 struct DeleteSqlNode
 {
   std::string                   relation_name;  ///< Relation to delete from
-  std::vector<ConditionSqlNode> conditions;
+  Expression                   *condition = nullptr;
 };
 
 /**
@@ -155,8 +150,8 @@ struct DeleteSqlNode
 struct UpdateSqlNode
 {
   std::string                   relation_name;         ///< Relation to update
-  std::vector<std::pair<std::string, ValueWrapper>> av;
-  std::vector<ConditionSqlNode> conditions;
+  std::vector<std::pair<std::string, Expression *>> av;
+  Expression                   *condition = nullptr;
 };
 
 /**

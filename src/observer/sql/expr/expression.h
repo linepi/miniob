@@ -22,8 +22,10 @@ See the Mulan PSL v2 for more details. */
 #include "common/log/log.h"
 #include "storage/field/field.h"
 #include "sql/parser/value_wrapper.h"
+#include <unordered_set>
 
 class Tuple;
+class SubQueryExpr;
 
 /**
  * @defgroup Expression
@@ -82,6 +84,19 @@ public:
   virtual void set_func_type(FunctionType type) { func_type_ = type; }
   virtual FunctionType func_type(FunctionType type) const { return func_type_; }
 
+  RC func_length(Value &value) const;
+  RC func_round(Value &value) const;
+  RC func_date_format(Value &value) const;
+  RC func_impl(Value &value) const;
+
+  // tool functions
+  // get all field expressions in a expression, not deep into sub query expression
+  bool is_condition() const;
+  RC visit_field_expr(std::function<RC (std::unique_ptr<Expression> &)> visitor, bool deepinto);
+  RC get_subquery_expr(std::vector<SubQueryExpr *> &result);
+  RC get_relations(std::unordered_set<std::string> &relations);
+  std::string dump_tree(int indent = 0) ;
+
 private:
   std::string  name_;
   FunctionType func_type_ = FUNC_UNDEFINED;
@@ -108,8 +123,10 @@ public:
   AttrType value_type() const override { return field_.attr_type(); }
 
   Field &field() { return field_; }
+  void set_field(const Field &field) { field_ = field; }
 
   const Field &field() const { return field_; }
+  const RelAttrSqlNode &rel_attr() const { return rel_attr_; }
 
   const char *table_name() const { return field_.table_name(); }
 
@@ -120,6 +137,31 @@ public:
 private:
   Field field_;
   RelAttrSqlNode rel_attr_;
+};
+
+/**
+ * @brief 字段表达式
+ * @ingroup Expression
+ */
+class StarExpr : public Expression 
+{
+public:
+  StarExpr() = default;
+  virtual ~StarExpr() = default;
+
+  ExprType type() const override { return ExprType::STAR; }
+
+  std::vector<Field> &field() { return fields_; }
+  void add_field(Field field) { fields_.push_back(field); }
+
+  AttrType value_type() const override { return UNDEFINED; }
+
+  RC get_value(const Tuple &tuple, Value &value) const override {
+    return RC::SUCCESS;
+  }
+
+private:
+  std::vector<Field> fields_;
 };
 
 /**
@@ -168,35 +210,55 @@ private:
 class SubQueryExpr : public Expression 
 {
 public:
-  SubQueryExpr() = default;
-  explicit SubQueryExpr(SelectSqlNode *select) { select_ = select; }
-
+  SubQueryExpr() { value_.set_type(UNDEFINED); }
+  explicit SubQueryExpr(SelectSqlNode *select) { select_ = select; value_.set_type(UNDEFINED); }
   virtual ~SubQueryExpr() = default;
 
   RC get_value(const Tuple &tuple, Value &value) const override;
-  RC extract_value();
-  RC extract_value(const Tuple &tuple);
   RC try_get_value(Value &value) const override { 
-    if (to_be_select_)
-      value.set_null();
+    if (value_.attr_type() == UNDEFINED)
+      return RC::INVALID_ARGUMENT;
     else 
       value = value_; 
     return RC::SUCCESS;
   }
+  void set_value(const Value &value) { value_ = value; }
 
-  ExprType type() const override { return ExprType::VALUE; }
+  ExprType type() const override { return ExprType::SUB_QUERY; }
 
   AttrType value_type() const override { 
-    if (to_be_select_) {
-      return NULL_TYPE;
-    }
     return value_.attr_type(); 
   }
 
-  bool to_be_select() const { return to_be_select_; }
+  bool correlated() const { return correlated_; }
+  void set_correlated(bool value) {
+    correlated_ = value;
+  }
+
+  SelectSqlNode* select() const {
+    return select_;
+  }
+  void set_select(SelectSqlNode* select) {
+    select_ = select;
+  }
+
+  SessionStage* ss() const {
+    return ss_;
+  }
+  void set_ss(SessionStage* ss) {
+    ss_ = ss;
+  }
+
+  SQLStageEvent* sql_event() const {
+    return sql_event_;
+  }
+  void set_sql_event(SQLStageEvent* sql_event) {
+    sql_event_ = sql_event;
+  }
+
 
 private:
-  bool to_be_select_ = true;
+  bool correlated_ = false;
   SelectSqlNode *select_ = nullptr;
   SessionStage *ss_ = nullptr;
   SQLStageEvent *sql_event_ = nullptr;
@@ -240,7 +302,9 @@ private:
 class ComparisonExpr : public Expression 
 {
 public:
-  ComparisonExpr(CompOp comp, std::unique_ptr<Expression> left, std::unique_ptr<Expression> right, ConjuctType right_op);
+  ComparisonExpr(CompOp comp, Expression *left, Expression *right);
+  ComparisonExpr(CompOp comp, Expression *single);
+  ComparisonExpr(CompOp comp, std::unique_ptr<Expression> left, std::unique_ptr<Expression> right);
   virtual ~ComparisonExpr();
 
   ExprType type() const override { return ExprType::COMPARISON; }
@@ -253,6 +317,7 @@ public:
 
   std::unique_ptr<Expression> &left()  { return left_;  }
   std::unique_ptr<Expression> &right() { return right_; }
+  std::unique_ptr<Expression> &single() { return single_; }
 
   /**
    * 尝试在没有tuple的情况下获取当前表达式的值
@@ -268,9 +333,9 @@ public:
 
 private:
   CompOp comp_;
+  std::unique_ptr<Expression> single_;
   std::unique_ptr<Expression> left_;
   std::unique_ptr<Expression> right_;
-  ConjuctType right_op_;
 };
 
 /**
@@ -282,8 +347,12 @@ private:
 class ConjunctionExpr : public Expression 
 {
 public:
-  ConjunctionExpr(ConjuctType type, std::vector<std::unique_ptr<Expression>> &children);
+  ConjunctionExpr() = default;
+  ConjunctionExpr(ConjuctType type, Expression *left, Expression *right);
+  ConjunctionExpr(ConjuctType type, std::unique_ptr<Expression> left, std::unique_ptr<Expression> right);
   virtual ~ConjunctionExpr() = default;
+
+  RC init(std::vector<Expression *> &comparisons);
 
   ExprType type() const override { return ExprType::CONJUNCTION; }
 
@@ -293,17 +362,21 @@ public:
 
   ConjuctType conjunction_type() const { return conjunction_type_; }
 
-  std::vector<std::unique_ptr<Expression>> &children() { return children_; }
+  std::unique_ptr<Expression> &left() { return left_; }
+  std::unique_ptr<Expression> &right() { return right_; }
 
 private:
   ConjuctType conjunction_type_;
-  std::vector<std::unique_ptr<Expression>> children_;
+  std::unique_ptr<Expression> left_;
+  std::unique_ptr<Expression> right_;
 };
 
 /**
  * @brief 算术表达式
  * @ingroup Expression
  */
+extern const char *ARITHMATIC_NAME[];
+
 class ArithmeticExpr : public Expression 
 {
 public:

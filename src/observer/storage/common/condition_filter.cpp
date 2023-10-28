@@ -79,8 +79,8 @@ RC DefaultConditionFilter::init(Table &table, const ConditionSqlNode &condition)
     type_left = field_left->type();
   } else if (condition.left_type == CON_VALUE) {
     left.is_attr = false;
-    left.value = condition.left_value.value;  // 校验type 或者转换类型
-    type_left = condition.left_value.value.attr_type();
+    left.value = condition.left_value;  // 校验type 或者转换类型
+    type_left = condition.left_value.attr_type();
 
     left.attr_length = 0;
     left.attr_offset = 0;
@@ -100,8 +100,8 @@ RC DefaultConditionFilter::init(Table &table, const ConditionSqlNode &condition)
     type_right = field_right->type();
   } else if (condition.right_type == CON_VALUE) {
     right.is_attr = false;
-    right.value = condition.right_value.value;
-    type_right = condition.right_value.value.attr_type();
+    right.value = condition.right_value;
+    type_right = condition.right_value.attr_type();
 
     right.attr_length = 0;
     right.attr_offset = 0;

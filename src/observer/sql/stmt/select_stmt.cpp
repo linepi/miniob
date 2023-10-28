@@ -30,11 +30,6 @@ SelectStmt::~SelectStmt()
 
 void wildcard_fields(Table *table, std::vector<Field> &field_metas)
 {
-  const TableMeta &table_meta = table->table_meta();
-  const int field_num = table_meta.field_num();
-  for (int i = table_meta.sys_field_num(); i < field_num; i++) {
-    field_metas.push_back(Field(table, table_meta.field(i)));
-  }
 }
 
 RC add_table(
@@ -80,14 +75,24 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
   }
 
   // collect tables and conditions in 'join' statement
-  std::vector<ConditionSqlNode> conditions = select_sql.conditions;
+  std::vector<Expression *> conditions;
+  conditions.push_back(select_sql.condition);
   for (const JoinNode &jnode : select_sql.joins) {
     const char *table_name = jnode.relation_name.c_str();
     if ((rc = add_table(db, tables, table_map, table_name, false)) != RC::SUCCESS) 
       return rc;
-    for (const ConditionSqlNode &cnode : jnode.on) {
-      conditions.emplace_back(cnode);
-    }
+    conditions.push_back(jnode.condition);
+  }
+
+  Expression *utimate_condition = nullptr;
+  if (conditions.size() == 0) {
+    utimate_condition = nullptr;
+  } else if (conditions.size() == 1) {
+    utimate_condition = conditions[0];
+  } else {
+    ConjunctionExpr *conj = new ConjunctionExpr();
+    conj->init(conditions);
+    utimate_condition = conj;
   }
 
   if (select_sql.attributes.size() == 0) {
@@ -103,7 +108,7 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
       LOG_WARN("invalid argument.");
       return RC::INVALID_ARGUMENT;
     }
-    if (select_attr.nodes.size() != 1) {
+    if (select_attr.expr_nodes.size() != 1) {
       LOG_WARN("invalid argument.");
       return RC::INVALID_ARGUMENT;
     }
@@ -112,14 +117,15 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
   // select min(id), max(*)
   std::vector<AggregationFunc *> aggregation_funcs;
   // collect query fields in `select` statement
-  std::vector<Field> query_fields;
-  for (const SelectAttr &select_attr : select_sql.attributes) {
-    const RelAttrSqlNode &relation_attr = select_attr.nodes.front();
-    const char *table_name = relation_attr.relation_name.c_str();
-    const char *field_name = relation_attr.attribute_name.c_str();
+  std::vector<Expression *> query_exprs;
 
-    if (common::is_blank(relation_attr.relation_name.c_str()) &&
-        0 == strcmp(relation_attr.attribute_name.c_str(), "*")) {
+  for (const SelectAttr &select_attr : select_sql.attributes) {
+    Expression *select_expr = select_attr.expr_nodes.front();
+    query_exprs.push_back(select_expr);
+    
+    if (select_expr->type() == ExprType::STAR) {
+      StarExpr *star_expr = static_cast<StarExpr *>(select_expr);
+
       if (select_attr.agg_type != AGG_UNDEFINED) {
         if (select_attr.agg_type == AGG_MIN || 
           select_attr.agg_type == AGG_MAX || 
@@ -130,10 +136,24 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
         }
         aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, true, new Field(), tables.size() > 1));
       }
+
       for (Table *table : tables) {
-        wildcard_fields(table, query_fields);
+        const TableMeta &table_meta = table->table_meta();
+        const int field_num = table_meta.field_num();
+        for (int i = table_meta.sys_field_num(); i < field_num; i++) {
+          star_expr->add_field(Field(table, table_meta.field(i)));
+        }
       }
-    } else {
+      break;
+    }
+
+    auto visitor = [&select_attr, &aggregation_funcs, &tables, &table_map, &db](std::unique_ptr<Expression> &expr) {
+      assert(expr->type() == ExprType::FIELD);
+      FieldExpr *field_expr = static_cast<FieldExpr *>(expr.get());
+      RelAttrSqlNode relation_attr = field_expr->rel_attr();
+      const char *table_name = relation_attr.relation_name.c_str();
+      const char *field_name = relation_attr.attribute_name.c_str();
+
       Table *table = nullptr; 
       if (!common::is_blank(relation_attr.relation_name.c_str())) {
         auto iter = table_map.find(table_name);
@@ -163,11 +183,12 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
         }
         aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, false, new Field(table, field_meta), tables.size() > 1));
       }
-      query_fields.push_back(Field(table, field_meta));
-    }
+      field_expr->set_field(Field(table, field_meta));
+      return RC::SUCCESS;
+    };
+    rc = select_expr->visit_field_expr(visitor, true);
+    if (rc != RC::SUCCESS) return rc;
   }
-
-  LOG_INFO("got %d tables in from stmt and %d fields in query stmt", tables.size(), query_fields.size());
 
   Table *default_table = nullptr;
   if (tables.size() == 1) {
@@ -179,9 +200,9 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
   rc = FilterStmt::create(db,
       default_table,
       &table_map,
-      conditions.data(),
-      static_cast<int>(conditions.size()),
+      utimate_condition,
       filter_stmt);
+
   if (rc != RC::SUCCESS) {
     LOG_WARN("cannot construct filter stmt");
     return rc;
@@ -223,7 +244,7 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
   SelectStmt *select_stmt = new SelectStmt();
   // TODO add expression copy
   select_stmt->tables_.swap(tables);
-  select_stmt->query_fields_.swap(query_fields);
+  select_stmt->query_exprs_.swap(query_exprs);
   select_stmt->filter_stmt_ = filter_stmt;
   select_stmt->aggregation_funcs_.swap(aggregation_funcs);
   select_stmt->order_fields_ = order_fields_;

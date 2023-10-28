@@ -33,37 +33,7 @@ RC add_table(
 );
 
 static RC get_fields(std::vector<Field> &query_fields, Db *db, SelectSqlNode &select_sql, std::vector<Table *> &tables) {
-  RC rc;
   // collect tables in `from` statement
-  std::unordered_map<std::string, Table *> table_map;
-  for (size_t i = 0; i < select_sql.relations.size(); i++) {
-    const char *table_name = select_sql.relations[i].c_str();
-    if ((rc = add_table(db, tables, table_map, table_name, false)) != RC::SUCCESS) 
-      return rc;
-  }
-
-  for (const SelectAttr &select_attr : select_sql.attributes) {
-    const RelAttrSqlNode &relation_attr = select_attr.nodes.front();
-    const char *table_name = relation_attr.relation_name.c_str();
-    const char *field_name = relation_attr.attribute_name.c_str();
-
-    if (common::is_blank(relation_attr.relation_name.c_str()) &&
-        0 == strcmp(relation_attr.attribute_name.c_str(), "*")) {
-      for (Table *table : tables) {
-        wildcard_fields(table, query_fields);
-      }
-    } else {
-      Table *table = nullptr; 
-      if (!common::is_blank(relation_attr.relation_name.c_str())) {
-        auto iter = table_map.find(table_name);
-        table = iter->second;
-      } else {
-        table = tables[0];
-      }
-      const FieldMeta *field_meta = table->table_meta().field(field_name);
-      query_fields.push_back(Field(table, field_meta));
-    }
-  }
   return RC::SUCCESS;
 }
 
@@ -87,47 +57,37 @@ RC CreateTableExecutor::execute(SQLStageEvent *sql_event)
     get_fields(field_metas, db, *select, tables);
 
     std::vector<AttrInfoSqlNode> attrs;
-    if (select->attributes[0].nodes.front().attribute_name == "*") {
-      if (select->attributes[0].agg_type == AGG_COUNT) {
-        attrs.push_back(AttrInfoSqlNode{INTS, "COUNT(*)", 4, true});
-      } else {
-        for (Field &f : field_metas) {
-          std::string name;
-          if (tables.size() == 1) 
-            name = f.field_name();
-          else
-            name = f.table_name() + std::string(".") + f.field_name();
-          attrs.push_back(AttrInfoSqlNode{f.attr_type(), name.c_str(), (uint64_t)f.attr_len(), true});
+    Expression *first_expr = select->attributes[0].expr_nodes.front();
+    if (first_expr->type() == ExprType::FIELD) {
+      FieldExpr *field_expr = static_cast<FieldExpr *>(first_expr);
+      if (field_expr->rel_attr().attribute_name == "*") {
+        if (select->attributes[0].agg_type == AGG_COUNT) {
+          attrs.push_back(AttrInfoSqlNode{INTS, "COUNT(*)", 4, true});
+        } else {
+          for (Field &f : field_metas) {
+            std::string name;
+            if (tables.size() == 1) 
+              name = f.field_name();
+            else
+              name = f.table_name() + std::string(".") + f.field_name();
+            attrs.push_back(AttrInfoSqlNode{f.attr_type(), name.c_str(), (uint64_t)f.attr_len(), true});
+          }
         }
       }
     } else {
       for (SelectAttr &select_attr : select->attributes) {
-        RelAttrSqlNode rel_attr = select_attr.nodes[0];
+        Expression *expr = select_attr.expr_nodes[0];
+
         AttrInfoSqlNode new_node;
         new_node.nullable = true;
-        std::string name;
-        if (rel_attr.relation_name.empty())
-          name = rel_attr.attribute_name;
-        else
-          name = rel_attr.relation_name + "." + rel_attr.attribute_name;
-
+        std::string name = expr->name();
         if (select_attr.agg_type != AGG_UNDEFINED) {
           name = AGG_TYPE_NAME[select_attr.agg_type] + std::string("(") + name + ")";
         }
         new_node.name = name;
 
-        const FieldMeta *field_meta = nullptr;
-        rel_attr.relation_name = tables[0]->name();
-        for (Field &f : field_metas) {
-          if (rel_attr.attribute_name == f.field_name() && rel_attr.relation_name == f.table_name())
-            field_meta = f.meta();
-        }
-        if (!field_meta) {
-          LOG_WARN("cannot find field_meta");
-          return RC::SCHEMA_FIELD_MISSING;
-        }
-        new_node.length = field_meta->len();
-        new_node.type = field_meta->type();
+        new_node.length = 4;
+        new_node.type = CHARS;
         attrs.push_back(new_node);
       }
     }

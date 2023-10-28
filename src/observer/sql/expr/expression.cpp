@@ -15,18 +15,329 @@ See the Mulan PSL v2 for more details. */
 #include "sql/expr/expression.h"
 #include "sql/expr/tuple.h"
 #include "event/sql_event.h"
+#include <unordered_set>
+#include <cmath>
 
 using namespace std;
 
-RC FieldExpr::get_value(const Tuple &tuple, Value &value) const
-{
-  return tuple.find_cell(TupleCellSpec(table_name(), field_name()), value);
+RC Expression::get_relations(std::unordered_set<std::string> &relations) {
+  auto visitor = [&relations](std::unique_ptr<Expression> &expr) {
+    assert(expr->type() == ExprType::FIELD);
+    FieldExpr *field_expr = static_cast<FieldExpr *>(expr.get());
+    if (!field_expr->rel_attr().relation_name.empty()) {
+      relations.insert(field_expr->rel_attr().relation_name);
+    }
+    return RC::SUCCESS;
+  };
+  return visit_field_expr(visitor, true);
 }
 
+RC Expression::func_length(Value& value) const {
+  if (value.attr_type() == CHARS) {
+    value.set_int(value.get_string().length());
+    return RC::SUCCESS; 
+  }
+  return RC::INVALID_ARGUMENT; 
+}
+
+RC Expression::func_round(Value& value) const {
+  if (value.attr_type() == FLOATS) {
+    value.set_int(static_cast<int>(std::round(value.get_float())));
+    return RC::SUCCESS;
+  }
+  return RC::INVALID_ARGUMENT;
+}
+
+RC Expression::func_date_format(Value& value) const {
+  return RC::SUCCESS;
+}
+
+RC Expression::func_impl(Value &value) const {
+  switch (func_type_) {
+    case FUNC_LENGTH:
+      return func_length(value);
+    case FUNC_ROUND:
+      return func_round(value);
+    case FUNC_DATE_FORMAT:
+      return func_date_format(value);
+    case FUNC_UNDEFINED:
+      return RC::SUCCESS;
+    default:
+      assert(0);
+  }
+}
+
+// get all field expressions in a expression, not deep into sub query expression
+RC Expression::visit_field_expr(std::function<RC (std::unique_ptr<Expression> &)> visitor, bool deepinto) {
+  RC rc = RC::SUCCESS;
+  if (this->type() == ExprType::VALUE) return rc;
+  if (this->type() == ExprType::STAR) return rc;
+  if (this->type() == ExprType::FIELD) {
+    std::unique_ptr<Expression> field_expr;
+    field_expr.reset(static_cast<FieldExpr *>(this));
+    rc = visitor(field_expr);
+    field_expr.release();
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error while visit field_expr: %s", strrc(rc));
+      return rc;
+    }
+    return rc;
+  }
+
+  if (this->type() == ExprType::SUB_QUERY && deepinto) {
+    SelectSqlNode *sub_query = static_cast<SubQueryExpr *>(this)->select();
+    std::vector<Expression *> exprs;
+    exprs.push_back(sub_query->condition);
+    for (const auto &join : sub_query->joins) {
+      exprs.push_back(join.condition);
+    }
+
+    for (SelectAttr &attr : sub_query->attributes) {
+      exprs.push_back(attr.expr_nodes[0]);
+    }
+
+    for (Expression *expr : exprs) {
+      rc = expr->visit_field_expr(visitor, deepinto);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("error while visit field_expr: %s", strrc(rc));
+        return rc;
+      }
+    }
+  }
+
+  std::unique_ptr<Expression> *left, *right;
+  if (type() == ExprType::ARITHMETIC) {
+    ArithmeticExpr *expr_ = static_cast<ArithmeticExpr *>(this);
+    left = &expr_->left();
+    right = &expr_->right();
+  }
+  else if (type() == ExprType::COMPARISON) {
+    ComparisonExpr *expr_ = static_cast<ComparisonExpr *>(this);
+    if (expr_->single().get()) {
+      if (expr_->single()->type() == ExprType::FIELD) {
+        visitor(expr_->single());
+        if (rc != RC::SUCCESS) {
+          LOG_WARN("error while visit field_expr: %s", strrc(rc));
+          return rc;
+        }
+      } else {
+        rc = expr_->single()->visit_field_expr(visitor, deepinto);
+        if (rc != RC::SUCCESS) {
+          LOG_WARN("error while visit field_expr: %s", strrc(rc));
+        }
+      }
+      return rc;
+    }
+    left = &expr_->left();
+    right = &expr_->right();
+  }
+  else if (type() == ExprType::CONJUNCTION) {
+    ConjunctionExpr *expr_ = static_cast<ConjunctionExpr *>(this);
+    left = &expr_->left();
+    right = &expr_->right();
+  }
+  else {
+    assert(0);
+  }
+
+  if ((*left)->type() == ExprType::FIELD) {
+    rc = visitor(*left);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error while visit field_expr: %s", strrc(rc));
+      return rc;
+    }
+  } else {
+    rc = (*left)->visit_field_expr(visitor, deepinto);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error while visit field_expr: %s", strrc(rc));
+      return rc;
+    }
+  }
+
+  if ((*right)->type() == ExprType::FIELD) {
+    rc = visitor(*right);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error while visit field_expr: %s", strrc(rc));
+      return rc;
+    }
+  } else {
+    rc = (*right)->visit_field_expr(visitor, deepinto);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error while visit field_expr: %s", strrc(rc));
+      return rc;
+    }
+  }
+
+  return rc;
+}
+
+RC Expression::get_subquery_expr(std::vector<SubQueryExpr *> &result) {
+  RC rc = RC::SUCCESS;
+  if (this->type() == ExprType::VALUE) return rc;
+  if (this->type() == ExprType::STAR) return rc;
+  if (this->type() == ExprType::FIELD) return rc;
+
+  if (this->type() == ExprType::SUB_QUERY) {
+    result.push_back(static_cast<SubQueryExpr *>(this));
+  }
+
+  Expression *left, *right;
+  if (type() == ExprType::ARITHMETIC) {
+    ArithmeticExpr *expr_ = static_cast<ArithmeticExpr *>(this);
+    left = expr_->left().get();
+    right = expr_->right().get();
+  }
+  else if (type() == ExprType::COMPARISON) {
+    ComparisonExpr *expr_ = static_cast<ComparisonExpr *>(this);
+    if (expr_->single().get()) {
+      rc = expr_->single()->get_subquery_expr(result);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("error while visit field_expr: %s", strrc(rc));
+      }
+      return rc;
+    }
+    left = expr_->left().get();
+    right = expr_->right().get();
+  }
+  else if (type() == ExprType::CONJUNCTION) {
+    ConjunctionExpr *expr_ = static_cast<ConjunctionExpr *>(this);
+    left = expr_->left().get();
+    right = expr_->right().get();
+  }
+  else {
+    assert(0); 
+  } 
+
+  rc = left->get_subquery_expr(result);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("error while visit field_expr: %s", strrc(rc));
+    return rc;
+  }
+
+  rc = right->get_subquery_expr(result);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("error while visit field_expr: %s", strrc(rc));
+    return rc;
+  }
+
+  return rc;
+}
+
+bool Expression::is_condition() const {
+  if (type() == ExprType::CONJUNCTION || type() == ExprType::COMPARISON) 
+    return true;
+  return false;
+}
+
+std::string Expression::dump_tree(int indent) {
+  std::string out;
+  // 打印缩进
+  for (int i = 0; i < indent; i++) {
+      out += "  ";
+  }
+
+  // 打印类型
+  switch (type()) {
+    case ExprType::FIELD: {
+      FieldExpr *field_expr = static_cast<FieldExpr*>(this);
+      out += "FieldExpr(" + field_expr->name() + "): ";
+      if (field_expr->rel_attr().relation_name.empty()) {
+        out += field_expr->rel_attr().attribute_name;
+      } else {
+        out += field_expr->rel_attr().relation_name + "." + field_expr->rel_attr().attribute_name;
+      }
+      break;
+    }
+    case ExprType::STAR: {
+      out += "StarExpr(" + this->name() + ")";
+      break;
+    }
+    case ExprType::VALUE: {
+      ValueExpr *value_expr = static_cast<ValueExpr*>(this);
+      out += "ValueExpr(" + value_expr->name() + "): ";
+      Value v = value_expr->get_value();
+      out += v.beauty_string();
+      break;
+    }
+    case ExprType::SUB_QUERY: {
+      out += "SubQuery(" + this->name() + ")";
+      SubQueryExpr *sub_query_expr = static_cast<SubQueryExpr *>(this);
+      Value v;
+      sub_query_expr->try_get_value(v);
+      out += ": " + v.beauty_string();
+      break;
+    }
+    case ExprType::COMPARISON: {
+      int comp = static_cast<int>(static_cast<ComparisonExpr*>(this)->comp());
+      out += "ComparisonExpr(" + this->name() + "): ";
+      out += COMPOP_NAME[comp];
+      break;
+    }
+    case ExprType::CONJUNCTION: {
+      ConjuctType conj = static_cast<ConjunctionExpr*>(this)->conjunction_type();
+      out += "ConjunctionExpr(" + this->name() + "): ";
+      if (conj == CONJ_AND) out += "AND";
+      if (conj == CONJ_OR) out += "OR";
+      break;
+    }
+    case ExprType::ARITHMETIC: {
+      int type = static_cast<int>(static_cast<ArithmeticExpr*>(this)->arithmetic_type());
+      out += "ArithmeticExpr(" + this->name() + "): ";
+      out += ARITHMATIC_NAME[type];
+      break;
+    }
+    default:
+      std::cout << "UnknownExpr";
+  }
+
+  out += "\n";
+
+  Expression *left, *right;
+  if (type() == ExprType::ARITHMETIC) {
+    ArithmeticExpr *expr_ = static_cast<ArithmeticExpr *>(this);
+    left = expr_->left().get();
+    right = expr_->right().get();
+    out += left->dump_tree(indent + 1);
+    out += right->dump_tree(indent + 1);
+  }
+  else if (type() == ExprType::COMPARISON) {
+    ComparisonExpr *expr_ = static_cast<ComparisonExpr *>(this);
+    if (expr_->single().get()) {
+      out += expr_->single()->dump_tree(indent + 1);
+      return out;
+    }
+    left = expr_->left().get();
+    right = expr_->right().get();
+    out += left->dump_tree(indent + 1);
+    out += right->dump_tree(indent + 1);
+  }
+  else if (type() == ExprType::CONJUNCTION) {
+    ConjunctionExpr *expr_ = static_cast<ConjunctionExpr *>(this);
+    left = expr_->left().get();
+    right = expr_->right().get();
+    out += left->dump_tree(indent + 1);
+    out += right->dump_tree(indent + 1);
+  }
+
+  return out;
+}
+
+/////////////////////////////////////////////////////////////////////////////////
+RC FieldExpr::get_value(const Tuple &tuple, Value &value) const
+{
+  RC rc = tuple.find_cell(TupleCellSpec(table_name(), field_name()), value);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("error in find_cell: %s", strrc(rc));
+    return rc;
+  }
+  return func_impl(value);
+}
+
+/////////////////////////////////////////////////////////////////////////////////
 RC ValueExpr::get_value(const Tuple &tuple, Value &value) const
 {
   value = value_;
-  return RC::SUCCESS;
+  return func_impl(value);
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -65,7 +376,10 @@ RC CastExpr::get_value(const Tuple &tuple, Value &cell) const
     return rc;
   }
 
-  return cast(cell, cell);
+  rc = cast(cell, cell);
+  if (rc != RC::SUCCESS)
+    return rc;
+  return func_impl(cell);
 }
 
 RC CastExpr::try_get_value(Value &value) const
@@ -75,13 +389,24 @@ RC CastExpr::try_get_value(Value &value) const
     return rc;
   }
 
-  return cast(value, value);
+  rc = cast(value, value);
+  if (rc != RC::SUCCESS)
+    return rc;
+  return func_impl(value);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ComparisonExpr::ComparisonExpr(CompOp comp, unique_ptr<Expression> left, unique_ptr<Expression> right, ConjuctType right_op)
-    : comp_(comp), left_(std::move(left)), right_(std::move(right)), right_op_(right_op)
+ComparisonExpr::ComparisonExpr(CompOp comp, Expression *single)
+    : comp_(comp), single_(single)
+{}
+
+ComparisonExpr::ComparisonExpr(CompOp comp, Expression *left, Expression *right)
+    : comp_(comp), left_(left), right_(right)
+{}
+
+ComparisonExpr::ComparisonExpr(CompOp comp, unique_ptr<Expression> left, unique_ptr<Expression> right)
+    : comp_(comp), left_(std::move(left)), right_(std::move(right))
 {}
 
 ComparisonExpr::~ComparisonExpr()
@@ -92,93 +417,24 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
   return left.compare_op(right, comp_, result);
 }
 
-static RC is_in(CompOp op, Value &lv, const std::vector<Value> &rvs, bool &result) {
-  RC rc = RC::SUCCESS;
-  if (op == CompOp::IN && rvs[0].attr_type() == EMPTY_TYPE) {
-    result = false;
-    return rc;
-  } 
-  if (op == CompOp::NOT_IN && rvs[0].attr_type() == EMPTY_TYPE) {
-    result = true;
-    return rc;
-  } 
-  if (op == CompOp::IN) {
-    for (const Value &v : rvs) {
-      bool tmp_res;
-      rc = lv.compare_op(v, CompOp::EQUAL_TO, tmp_res); 
-      if (rc != RC::SUCCESS) 
-        break;
-      if (tmp_res) {
-        result = true;
-        break;
-      }
-    }
-  } else {
-    result = true;
-    for (const Value &v : rvs) {
-      bool tmp_res;
-      rc = lv.compare_op(v, CompOp::EQUAL_TO, tmp_res); 
-      if (v.attr_type() == NULL_TYPE || tmp_res) {
-        result = false;
-        break;
-      }
-    }
-  }
-  return rc;
-}
-
 RC ComparisonExpr::try_get_value(Value &cell) const
 {
   if (left_->type() != ExprType::VALUE || right_->type() != ExprType::VALUE) {
     return RC::INVALID_ARGUMENT; 
   }
-  ValueExpr *left_value_expr = static_cast<ValueExpr *>(left_.get());
-  ValueExpr *right_value_expr = static_cast<ValueExpr *>(right_.get());
-  // if (left_value_expr->to_be_select() || right_value_expr->to_be_select()) {
-  //   return RC::INVALID_ARGUMENT;
-  // }
 
-  bool result;
-  RC rc = RC::SUCCESS;
+  Value lv = static_cast<ValueExpr *>(left_.get())->get_value();
+  Value rv = static_cast<ValueExpr *>(right_.get())->get_value();
 
-  Value lv = left_value_expr->get_value();
-  Value rv = right_value_expr->get_value();
-  const std::vector<Value> &lvs = left_value_expr->get_values();
-  const std::vector<Value> &rvs = right_value_expr->get_values();
+  bool result = false;
 
-  if (comp_ == EXISTS || comp_ == NOT_EXISTS) {
-    cell.set_boolean(
-      (comp_ == NOT_EXISTS && rvs[0].attr_type() == EMPTY_TYPE) ||
-      (comp_ == EXISTS && rvs[0].attr_type() != EMPTY_TYPE));
-    return rc;
-  }
-   
-  if (comp_ == IN || comp_ == NOT_IN) {
-    Value lv = left_value_expr->get_value();
-
-    rc = is_in(comp_, lv, rvs, result);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("op `in` error %s", strrc(rc));
-      return rc;
-    }
-
-    cell.set_boolean(result);
-    return rc;
-  }
-
-  if (lvs.size() > 1 && comp_ != IS && comp_ != IS_NOT) {
-    return RC::INVALID_ARGUMENT;
-  }
-  if (rvs.size() > 1) {
-    return RC::INVALID_ARGUMENT;
-  }
-
-  rc = lv.compare_op(rv, comp_, result);
+  RC rc = lv.compare_op(rv, comp_, result);
   if (rc != RC::SUCCESS) {
     LOG_WARN("compare op error %s", strrc(rc));
+    return rc;
   }
   cell.set_boolean(result);
-  return rc;
+  return func_impl(cell);
 }
 
 RC ComparisonExpr::get_value(const Tuple &tuple, Value &value) const
@@ -186,133 +442,80 @@ RC ComparisonExpr::get_value(const Tuple &tuple, Value &value) const
   RC rc = RC::SUCCESS;
   bool result = false;
 
-  if (comp_ == EXISTS || comp_ == NOT_EXISTS) {
-    const std::vector<Value> &rvs = static_cast<ValueExpr *>(right_.get())->get_values(tuple, rc);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("get values from ValueExpr error");
-      return rc;
-    }
-    assert(rvs.size() > 0);
-    if (rvs[0].attr_type() == EMPTY_TYPE) 
-      value.set_boolean(comp_ == NOT_EXISTS);
-    else
-      value.set_boolean(comp_ == EXISTS);
+  Value lv, rv;
+  rc = left_.get()->get_value(tuple, lv);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("get values error %s", strrc(rc));
     return rc;
   }
 
-  if (comp_ == IN || comp_ == NOT_IN) {
-    const std::vector<Value> &rvs = static_cast<ValueExpr *>(right_.get())->get_values(tuple, rc);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("get values from ValueExpr error");
-      return rc;
-    }
-    Value lv;
-    if (left_->type() == ExprType::FIELD) 
-      left_->get_value(tuple, lv);
-    else {
-      assert(left_->type() == ExprType::VALUE);
-      const std::vector<Value> &lvs = static_cast<ValueExpr *>(left_.get())->get_values(tuple, rc); 
-      if (rc != RC::SUCCESS) {
-        LOG_WARN("get values from ValueExpr error");
-        return rc;
-      }
-      if (lvs.size() > 1) {
-        LOG_WARN("multi value found at `in` clause left");
-        return RC::SUB_QUERY_OP_IN;
-      }
-      assert(lvs.size() > 0);
-      lv = lvs[0];
-    }
-    rc = is_in(comp_, lv, rvs, result);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("op `in` error %s", strrc(rc));
-      return rc;
-    }
-
-    value.set_boolean(result);
+  rc = right_.get()->get_value(tuple, rv);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("get values error %s", strrc(rc));
     return rc;
-  }
-
-  Value lv;
-  Value rv;
-
-  if (left_->type() == ExprType::FIELD)
-    left_->get_value(tuple, lv);
-  else {
-    assert(left_->type() == ExprType::VALUE);
-    const std::vector<Value> &lvs = static_cast<ValueExpr *>(left_.get())->get_values(tuple, rc); 
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("get values from ValueExpr error");
-      return rc;
-    }
-    if (lvs.size() != 1 && comp_ != IS && comp_ != IS_NOT) {
-      LOG_WARN("multi value error in common op");
-      return RC::SUB_QUERY_MULTI_VALUE;
-    }
-    assert(lvs.size() > 0);
-    lv = lvs[0];
-    if (lv.attr_type() == EMPTY_TYPE) 
-      lv.set_null();
-  }
-
-  if (right_->type() == ExprType::FIELD)
-    right_->get_value(tuple, rv);
-  else {
-    assert(right_->type() == ExprType::VALUE);
-    const std::vector<Value> &rvs = static_cast<ValueExpr *>(right_.get())->get_values(tuple, rc); 
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("get values from ValueExpr error");
-      return rc;
-    }
-    if (rvs.size() != 1 && comp_ != IS && comp_ != IS_NOT) {
-      LOG_WARN("multi value error in common op");
-      return RC::SUB_QUERY_MULTI_VALUE;
-    }
-    assert(rvs.size() > 0);
-    rv = rvs[0];
-    if (rv.attr_type() == EMPTY_TYPE) 
-      rv.set_null();
   }
 
   rc = lv.compare_op(rv, comp_, result);
-  
   if (rc != RC::SUCCESS) {
     LOG_WARN("compare op error %s", strrc(rc));
+    return rc;
   }
   value.set_boolean(result);
-  return rc;
+  return func_impl(value);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-ConjunctionExpr::ConjunctionExpr(ConjuctType type, vector<unique_ptr<Expression>> &children)
-    : conjunction_type_(type), children_(std::move(children))
+ConjunctionExpr::ConjunctionExpr(ConjuctType type, Expression *left, Expression *right)
+    : conjunction_type_(type), left_(left), right_(right)
 {}
+
+ConjunctionExpr::ConjunctionExpr(ConjuctType type, unique_ptr<Expression> left, unique_ptr<Expression> right)
+    : conjunction_type_(type), left_(std::move(left)), right_(std::move(right))
+{}
+
+static Expression* init_(std::vector<Expression *> &comparisons, size_t idx) {
+  if (comparisons.size() == idx + 2) {
+    return new ConjunctionExpr(CONJ_AND, comparisons[comparisons.size() - 2], comparisons[comparisons.size() - 1]);
+  }
+  ConjunctionExpr *conj = new ConjunctionExpr(CONJ_AND, comparisons[idx], init_(comparisons, idx + 1));
+  return conj;
+}
+
+RC ConjunctionExpr::init(std::vector<Expression *> &comparisons) {
+  conjunction_type_ = CONJ_AND;
+  if (comparisons.size() == 2) {
+    left_.reset(comparisons[0]);
+    right_.reset(comparisons[1]);
+    return RC::SUCCESS;
+  }
+  left_.reset(comparisons[0]);
+  right_.reset(init_(comparisons, 1));
+  return RC::SUCCESS;
+}
 
 RC ConjunctionExpr::get_value(const Tuple &tuple, Value &value) const
 {
   RC rc = RC::SUCCESS;
-  if (children_.empty()) {
-    value.set_boolean(true);
+
+  Value lv, rv;
+  rc = left_->get_value(tuple, lv);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("failed to get value by child expression. rc=%s", strrc(rc));
     return rc;
   }
-
-  Value tmp_value;
-  for (const unique_ptr<Expression> &expr : children_) {
-    rc = expr->get_value(tuple, tmp_value);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("failed to get value by child expression. rc=%s", strrc(rc));
-      return rc;
-    }
-    bool bool_value = tmp_value.get_boolean();
-    if ((conjunction_type_ == CONJ_AND && !bool_value) || (conjunction_type_ == CONJ_OR && bool_value)) {
-      value.set_boolean(bool_value);
-      return rc;
-    }
+  rc = right_->get_value(tuple, rv);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("failed to get value by child expression. rc=%s", strrc(rc));
+    return rc;
   }
+  bool lb = lv.get_boolean(), rb = rv.get_boolean();
 
-  bool default_value = (conjunction_type_ == CONJ_AND);
-  value.set_boolean(default_value);
-  return rc;
+  if (conjunction_type_ == CONJ_AND)
+    value.set_boolean(lb && rb);
+  else
+    value.set_boolean(lb || rb);
+  
+  return func_impl(value);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -341,8 +544,6 @@ AttrType ArithmeticExpr::value_type() const
 
 RC ArithmeticExpr::calc_value(const Value &left_value, const Value &right_value, Value &value) const
 {
-  RC rc = RC::SUCCESS;
-
   const AttrType target_type = value_type();
 
   switch (arithmetic_type_) {
@@ -397,11 +598,11 @@ RC ArithmeticExpr::calc_value(const Value &left_value, const Value &right_value,
     } break;
 
     default: {
-      rc = RC::INTERNAL;
       LOG_WARN("unsupported arithmetic type. %d", arithmetic_type_);
+      return RC::INTERNAL;
     } break;
   }
-  return rc;
+  return func_impl(value);
 }
 
 RC ArithmeticExpr::get_value(const Tuple &tuple, Value &value) const
@@ -447,3 +648,12 @@ RC ArithmeticExpr::try_get_value(Value &value) const
 
   return calc_value(left_value, right_value, value);
 }
+
+const char *ARITHMATIC_NAME[] = {
+  [(int)ArithmeticExpr::Type::ADD] = "ADD",
+  [(int)ArithmeticExpr::Type::SUB] = "SUB",
+  [(int)ArithmeticExpr::Type::MUL] = "MUL",
+  [(int)ArithmeticExpr::Type::DIV] = "DIV",
+  [(int)ArithmeticExpr::Type::NEGATIVE] = "NEGATIVE",
+};
+

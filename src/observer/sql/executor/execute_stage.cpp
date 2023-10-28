@@ -70,11 +70,25 @@ RC ExecuteStage::handle_request_with_physical_operator(SQLStageEvent *sql_event)
       bool with_table_name = select_stmt->tables().size() > 1;
       
       schema.aggregation_funcs_ = select_stmt->aggregation_funcs();
-      for (const Field &field : select_stmt->query_fields()) {
-        if (with_table_name) {
-          schema.append_cell(field.table_name(), field.field_name());
+      for (Expression *expr : select_stmt->query_exprs()) {
+        if (expr->type() == ExprType::STAR) {
+          StarExpr *star_expr = static_cast<StarExpr *>(expr);
+          for (const Field &field : star_expr->field()) {
+            if (with_table_name) {
+              schema.append_cell(field.table_name(), field.field_name());
+            } else {
+              schema.append_cell(field.field_name());
+            }
+          }
+        } else if (expr->type() == ExprType::FIELD) {
+          FieldExpr *field_expr = static_cast<FieldExpr *>(expr);
+          if (with_table_name) {
+            schema.append_cell(field_expr->table_name(), field_expr->field_name());
+          } else {
+            schema.append_cell(field_expr->field_name());
+          }
         } else {
-          schema.append_cell(field.field_name());
+          assert(0);
         }
       }
     } break;

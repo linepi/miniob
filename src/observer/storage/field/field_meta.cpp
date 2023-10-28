@@ -107,6 +107,9 @@ bool FieldMeta::match(Value &value) const {
     value.set_null();
     return true;
   }
+  if (value.attr_type() == BOOLEANS) {
+    value.set_int(value.get_int());
+  }
   if (attr_type_ == FLOATS && value.attr_type() == INTS) {
     value.set_float(value.get_int());
     return true;

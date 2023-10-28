@@ -15,6 +15,7 @@ See the Mulan PSL v2 for more details. */
 #pragma once
 
 #include <string>
+#include <vector>
 #include <common/rc.h>
 #include <common/enum.h>
 
@@ -49,7 +50,7 @@ public:
   explicit Value(std::vector<Value> *list);
 
   Value(const Value &other) = default;
-  Value &operator=(const Value &other) = default;
+  Value &operator=(const Value &other);
   Value operator+(const Value &other);
 
   void set_type(AttrType type)
@@ -63,19 +64,22 @@ public:
   }
   void set_int(int val);
   void set_null();
+  void set_empty();
   void set_float(float val);
   void set_boolean(bool val);
   void set_string(const char *s, int len = 0);
   void set_date(const char *s);
   void set_value(const Value &value);
+  void set_list(std::vector<Value> *values);
 
   std::string to_string() const;
+  std::string beauty_string() const;
 
   RC compare(const Value &other, int &result) const;
-  bool match(const Value &other) const;
   RC compare_op(const Value &other, CompOp op, bool &result) const;
   RC like(const Value &other, bool &result) const;
   static bool like(const std::string &column, const std::string &pattern);
+  RC is_in(CompOp op, const Value &other, bool &result) const;
 
   int from_string(std::string str);
 
@@ -89,6 +93,8 @@ public:
   {
     return attr_type_;
   }
+
+  std::vector<Value> *list() const { return list_; }
 
 public:
   /**

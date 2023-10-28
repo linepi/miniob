@@ -25,16 +25,18 @@ RC try_to_get_bool_constant(std::unique_ptr<Expression> &expr, bool &constant_va
   }
   return RC::INTERNAL;
 }
+
 RC ConjunctionSimplificationRule::rewrite(std::unique_ptr<Expression> &expr, bool &change_made)
 {
   RC rc = RC::SUCCESS;
   if (expr->type() != ExprType::CONJUNCTION) {
     return rc;
   }
+  return rc;
 
   change_made = false;
   auto conjunction_expr = static_cast<ConjunctionExpr *>(expr.get());
-  std::vector<std::unique_ptr<Expression>> &child_exprs = conjunction_expr->children();
+  std::vector<std::unique_ptr<Expression>> child_exprs;
   // 先看看有没有能够直接去掉的表达式。比如AND时恒为true的表达式可以删除
   // 或者是否可以直接计算出当前表达式的值。比如AND时，如果有一个表达式为false，那么整个表达式就是false
   for (auto iter = child_exprs.begin(); iter != child_exprs.end();) {
@@ -69,6 +71,7 @@ RC ConjunctionSimplificationRule::rewrite(std::unique_ptr<Expression> &expr, boo
       }
     }
   }
+
   if (child_exprs.size() == 1) {
     LOG_TRACE("conjunction expression has only 1 child");
     std::unique_ptr<Expression> child_expr = std::move(child_exprs.front());

@@ -219,7 +219,7 @@ extern Log *g_log;
         if ((pos = file_name.find_last_of("/\\")) != std::string::npos) {   \
           file_name = file_name.substr(pos + 1);                       \
         }                                                              \
-        ::sql_debug_log("\33[1;31m[%s:%d]\33[0m " fmt, file_name.c_str(), __LINE__, ##__VA_ARGS__); \
+        ::sql_debug_log("\33[1;31m[%s:%d %s()]\33[0m " fmt, file_name.c_str(), __LINE__, __func__, ##__VA_ARGS__); \
       } \
       g_log->output(level, __FILE_NAME__, prefix, fmt, ##__VA_ARGS__); \
     }                                                                  \

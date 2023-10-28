@@ -21,31 +21,41 @@ See the Mulan PSL v2 for more details. */
 
 FilterStmt::~FilterStmt()
 {
-  for (FilterUnit *unit : filter_units_) {
-    delete unit;
-  }
-  filter_units_.clear();
 }
 
+RC get_table_and_field(Db *db, Table *default_table, std::unordered_map<std::string, Table *> *tables,
+    const RelAttrSqlNode &attr, Table *&table, const FieldMeta *&field);
+
 RC FilterStmt::create(Db *db, Table *default_table, std::unordered_map<std::string, Table *> *tables,
-    const ConditionSqlNode *conditions, int condition_num, FilterStmt *&stmt)
+    Expression *condition, FilterStmt *&stmt)
 {
   RC rc = RC::SUCCESS;
-  stmt = nullptr;
+  if (!condition) return rc;
 
-  FilterStmt *tmp_stmt = new FilterStmt();
-  for (int i = 0; i < condition_num; i++) {
-    FilterUnit *filter_unit = nullptr;
-    rc = create_filter_unit(db, default_table, tables, conditions[i], filter_unit);
+  auto visitor = [&db, &default_table, &tables, &condition](std::unique_ptr<Expression> &expr){
+    RC rc = RC::SUCCESS;
+    assert(expr->type() == ExprType::FIELD);
+    FieldExpr *field_expr = static_cast<FieldExpr *>(expr.get());
+
+    Table *table = nullptr;
+    const FieldMeta *field = nullptr;
+
+    rc = get_table_and_field(db, default_table, tables, field_expr->rel_attr(), table, field);
     if (rc != RC::SUCCESS) {
-      delete tmp_stmt;
-      LOG_WARN("failed to create filter unit. condition index=%d", i);
+      LOG_WARN("cannot find attr");
       return rc;
     }
-    tmp_stmt->filter_units_.push_back(filter_unit);
+    field_expr->set_field(Field(table, field));
+    return rc;
+  };
+  rc = condition->visit_field_expr(visitor, false);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("visit field expr error %s", strrc(rc));
+    return rc;
   }
 
-  stmt = tmp_stmt;
+  stmt = new FilterStmt();
+  stmt->condition_ = condition;
   return rc;
 }
 
@@ -75,131 +85,4 @@ RC get_table_and_field(Db *db, Table *default_table, std::unordered_map<std::str
   }
 
   return RC::SUCCESS;
-}
-
-RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_map<std::string, Table *> *tables,
-    const ConditionSqlNode &condition, FilterUnit *&filter_unit)
-{
-  RC rc = RC::SUCCESS;
-
-  CompOp comp = condition.comp;
-  if (comp < EQUAL_TO || comp >= NO_OP) {
-    LOG_WARN("invalid compare operator : %d", comp);
-    return RC::INVALID_ARGUMENT;
-  }
-
-  filter_unit = new FilterUnit;
-  FilterObj filter_obj_left;
-  FilterObj filter_obj_right;
-  CompOp filter_comp = comp;
-  ValueWrapper &rv = const_cast<ValueWrapper &>(condition.right_value);
-  ValueWrapper &lv = const_cast<ValueWrapper &>(condition.left_value);
-  filter_unit->set_right_op(condition.right_op);
-
-
-  if (comp == EXISTS || comp == NOT_EXISTS) {
-    assert(rv.values || rv.select);
-    filter_obj_left.init_value(Value(NULL_TYPE));
-    filter_obj_right.init_value(rv);
-    filter_unit->set_left(filter_obj_left);
-    filter_unit->set_right(filter_obj_right);
-    filter_unit->set_comp(filter_comp); 
-    return rc;
-  } 
-
-  Table *left_table = nullptr;
-  Table *right_table = nullptr;
-  const FieldMeta *left_field = nullptr;
-  const FieldMeta *right_field = nullptr;
-  if (condition.left_type == CON_ATTR) {
-    rc = get_table_and_field(db, default_table, tables, condition.left_attr, left_table, left_field);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("cannot find attr");
-      return rc;
-    }
-  } 
-  if (condition.right_type == CON_ATTR) {
-    rc = get_table_and_field(db, default_table, tables, condition.right_attr, right_table, right_field);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("cannot find attr");
-      return rc;
-    }
-  } 
-
-  if (comp == IN || comp == NOT_IN) {
-    if (!rv.values && !rv.select) {
-      LOG_WARN("in op's right value can only be sub query or tuple");
-      return RC::SUB_QUERY_OP_IN;
-    }
-    if (condition.left_type == CON_ATTR) {
-      filter_obj_left.init_attr(Field(left_table, left_field));
-    } else {
-      filter_obj_left.init_value(lv);
-    }
-    filter_obj_right.init_value(rv);
-    filter_unit->set_left(filter_obj_left);
-    filter_unit->set_right(filter_obj_right);
-    filter_unit->set_comp(filter_comp); 
-    return rc;
-  } 
-
-  if (rv.values && rv.values->size() > 1) {
-    LOG_WARN("invalid values size: %d", rv.values->size());
-    return RC::SUB_QUERY_MULTI_VALUE;
-  }
-  if (lv.values && lv.values->size() > 1 && comp != IS && comp != IS_NOT) {
-    LOG_WARN("invalid values size: %d", lv.values->size());
-    return RC::SUB_QUERY_MULTI_VALUE;
-  }
-
-  // 检查两个类型是否能够比较
-  AttrType left, right;
-
-  if (condition.left_type == CON_ATTR) {
-    left = left_field->type();
-    filter_obj_left.init_attr(Field(left_table, left_field));
-  } else {
-    filter_obj_left.init_value(lv);
-    // 关联查询则为undefined
-    left = filter_obj_left.to_be_select ? UNDEFINED : filter_obj_left.values[0].attr_type();
-  }
-
-  if (condition.right_type == CON_ATTR) {
-    right = right_field->type();
-    filter_obj_right.init_attr(Field(right_table, right_field));
-  } else {
-    filter_obj_right.init_value(rv);
-    right = filter_obj_right.to_be_select ? UNDEFINED : filter_obj_right.values[0].attr_type();
-  }
-
-  if (left != UNDEFINED && right != UNDEFINED && left != right) {
-    char buf[4] = {'.','.','.','.'};
-    Value left_value(left, buf, 4);
-    Value right_value(right, buf, 4);
-    bool result;
-    if (left_value.attr_type() == EMPTY_TYPE) {
-      left_value.set_null();
-    }
-    if (right_value.attr_type() == EMPTY_TYPE) {
-      right_value.set_null();
-    }
-    RC ret = left_value.compare_op(right_value, comp, result);
-    if (ret != RC::SUCCESS) {
-      LOG_INFO("type mismatch: %s and %s", attr_type_to_string(left), attr_type_to_string(right));
-      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
-    }
-  }
-
-  filter_unit->set_left(filter_obj_left);
-  filter_unit->set_right(filter_obj_right);
-  filter_unit->set_comp(filter_comp);
-
-  if (comp == LIKE_OP || comp == NOT_LIKE_OP) {
-    if (!(filter_unit->left().is_attr && !(filter_unit->right().is_attr))) {
-      LOG_INFO("only `column name` like `pattern`");
-      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
-    }
-  }
-
-  return rc;
 }

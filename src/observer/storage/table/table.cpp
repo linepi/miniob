@@ -269,7 +269,7 @@ bool Table::ignore_index(Index *index, const Record &record) {
   return false;
 }
 
-RC Table::update_record(std::vector<const FieldMeta *> &field_metas, std::vector<ValueWrapper> &values, Record &record)
+RC Table::update_record(std::vector<const FieldMeta *> &field_metas, std::vector<Value> &values, Record &record)
 {
   RC rc = RC::SUCCESS;
   
@@ -280,14 +280,7 @@ RC Table::update_record(std::vector<const FieldMeta *> &field_metas, std::vector
   std::vector<Value> values_impls;
   for (size_t i = 0; i < values.size(); i++) {
     const FieldMeta *field_meta = field_metas[i];
-    ValueWrapper &value = values[i];
-
-    if (value.values && value.values->size() != 1) {
-      LOG_WARN("values size(%d) != 1", value.values->size());
-      return RC::SUB_QUERY_MULTI_VALUE;
-    }
-
-    Value &value_impl = value.values ? (*value.values)[0] : value.value;
+    Value &value_impl = values[i];
     if (!field_meta->match(value_impl)) {
       LOG_WARN("field does not match value(%s and %s)", 
           attr_type_to_string(field_meta->type()), 

@@ -17,3 +17,15 @@ const char *COMPOP_NAME[] = {
   [NOT_EXISTS]    = "not exists",
   [NO_OP]         = "NO_OP"
 };
+
+const char *EXPR_NAME[] = {
+  [(int)ExprType::NONE]             =   "NONE",         
+  [(int)ExprType::STAR]             =   "STAR",        
+  [(int)ExprType::FIELD]            =   "FIELD",       
+  [(int)ExprType::VALUE]            =   "VALUE",       
+  [(int)ExprType::SUB_QUERY]        =   "SUB_QUERY",   
+  [(int)ExprType::CAST]             =   "CAST",        
+  [(int)ExprType::COMPARISON]       =   "COMPARISON",  
+  [(int)ExprType::CONJUNCTION]      =   "CONJUNCTION", 
+  [(int)ExprType::ARITHMETIC]       =   "ARITHMETIC",   
+};

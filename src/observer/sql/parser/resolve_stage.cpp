@@ -40,13 +40,15 @@ See the Mulan PSL v2 for more details. */
 using namespace common;
 
 RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query);
-void select_to_string(SelectSqlNode *select, std::string &out);
+RC sub_query_extract(SelectSqlNode *select, SessionStage *ss, SQLStageEvent *sql_event, std::string &std_out);
+RC check_correlated_query(SubQueryExpr *expr, std::vector<std::string> *father_tables, bool &result); 
+
 void get_relation_from_select(SelectSqlNode *select, std::unordered_set<std::string> &relations);
 void get_relation_from_update(UpdateSqlNode *update, std::unordered_set<std::string> &relations);
 void show_relations(std::unordered_set<std::string> &relations, SessionStage *ss, SQLStageEvent *sql_event);
-std::string values_to_string(std::vector<Value> &values);
+void show_expressions(ParsedSqlNode *node);
 
-RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &values)
+RC value_from_sql_stdout(std::string &std_out, Value &value)
 {
   while (std_out.back() == '\0') {
     std_out = std_out.substr(0, std_out.size() - 1);
@@ -54,6 +56,7 @@ RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &values)
 
   std::vector<std::string> lines;
   common::split_string(std_out, "\n", lines);
+  std::vector<Value> *values = new std::vector<Value>;
   for (size_t i = 0; i < lines.size(); i++) {
     std::string &line = lines[i];
     if (line.find("FALIURE", 0) != std::string::npos) {
@@ -66,110 +69,21 @@ RC values_from_sql_stdout(std::string &std_out, std::vector<Value> &values)
       Value v;
       int rc = v.from_string(line);
       if (rc == 0) { // 是否为空白
-        values.push_back(v);
+        values->push_back(v);
       }
     }
   }
-  if (values.size() == 0) {
-    values.push_back(Value(EMPTY_TYPE));
+
+  if (values->size() == 0) {
+    value.set_empty();
+    delete values;
+  } else if (values->size() == 1) {
+    value.set_value((*values)[0]); 
+    delete values;
+  } else {
+    value.set_list(values);
   }
   return RC::SUCCESS;
-}
-
-static RC check_correlated_query(SelectSqlNode *sub_query, std::vector<std::string> *father_tables, bool &result)
-{
-  // 初始假设它是非关联的子查询
-  result = false;
-  std::vector<const ConditionSqlNode *> conditions;
-  RC rc = RC::SUCCESS;
-
-  for (const auto &condition : sub_query->conditions) {
-    conditions.push_back(&condition);
-  }
-
-  for (const auto &join : sub_query->joins) {
-    for (const auto &condition : join.on) {
-      conditions.push_back(&condition);
-    }
-  }
-
-  for (const auto con : conditions) {
-    const ConditionSqlNode &condition = *con;
-    // 检查左边的属性
-    if (condition.left_type == CON_ATTR) {
-      const std::string *relation_name = &condition.left_attr.relation_name;
-      if (relation_name->empty()) {
-        if (sub_query->relations.size() > 1) {
-          rc = RC::SCHEMA_FIELD_MISSING_TABLE;
-          return rc;
-        } else {
-          relation_name = &sub_query->relations[0];
-        }
-      } else {
-        bool in_subquery_relations = std::find(
-          sub_query->relations.begin(), 
-          sub_query->relations.end(),
-          *relation_name) != sub_query->relations.end();
-        bool in_father_relations = std::find(
-          father_tables->begin(),
-          father_tables->end(),
-          *relation_name) != father_tables->end();
-        if (!in_father_relations && !in_subquery_relations) {
-          rc = RC::SUB_QUERY_CORRELATED_TABLE_NOT_FOUND;
-          return rc;
-        }
-        if (!in_subquery_relations && in_father_relations) {
-          result = true;
-          return rc;
-        }
-      }
-    }
-
-    if (condition.right_type == CON_ATTR) {
-      const std::string *relation_name = &condition.right_attr.relation_name;
-      if (relation_name->empty()) {
-        if (sub_query->relations.size() > 1) {
-          rc = RC::SCHEMA_FIELD_MISSING_TABLE;
-          return rc;
-        } else {
-          relation_name = &sub_query->relations[0];
-        }
-      } else {
-        bool in_subquery_relations = std::find(
-          sub_query->relations.begin(), 
-          sub_query->relations.end(),
-          *relation_name) != sub_query->relations.end();
-        bool in_father_relations = std::find(
-          father_tables->begin(),
-          father_tables->end(),
-          *relation_name) != father_tables->end();
-        if (!in_father_relations && !in_subquery_relations) {
-          rc = RC::SUB_QUERY_CORRELATED_TABLE_NOT_FOUND;
-          return rc;
-        }
-        if (!in_subquery_relations && in_father_relations) {
-          result = true;
-          return rc;
-        }
-      }
-    }
-
-    // 如果值包含子查询，递归检查
-    if (condition.left_value.select != nullptr) {
-      rc = check_correlated_query(condition.left_value.select, father_tables, result);
-      if (rc != RC::SUCCESS) return rc;
-      if (result)
-        return rc;
-    }
-    if (condition.right_value.select != nullptr) {
-      check_correlated_query(condition.right_value.select, father_tables, result);
-      if (rc != RC::SUCCESS) return rc;
-      if (result)
-        return rc;
-    }
-  }
-
-  return rc;
 }
 
 RC create_select_extract(
@@ -179,37 +93,9 @@ RC create_select_extract(
     return RC::SUCCESS;
   RC rc = RC::SUCCESS;
 
-  ParsedSqlNode *node = new ParsedSqlNode();
-  node->flag          = SCF_SELECT;
-  node->selection     = *cts.select;
-  SQLStageEvent stack_sql_event(*sql_event, false);
-  stack_sql_event.set_sql_node(std::unique_ptr<ParsedSqlNode>(node));
-
-  rc = handle_sql(ss, &stack_sql_event, false);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("sub query failed. rc=%s", strrc(rc));
-    return rc;
-  }
-
-  Writer       *thesw        = new SilentWriter();
-  Communicator *communicator = stack_sql_event.session_event()->get_communicator();
-  Writer       *writer_bak   = communicator->writer();
-  communicator->set_writer(thesw);
-
-  bool need_disconnect = false;
-  rc                   = communicator->write_result(stack_sql_event.session_event(), need_disconnect);
-  LOG_INFO("sub query write result return %s", strrc(rc));
-  communicator->set_writer(writer_bak);
-
-  if ((rc = stack_sql_event.session_event()->sql_result()->return_code()) != RC::SUCCESS) {
-    LOG_WARN("sub query failed. rc=%s", strrc(rc));
-    return rc;
-  }
-
-  SilentWriter *sw = static_cast<SilentWriter *>(thesw);
+  std::string std_out;
+  sub_query_extract(cts.select, ss, sql_event, std_out);
   cts.values_list     = new std::vector<std::vector<Value>>;
-
-  std::string &std_out = sw->content();
 
   while (std_out.back() == '\0') {
     std_out = std_out.substr(0, std_out.size() - 1);
@@ -236,43 +122,20 @@ RC create_select_extract(
         cts.values_list->push_back(std::move(values));
     }
   }
-  delete sw;
   return rc;
 }
 
-RC value_extract(
-    ValueWrapper &value, SessionStage *ss, SQLStageEvent *sql_event, std::vector<std::string> *father_tables)
+RC sub_query_extract(SelectSqlNode *select, SessionStage *ss, SQLStageEvent *sql_event, std::string &std_out)
 {
-  if (value.select == nullptr)
+  if (select == nullptr)
     return RC::SUCCESS;
-  // 检测关联查询
-  RC   rc = RC::SUCCESS;
-  if (father_tables) {
-    bool is_correlated_query;
-    rc = check_correlated_query(value.select, father_tables, is_correlated_query);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("error in correlated query check %s", strrc(rc));
-      return rc;
-    }
-    if (is_correlated_query) {
-      value.sql_event = sql_event;
-      value.ss = ss;
-      return RC::SUCCESS;
-    }
-  }
+  RC rc = RC::SUCCESS;
 
   ParsedSqlNode *node = new ParsedSqlNode();
   node->flag          = SCF_SELECT;
-  node->selection     = *value.select;
+  node->selection     = *select;
   SQLStageEvent stack_sql_event(*sql_event, false);
   stack_sql_event.set_sql_node(std::unique_ptr<ParsedSqlNode>(node));
-
-  // for debug
-  std::string select_string;
-  select_string += "\33[1;33m[sub-query]\33[0m: [";
-  select_to_string(value.select, select_string);
-  select_string += "]";
-  // end for debug
 
   rc = handle_sql(ss, &stack_sql_event, false);
   if (rc != RC::SUCCESS) {
@@ -296,32 +159,95 @@ RC value_extract(
   }
 
   SilentWriter *sw = static_cast<SilentWriter *>(thesw);
-  value.values     = new std::vector<Value>;
-  rc               = values_from_sql_stdout(sw->content(), *value.values);
   if (rc != RC::SUCCESS) {
     LOG_WARN("values_from_sql_stdout gives %s", strrc(rc));
     delete sw;
     return rc;
   }
-
-  // for debug
-  select_string += " = " + values_to_string(*value.values) + ";";
-  sql_debug(select_string.c_str());
-  // end for debug
-
+  std_out = sw->content();
   delete sw;
+  return rc;
+}
 
-  if (value.values->size() == 0) {
-    value.values->push_back(Value(EMPTY_TYPE));
-  }  
+RC expression_sub_query_extract(Expression *expr, SessionStage *ss, SQLStageEvent *sql_event, std::vector<std::string> *father_tables) {
+  RC rc = RC::SUCCESS;
+  if (!expr) return rc;
+  if (expr->type() == ExprType::FIELD) return rc;
+  if (expr->type() == ExprType::STAR) return rc;
+  if (expr->type() == ExprType::VALUE) return rc;
+  if (expr->type() == ExprType::SUB_QUERY) {
+    SubQueryExpr *sub_query_expr = static_cast<SubQueryExpr *>(expr);
+    if (sub_query_expr->correlated()) return rc;
 
-  if (!sql_event->correlated_query() && !sql_event->for_create_table()) {
-    delete value.select;
-    value.select = nullptr;
+    bool is_correlated = false;
+    rc = check_correlated_query(sub_query_expr, father_tables, is_correlated);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error in check_correlated_query %s", strrc(rc));
+      return rc;
+    }
+    if (is_correlated) {
+      sub_query_expr->set_ss(ss);
+      sub_query_expr->set_sql_event(sql_event);
+      sub_query_expr->set_correlated(true);
+      return rc;
+    }
+
+    std::string std_out;
+    rc = sub_query_extract(sub_query_expr->select(), ss, sql_event, std_out);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error in sub_query_extract %s", strrc(rc));
+      return rc;
+    }
+    Value value;
+    rc = value_from_sql_stdout(std_out, value);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error in value_from_sql_stdout %s", strrc(rc));
+      return rc;
+    }
+    sub_query_expr->set_value(value);
+
+    // for debug
+    sql_debug("[%s] = %s", expr->name().c_str(), value.beauty_string().c_str());
+    // end for debug
+
+    return rc;
   }
 
+  Expression *left, *right;
+  if (expr->type() == ExprType::ARITHMETIC) {
+    ArithmeticExpr *expr_ = static_cast<ArithmeticExpr *>(expr);
+    left = expr_->left().get();
+    right = expr_->right().get();
+  }
+  else if (expr->type() == ExprType::COMPARISON) {
+    ComparisonExpr *expr_ = static_cast<ComparisonExpr *>(expr);
+    if (expr_->single().get()) {
+      rc = expression_sub_query_extract(expr_->single().get(), ss, sql_event, father_tables);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("expression sub query extract error for %s type", EXPR_NAME[(int)expr_->single()->type()]);
+      }
+      return rc;
+    }
+    left = expr_->left().get();
+    right = expr_->right().get();
+  }
+  else if (expr->type() == ExprType::CONJUNCTION) {
+    ConjunctionExpr *expr_ = static_cast<ConjunctionExpr *>(expr);
+    left = expr_->left().get();
+    right = expr_->right().get();
+  }
+  else {
+    assert(0); 
+  }
+  rc = expression_sub_query_extract(left, ss, sql_event, father_tables); 
   if (rc != RC::SUCCESS) {
-    LOG_WARN("sub query parse values from std out failed. rc=%s", strrc(rc));
+    LOG_WARN("expression sub query extract error for %s type", EXPR_NAME[(int)left->type()]);
+    return rc;
+  }
+  rc = expression_sub_query_extract(right, ss, sql_event, father_tables); 
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("expression sub query extract error for %s type", EXPR_NAME[(int)right->type()]);
+    return rc;
   }
   return rc;
 }
@@ -345,9 +271,9 @@ RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionSt
       }
       father_tables->push_back(node->insertion.relation_name);
 
-      for (std::vector<ValueWrapper> &values : *(node->insertion.values_list)) {
-        for (ValueWrapper &value : values) {
-          rc = value_extract(value, ss, sql_event, father_tables);
+      for (std::vector<Expression *> &exprs : *(node->insertion.values_list)) {
+        for (Expression *expr : exprs) {
+          rc = expression_sub_query_extract(expr, ss, sql_event, father_tables);
           if (rc != RC::SUCCESS) {
             LOG_WARN("insert value extract error");
             goto deal_rc;
@@ -365,24 +291,17 @@ RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionSt
       }
       father_tables->push_back(node->update.relation_name);
 
-      for (std::pair<std::string, ValueWrapper> &av_ : node->update.av) {
-        rc = value_extract(av_.second, ss, sql_event, father_tables);
+      for (std::pair<std::string, Expression *> &av_ : node->update.av) {
+        rc = expression_sub_query_extract(av_.second, ss, sql_event, father_tables);
         if (rc != RC::SUCCESS) {
           LOG_WARN("update.av value extract error");
           goto deal_rc;
         }
       }
-      for (ConditionSqlNode &con : node->update.conditions) {
-        rc = value_extract(con.left_value, ss, sql_event, father_tables);
-        if (rc != RC::SUCCESS) {
-          LOG_WARN("update.conditions.left value extract error");
-          goto deal_rc;
-        }
-        rc = value_extract(con.right_value, ss, sql_event, father_tables);
-        if (rc != RC::SUCCESS) {
-          LOG_WARN("update.conditions.right value extract error");
-          goto deal_rc;
-        }
+      rc = expression_sub_query_extract(node->update.condition, ss, sql_event, father_tables);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("update.condition value extract error");
+        goto deal_rc;
       }
       break;
     }
@@ -397,30 +316,16 @@ RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionSt
         father_tables->push_back(relation_name);
       }
 
-      for (ConditionSqlNode &con : node->selection.conditions) {
-        rc = value_extract(con.left_value, ss, sql_event, father_tables);
-        if (rc != RC::SUCCESS) {
-          LOG_WARN("select.conditions.left value extract error");
-          goto deal_rc;
-        }
-        rc = value_extract(con.right_value, ss, sql_event, father_tables);
-        if (rc != RC::SUCCESS) {
-          LOG_WARN("select.conditions.right value extract error");
-          goto deal_rc;
-        }
+      rc = expression_sub_query_extract(node->selection.condition, ss, sql_event, father_tables);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("selection.condition value extract error");
+        goto deal_rc;
       }
       for (JoinNode &jn : node->selection.joins) {
-        for (ConditionSqlNode &con : jn.on) {
-          rc = value_extract(con.left_value, ss, sql_event, father_tables);
-          if (rc != RC::SUCCESS) {
-            LOG_WARN("select.join.on.left value extract error");
-            goto deal_rc;
-          }
-          rc = value_extract(con.right_value, ss, sql_event, father_tables);
-          if (rc != RC::SUCCESS) {
-            LOG_WARN("select.join.on.right value extract error");
-            goto deal_rc;
-          }
+        rc = expression_sub_query_extract(jn.condition, ss, sql_event, father_tables);
+        if (rc != RC::SUCCESS) {
+          LOG_WARN("JoinNode.condition value extract error");
+          goto deal_rc;
         }
       }
       break;
@@ -434,19 +339,10 @@ RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionSt
       }
       father_tables->push_back(node->deletion.relation_name);
 
-      for (ConditionSqlNode &con : node->deletion.conditions) {
-        rc = value_extract(con.left_value, ss, sql_event, father_tables);
-        if (rc != RC::SUCCESS) {
-          LOG_WARN("delete.condition.left value extract error");
-          goto deal_rc;
-        }
-        if (rc != RC::SUCCESS)
-          goto deal_rc;
-        rc = value_extract(con.right_value, ss, sql_event, father_tables);
-        if (rc != RC::SUCCESS) {
-          LOG_WARN("delete.condition.right value extract error");
-          goto deal_rc;
-        }
+      rc = expression_sub_query_extract(node->deletion.condition, ss, sql_event, father_tables);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("selection.condition value extract error");
+        goto deal_rc;
       }
       break;
     }
@@ -456,7 +352,17 @@ RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionSt
         LOG_WARN("create_table value extract error");
         goto deal_rc;
       }
+      break;
     }
+    case SCF_CALC: {
+      for (Expression *expr : node->calc.expressions) {
+        rc = expression_sub_query_extract(expr, ss, sql_event, nullptr);
+        if (rc != RC::SUCCESS) {
+          LOG_WARN("calc.expression value extract error");
+          goto deal_rc;
+        }
+      }
+    } 
     default: {
       break;
     }
@@ -473,20 +379,16 @@ RC ResolveStage::handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool
 {
   // for debug
   if (main_query) {
+    std::unordered_set<std::string> relations;
     if (sql_event->sql_node().get()->flag == SCF_SELECT) {
-      std::unordered_set<std::string> relations;
       get_relation_from_select(&(sql_event->sql_node().get()->selection), relations); 
-      show_relations(relations, ss, sql_event);
     } else if (sql_event->sql_node().get()->flag == SCF_UPDATE) {
-      std::unordered_set<std::string> relations;
       get_relation_from_update(&(sql_event->sql_node().get()->update), relations); 
-      show_relations(relations, ss, sql_event);
     } else if (sql_event->sql_node().get()->flag == SCF_CREATE_TABLE) {
-      std::unordered_set<std::string> relations;
       if (sql_event->sql_node().get()->create_table.select)
         get_relation_from_select(sql_event->sql_node().get()->create_table.select, relations);
-      show_relations(relations, ss, sql_event);
     }
+    show_relations(relations, ss, sql_event);
   }
   void test_main();
   // test_main();
@@ -511,6 +413,9 @@ RC ResolveStage::handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool
     sql_result->set_return_code(rc);
     return rc;
   }
+
+  if (main_query)
+    show_expressions(sql_event->sql_node().get());
 
   Stmt *stmt = nullptr;
   rc         = Stmt::create_stmt(db, *(sql_event->sql_node().get()), stmt);

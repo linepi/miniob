@@ -2,51 +2,146 @@
 #include "sql/expr/tuple.h"
 #include "event/sql_event.h"
 
-RC value_extract(ValueWrapper &value, SessionStage *ss, SQLStageEvent *sql_event, std::vector<std::string> *father_tables);
+RC sub_query_extract(SelectSqlNode *select, SessionStage *ss, SQLStageEvent *sql_event, std::string &std_out);
+RC value_from_sql_stdout(std::string &std_out, Value &value);
+
+RC check_correlated_query(SubQueryExpr *expr, std::vector<std::string> *father_tables, bool &result) {
+  RC rc = RC::SUCCESS;
+  if (!father_tables) {
+    result = false;
+    return rc;
+  }
+
+  SubQueryExpr *sub_query_expr = expr;
+  if (sub_query_expr->correlated()) {
+    result = true;
+    return rc;
+  }
+
+  SelectSqlNode *sub_query = sub_query_expr->select();
+
+  std::vector<Expression *> conditions;
+  conditions.push_back(sub_query->condition);
+  for (const auto &join : sub_query->joins) {
+    conditions.push_back(join.condition);
+  }
+
+  for (Expression *con : conditions) {
+    if(!con->is_condition()) {
+      LOG_WARN("not a valid condition");
+      return RC::INVALID_ARGUMENT;
+    }
+
+    std::vector<FieldExpr *> field_exprs;
+    auto visitor = [&field_exprs](std::unique_ptr<Expression> &expr) {
+      assert(expr->type() == ExprType::FIELD);
+      field_exprs.push_back(static_cast<FieldExpr *>(expr.get()));
+      return RC::SUCCESS;
+    };
+    rc = con->visit_field_expr(visitor, false);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error in visit_field_expr: %s", strrc(rc));
+      return rc;
+    }
+
+    for (FieldExpr *field_expr : field_exprs) {
+      const std::string *relation_name = &field_expr->rel_attr().relation_name;
+      if (relation_name->empty()) {
+        if (sub_query->relations.size() > 1) {
+          rc = RC::SCHEMA_FIELD_MISSING_TABLE;
+          return rc;
+        } else {
+          relation_name = &sub_query->relations[0];
+        }
+      } else {
+        bool in_subquery_relations = std::find(
+          sub_query->relations.begin(), 
+          sub_query->relations.end(),
+          *relation_name) != sub_query->relations.end();
+        bool in_father_relations = std::find(
+          father_tables->begin(),
+          father_tables->end(),
+          *relation_name) != father_tables->end();
+        if (!in_father_relations && !in_subquery_relations) {
+          rc = RC::SUB_QUERY_CORRELATED_TABLE_NOT_FOUND;
+          return rc;
+        }
+        if (!in_subquery_relations && in_father_relations) {
+          result = true;
+          return rc;
+        }
+      }
+    }
+
+    std::vector<SubQueryExpr *> sub_querys;
+    rc = con->get_subquery_expr(sub_querys);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("get_subquery_expr failed: %s", strrc(rc));
+      return rc;
+    }
+    for (SubQueryExpr * sub_query : sub_querys) {
+      rc = check_correlated_query(sub_query, father_tables, result);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("check_correlated_query failed");
+        return rc;
+      }
+    }
+  }
+  return rc;
+}
 
 static RC fill_value_for_correlated_query(
-  SelectSqlNode *select, const Tuple &tuple, std::unordered_map<ConditionSqlNode *, ConditionSqlNode> &saved_con) {
+  SelectSqlNode *select, const Tuple &tuple, std::unordered_map<std::unique_ptr<Expression> *, FieldExpr *> &saved_fieldexpr) {
 
   RC rc = RC::SUCCESS;
   if (!select) return rc;
 
-  std::vector<ConditionSqlNode *> conditions;
-  for (ConditionSqlNode &con : select->conditions) {
-    conditions.push_back(&con);
-  }
-  for (JoinNode &jn : select->joins) {
-    for (ConditionSqlNode &con : jn.on) {
-      conditions.push_back(&con);
-    }
+  std::vector<Expression *> conditions;
+  conditions.push_back(select->condition);
+  for (const auto &join : select->joins) {
+    conditions.push_back(join.condition);
   }
 
-  Value v;
-  for (ConditionSqlNode *con : conditions) {
-    if (con->left_type == CON_ATTR) {
-      if (std::find(select->relations.begin(), select->relations.end(), con->left_attr.relation_name) == select->relations.end()) {
-        rc = tuple.find_cell(TupleCellSpec(con->left_attr.relation_name.c_str(), con->left_attr.attribute_name.c_str()), v);
-        if (rc != RC::SUCCESS) return rc;
-        saved_con.insert(std::pair<ConditionSqlNode *, ConditionSqlNode>(con, *con));
-        con->left_type = CON_VALUE;
-        con->left_value.value = v;
-      }
-    } else if (con->left_type == CON_VALUE && con->left_value.select) {
-      rc = fill_value_for_correlated_query(con->left_value.select, tuple, saved_con);
-      if (rc != RC::SUCCESS) {
-        return rc;
-      }
+  for (Expression *con : conditions) {
+    if(!con->is_condition()) {
+      LOG_WARN("not a valid condition");
+      return RC::INVALID_ARGUMENT;
     }
-    if (con->right_type == CON_ATTR) {
-      if (std::find(select->relations.begin(), select->relations.end(), con->right_attr.relation_name) == select->relations.end()) {
-        rc = tuple.find_cell(TupleCellSpec(con->right_attr.relation_name.c_str(), con->right_attr.attribute_name.c_str()), v);
-        if (rc != RC::SUCCESS) return rc;
-        saved_con.insert(std::pair<ConditionSqlNode *, ConditionSqlNode>(con, *con));
-        con->right_type = CON_VALUE;
-        con->right_value.value = v;
+
+    auto visitor = [&select, &tuple, &saved_fieldexpr](std::unique_ptr<Expression> &expr) {
+      assert(expr->type() == ExprType::FIELD);
+      FieldExpr *field_expr = static_cast<FieldExpr *>(expr.get());
+
+      if (std::find(select->relations.begin(), select->relations.end(), field_expr->rel_attr().relation_name) == select->relations.end()) {
+        Value v;
+        RC rc = tuple.find_cell(TupleCellSpec(field_expr->rel_attr().relation_name.c_str(), field_expr->rel_attr().attribute_name.c_str()), v);
+        if (rc != RC::SUCCESS) 
+          return rc;
+        
+        expr.release();
+        saved_fieldexpr.insert(std::pair<std::unique_ptr<Expression> *, FieldExpr *>(&expr, field_expr));
+        ValueExpr *value_expr = new ValueExpr(v);
+        expr.reset(value_expr);
       }
-    } else if (con->right_type == CON_VALUE && con->right_value.select) {
-      rc = fill_value_for_correlated_query(con->right_value.select, tuple, saved_con);
+      return RC::SUCCESS;
+    };
+    rc = con->visit_field_expr(visitor, true);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("visit_field_expr failed: %s", strrc(rc));
+      return rc;
+    }
+
+    std::vector<SubQueryExpr *> sub_querys;
+    rc = con->get_subquery_expr(sub_querys);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("get_subquery_expr failed: %s", strrc(rc));
+      return rc;
+    }
+
+    for (SubQueryExpr * sub_query : sub_querys) {
+      rc = fill_value_for_correlated_query(sub_query->select(), tuple, saved_fieldexpr);
       if (rc != RC::SUCCESS) {
+        LOG_WARN("check_correlated_query failed");
         return rc;
       }
     }
@@ -55,47 +150,33 @@ static RC fill_value_for_correlated_query(
 }
 
 RC SubQueryExpr::get_value(const Tuple &tuple, Value &value) const {
-	return RC::SUCCESS;
-}
-
-RC SubQueryExpr::extract_value() {
-  if (!to_be_select_) {
-    return RC::SUCCESS;
-  } 
-}
-
-RC SubQueryExpr::extract_value(const Tuple &tuple) {
 	RC rc = RC::SUCCESS;
-  if (!to_be_select_) {
-    return RC::SUCCESS;
+  if (!correlated_) {
+    return rc;
   } 
 
   // 开始子查询
-  std::unordered_map<ConditionSqlNode *, ConditionSqlNode> saved_con;
+  std::unordered_map<std::unique_ptr<Expression> *, FieldExpr *> saved_fieldexpr;
 
-  rc = fill_value_for_correlated_query(select_, tuple, saved_con);
+  rc = fill_value_for_correlated_query(select_, tuple, saved_fieldexpr);
   if (rc != RC::SUCCESS) {
     LOG_WARN("fill_value_for_correlated_query error");
   }
 
-  sql_event_->set_correlated_query(true);
-  rc = value_extract(value_, value_.ss, value_.sql_event, nullptr);
-
-  for (auto &node : saved_con) {
-    *node.first = node.second;
-  }
-
+  std::string std_out;
+  rc = sub_query_extract(select_, ss_, sql_event_, std_out);
   if (rc != RC::SUCCESS) {
-    LOG_WARN("correlated sub query value extract error %s\n",  strrc(rc));
-    return values_;
+    LOG_WARN("error in sub_query_extract %s", strrc(rc));
+    return rc;
+  }
+  rc = value_from_sql_stdout(std_out, value);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("error in value_from_sql_stdout %s", strrc(rc));
+    return rc;
   }
 
-  if (value_.values->size() == 0) {
-    value_.values->push_back(Value(EMPTY_TYPE));
-  } 
-  values_.swap(*value_.values);
-  delete value_.values;
-  value_.values = nullptr;
-
-  return values_;
+  for (auto node : saved_fieldexpr) {
+    node.first->reset(node.second);
+  }
+  return rc;
 }

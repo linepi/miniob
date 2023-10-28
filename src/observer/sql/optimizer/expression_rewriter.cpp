@@ -113,19 +113,19 @@ RC ExpressionRewriter::rewrite_expression(std::unique_ptr<Expression> &expr, boo
 
     case ExprType::CONJUNCTION: {
       auto conjunction_expr = static_cast<ConjunctionExpr *>(expr.get());
-      std::vector<std::unique_ptr<Expression>> &children = conjunction_expr->children();
-      for (std::unique_ptr<Expression> &child_expr : children) {
-        bool sub_change_made = false;
-        rc = rewrite_expression(child_expr, sub_change_made);
-        if (rc != RC::SUCCESS) {
-
-          LOG_WARN("failed to rewriter conjunction sub expression. rc=%s", strrc(rc));
-          return rc;
-        }
-
-        if (sub_change_made && !change_made) {
-          change_made = true;
-        }
+      bool sub_change_made = false;
+      rc = rewrite_expression(conjunction_expr->left(), sub_change_made);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to rewriter conjunction sub expression. rc=%s", strrc(rc));
+        return rc;
+      }
+      rc = rewrite_expression(conjunction_expr->right(), sub_change_made);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to rewriter conjunction sub expression. rc=%s", strrc(rc));
+        return rc;
+      }
+      if (sub_change_made && !change_made) {
+        change_made = true;
       }
     } break;
 

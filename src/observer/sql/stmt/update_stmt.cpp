@@ -44,9 +44,14 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt)
     return RC::SCHEMA_TABLE_NOT_EXIST;
   }
 
-  for (const std::pair<std::string, ValueWrapper> &p : update_sql.av) {
+  for (const std::pair<std::string, Expression *> &p : update_sql.av) {
     const std::string &attribute_name = p.first;
-    const ValueWrapper &value = p.second;
+    Value value_impl;
+    rc = p.second->try_get_value(value_impl);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error in try get value %s", strrc(rc));
+      return rc;
+    }
     FieldMeta *field_meta = const_cast<FieldMeta *>(table->table_meta().field(attribute_name.c_str()));
 
     if (nullptr == field_meta) {
@@ -54,20 +59,8 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt)
       return RC::SCHEMA_FIELD_MISSING;
     }
 
-    if (value.select) {
-      LOG_WARN("update value must not be correlated sub query!");
-      return RC::SUB_QUERY_CORRELATED;
-    }
-
-    // if (!field_meta->match(const_cast<Value &>(value_impl))) {
-    //   LOG_WARN("field does not match value(%s and %s)", 
-    //     attr_type_to_string(field_meta->type()), 
-    //     attr_type_to_string(value_impl.attr_type()));
-    //   return RC::SCHEMA_FIELD_TYPE_MISMATCH;
-    // }
-
     update_stmt->field_metas_.push_back(field_meta);
-    update_stmt->values_.push_back(value);
+    update_stmt->values_.push_back(value_impl);
   }
 
 
@@ -78,8 +71,7 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt)
   rc = FilterStmt::create(db,
       table,
       &table_map,
-      update_sql.conditions.data(),
-      static_cast<int>(update_sql.conditions.size()),
+      update_sql.condition,
       filter_stmt);
   if (rc != RC::SUCCESS) {
     LOG_WARN("cannot construct filter stmt");

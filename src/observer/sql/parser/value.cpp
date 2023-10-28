@@ -77,6 +77,17 @@ void Value::set_null() {
   length_ = 0;
 }
 
+void Value::set_empty() {
+  attr_type_ = EMPTY_TYPE;
+  length_ = 0;
+}
+
+void Value::set_list(std::vector<Value> *values) {
+  list_ = values;
+  attr_type_ = LIST_TYPE;
+  length_ = 0;
+}
+
 void Value::set_data(char *data, int length)
 {
   switch (attr_type_) {
@@ -155,6 +166,24 @@ void Value::set_date(const char *s)
   length_ = str_value_.length();
 }
 
+Value& Value::operator=(const Value &other) {
+  if (this != &other) { // Self-assignment check
+    attr_type_ = other.attr_type_;
+
+    if (other.attr_type() == LIST_TYPE) {
+      list_ = new std::vector<Value>;
+      *list_ = *other.list();
+    } else {
+      num_value_ = other.num_value_;
+      str_value_ = other.str_value_;
+      length_ = other.length_;
+    }
+  }
+
+  return *this;
+}
+
+
 void Value::set_value(const Value &value)
 {
   switch (value.attr_type_) {
@@ -179,6 +208,9 @@ void Value::set_value(const Value &value)
     case EMPTY_TYPE: {
       set_null();
       attr_type_ = EMPTY_TYPE;
+    } break;
+    case LIST_TYPE: {
+      *this = value;
     } break;
     case UNDEFINED: {
       ASSERT(false, "got an invalid value type");
@@ -323,8 +355,88 @@ std::string Value::to_string() const
   return os.str();
 }
 
+std::string Value::beauty_string() const {
+  std::string out = "["; 
+  if (list_) {
+    for (Value &v : *list_) {
+      out += v.to_string() + "(" + attr_type_to_string(v.attr_type()) + ")";
+      if (&v != &list_->back()) {
+        out += ", ";
+      }
+    }
+  } else {
+    out += to_string() + "(" + attr_type_to_string(attr_type()) + ")";
+  }
+  out += "](size " + std::to_string((list_ ? list_->size() : 1)) + ")";;
+  return out;
+}
+
+RC Value::is_in(CompOp op, const Value &other, bool &result) const {
+  RC rc = RC::SUCCESS;
+  assert(op == CompOp::IN || op == CompOp::NOT_IN);
+
+  if (other.attr_type() == EMPTY_TYPE) {
+    if (op == CompOp::IN) result = false;
+    if (op == CompOp::NOT_IN) result = true;
+    return rc;
+  } 
+
+  if (other.attr_type() != LIST_TYPE) {
+    LOG_WARN("`in` op can only be used in list");
+    return RC::INVALID_ARGUMENT;
+  }
+
+  assert(other.list());
+
+  if (op == CompOp::IN) {
+    for (const Value &v : *other.list()) {
+      bool tmp_res;
+      rc = compare_op(v, CompOp::EQUAL_TO, tmp_res); 
+      if (rc != RC::SUCCESS) 
+        break;
+      if (tmp_res) {
+        result = true;
+        break;
+      }
+    }
+  } else {
+    result = true;
+    for (const Value &v : *other.list()) {
+      bool tmp_res;
+      rc = compare_op(v, CompOp::EQUAL_TO, tmp_res); 
+      if (v.attr_type() == NULL_TYPE || tmp_res) {
+        result = false;
+        break;
+      }
+    }
+  }
+  return rc;
+}
+
 RC Value::compare_op(const Value &other, CompOp op, bool &result) const {
   RC rc = RC::SUCCESS;
+  if (op == EXISTS || op == NOT_EXISTS) {
+    result = (op == NOT_EXISTS && attr_type_ == EMPTY_TYPE) ||
+      (op == EXISTS && attr_type_ != EMPTY_TYPE);
+    return rc;
+  }
+
+  if (op == IN || op == NOT_IN) {
+    rc = is_in(op, other, result);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("op `in` error %s", strrc(rc));
+      return rc;
+    }
+    return rc;
+  }
+
+  if (list_ && list_->size() > 1 && op != IS && op != IS_NOT) {
+    return RC::INVALID_ARGUMENT;
+  }
+  if (other.list() && other.list()->size() > 1) {
+    return RC::INVALID_ARGUMENT;
+  }
+
   if (op <= CompOp::GREAT_THAN && op >= CompOp::EQUAL_TO) {
     if (this->attr_type_ == NULL_TYPE || other.attr_type_ == NULL_TYPE) {
       result = false;
@@ -356,13 +468,16 @@ RC Value::compare_op(const Value &other, CompOp op, bool &result) const {
     }
     return rc;
   }
+
   if (op == CompOp::IS || op == CompOp::IS_NOT) {
     if (other.attr_type_ != NULL_TYPE) { return RC::VALUE_COMPERR; }
+
     if (op == CompOp::IS) 
       result = this->attr_type_ == NULL_TYPE;
     else 
       result = this->attr_type_ != NULL_TYPE;
   }
+
   if (op == CompOp::LIKE_OP || op == CompOp::NOT_LIKE_OP) {
     if (this->attr_type_ != CHARS || other.attr_type_ != CHARS) { return RC::VALUE_COMPERR; }
     rc = like(other, result);
