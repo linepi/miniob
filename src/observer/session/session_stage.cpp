@@ -228,12 +228,11 @@ RC select_pre_process(SelectSqlNode *select_sql)
   for (SelectAttr &select_node : select_sql->attributes)
   {
     if(select_node.nodes.empty())continue;
-    if(select_node.nodes.front().attribute_name == "*")continue;
     if (select_node.agg_type != AGG_UNDEFINED)continue;
   
     for (RelAttrSqlNode &node : select_node.nodes)
     {
-      if (!field_exis[node.alias] && !node.alias.empty()){
+      if (!field_exis[node.alias] && !node.alias.empty() && node.attribute_name != "*"){
         field2alias_mp[node.alias] = node.attribute_name;
         field_exis[node.alias] = 1;
       }

@@ -1005,6 +1005,11 @@ rel_attr:
       $$->relation_name  = "";
       $$->attribute_name = "*";
     }
+    | ID DOT '*' {
+      $$ = new RelAttrSqlNode;
+      $$->relation_name  = $1;
+      $$->attribute_name = "*";
+    }
     | ID {
       $$ = new RelAttrSqlNode;
       $$->attribute_name = $1;

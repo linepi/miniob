@@ -71,8 +71,6 @@ RC SelectStmt::create(Db *db, SelectSqlNode select_sql, Stmt *&stmt)
     return RC::INVALID_ARGUMENT;
   }
 
-  //select_pre_process(&select_sql);
-
   RC rc;
   // collect tables in `from` statement
   std::vector<Table *> tables;
@@ -121,6 +119,23 @@ RC SelectStmt::create(Db *db, SelectSqlNode select_sql, Stmt *&stmt)
     const RelAttrSqlNode &relation_attr = select_attr.nodes.front();
     const char *table_name = relation_attr.relation_name.c_str();
     const char *field_name = relation_attr.attribute_name.c_str();
+
+    if (!common::is_blank(relation_attr.relation_name.c_str()) &&
+        0 == strcmp(relation_attr.attribute_name.c_str(), "*")) {
+      if (select_attr.agg_type != AGG_UNDEFINED)  {
+        LOG_WARN("no %s(*) in syntax", AGG_TYPE_NAME[select_attr.agg_type]);
+        return RC::INVALID_ARGUMENT;
+      }
+      Table *table_all;
+      for (Table *table : tables) {
+        if (0 == strcmp(table->name(),table_name)){
+          table_all = table;
+          break;
+        }
+      }
+      wildcard_fields(table_all, query_fields);
+      continue;
+    }
 
     if (common::is_blank(relation_attr.relation_name.c_str()) &&
         0 == strcmp(relation_attr.attribute_name.c_str(), "*")) {
