@@ -46,6 +46,7 @@ public:
   explicit Value(bool val);
   explicit Value(const char *s, int len = 0);
   explicit Value(const char *s, bool isdate);
+  explicit Value(std::vector<Value> *list);
 
   Value(const Value &other) = default;
   Value &operator=(const Value &other) = default;
@@ -109,4 +110,5 @@ private:
     bool bool_value_;
   } num_value_;
   std::string str_value_;
+  std::vector<Value> *list_ = nullptr;
 };

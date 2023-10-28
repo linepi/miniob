@@ -41,12 +41,15 @@ class Expression;
 
 struct RelAttrSqlNode
 {
+  RelAttrSqlNode() = default;
+  RelAttrSqlNode(std::string r, std::string a) : relation_name(r), attribute_name(a) {}
   std::string relation_name;   ///< relation name (may be NULL) 表名
   std::string attribute_name;  ///< attribute name              属性名
 };
 
 struct SelectAttr
 {
+  std::vector<Expression *> expr_nodes;
   std::vector<RelAttrSqlNode> nodes;
   AggType agg_type = AGG_UNDEFINED;  
 };
@@ -64,10 +67,12 @@ struct ConditionSqlNode
   ConType             left_type;    
   RelAttrSqlNode      left_attr;      
   ValueWrapper       left_value;
+  Expression         *left_expr;
   CompOp              comp;           
   ConType             right_type;   
   RelAttrSqlNode      right_attr;    
   ValueWrapper       right_value;
+  Expression         *right_expr;
 
   ConjuctType right_op = CONJ_AND;
 };

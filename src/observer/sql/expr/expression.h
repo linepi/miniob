@@ -79,8 +79,12 @@ public:
   virtual std::string name() const { return name_; }
   virtual void set_name(std::string name) { name_ = name; }
 
+  virtual void set_func_type(FunctionType type) { func_type_ = type; }
+  virtual FunctionType func_type(FunctionType type) const { return func_type_; }
+
 private:
   std::string  name_;
+  FunctionType func_type_ = FUNC_UNDEFINED;
 };
 
 /**
@@ -94,6 +98,8 @@ public:
   FieldExpr(const Table *table, const FieldMeta *field) : field_(table, field)
   {}
   FieldExpr(const Field &field) : field_(field)
+  {}
+  FieldExpr(RelAttrSqlNode &rel_attr) : rel_attr_(rel_attr)
   {}
 
   virtual ~FieldExpr() = default;
@@ -113,6 +119,7 @@ public:
 
 private:
   Field field_;
+  RelAttrSqlNode rel_attr_;
 };
 
 /**
@@ -125,54 +132,75 @@ public:
   ValueExpr() = default;
   explicit ValueExpr(const Value &value) 
   { 
-    values_.clear(); 
-    values_.push_back(value); 
-  }
-  explicit ValueExpr(const std::vector<Value> &values) 
-  { 
-    values_ = values;
-  }
-  explicit ValueExpr(const ValueWrapper &value) 
-  { 
-    to_be_select_ = true;
     value_ = value;
   }
 
   virtual ~ValueExpr() = default;
 
   RC get_value(const Tuple &tuple, Value &value) const override;
-  const std::vector<Value> &get_values(const Tuple &tuple, RC &rc);
-  const std::vector<Value> &get_values() { 
-    return values_;
-  }
 
   RC try_get_value(Value &value) const override { 
-    assert(values_.size() > 0);
-    value = values_[0]; 
+    value = value_;
     return RC::SUCCESS; 
   }
 
   ExprType type() const override { return ExprType::VALUE; }
-  bool to_be_select() const { return to_be_select_; }
 
   AttrType value_type() const override { 
-    assert(values_.size() > 0);
-      return values_[0].attr_type(); }
+      return value_.attr_type(); }
 
   void get_value(Value &value) const { 
-    assert(values_.size() > 0);
-      value = values_[0]; 
+    value = value_;
   }
 
   const Value &get_value() const { 
-    assert(values_.size() > 0);
-    return values_[0]; 
+    return value_;
   }
 
 private:
-  bool to_be_select_ = false;
-  ValueWrapper value_;
-  std::vector<Value> values_;
+  Value value_;
+};
+
+/**
+ * @brief 子查询表达式
+ * @ingroup Expression
+ */
+class SubQueryExpr : public Expression 
+{
+public:
+  SubQueryExpr() = default;
+  explicit SubQueryExpr(SelectSqlNode *select) { select_ = select; }
+
+  virtual ~SubQueryExpr() = default;
+
+  RC get_value(const Tuple &tuple, Value &value) const override;
+  RC extract_value();
+  RC extract_value(const Tuple &tuple);
+  RC try_get_value(Value &value) const override { 
+    if (to_be_select_)
+      value.set_null();
+    else 
+      value = value_; 
+    return RC::SUCCESS;
+  }
+
+  ExprType type() const override { return ExprType::VALUE; }
+
+  AttrType value_type() const override { 
+    if (to_be_select_) {
+      return NULL_TYPE;
+    }
+    return value_.attr_type(); 
+  }
+
+  bool to_be_select() const { return to_be_select_; }
+
+private:
+  bool to_be_select_ = true;
+  SelectSqlNode *select_ = nullptr;
+  SessionStage *ss_ = nullptr;
+  SQLStageEvent *sql_event_ = nullptr;
+  Value value_;
 };
 
 /**

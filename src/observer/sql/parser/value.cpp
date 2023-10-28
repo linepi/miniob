@@ -66,6 +66,12 @@ Value::Value(const char *s, bool isdate)
   set_date(s);
 }
 
+Value::Value(std::vector<Value> *list) 
+{
+  list_ = list;
+  attr_type_ = LIST_TYPE;
+}
+
 void Value::set_null() {
   attr_type_ = NULL_TYPE;
   length_ = 0;

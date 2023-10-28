@@ -42,6 +42,7 @@ enum AttrType
   DATES,          ///< 日期类型
   BOOLEANS,       ///< boolean类型，当前不是由parser解析出来的，是程序内部使用的
   NULL_TYPE,
+  LIST_TYPE,
   EMPTY_TYPE,
 };
 
@@ -76,4 +77,12 @@ enum class ExprType
   COMPARISON,   ///< 需要做比较的表达式
   CONJUNCTION,  ///< 多个表达式使用同一种关系(AND或OR)来联结
   ARITHMETIC,   ///< 算术运算
+};
+
+enum FunctionType
+{
+  FUNC_LENGTH,
+  FUNC_ROUND,
+  FUNC_DATE_FORMAT,
+  FUNC_UNDEFINED
 };

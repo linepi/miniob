@@ -118,24 +118,24 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         BY
         ASC
         AS
-
+        ROUND
+        LENGTH
+        DATE_FORMAT
 
 /** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
 %union {
   ParsedSqlNode *                   sql_node;
   std::vector<ParsedSqlNode *> *    sql_nodes;
   ConditionSqlNode *                condition;
-
-  ValueWrapper *                           value;
-  std::vector<ValueWrapper> *              value_list;
-  std::vector<std::vector<ValueWrapper>> * values_list;
-
+  Value *                           value;
+  std::vector<Value> *              value_list;
   enum SortType                     sort_type;
   enum CompOp                       comp;
   std::vector<AttrInfoSqlNode> *    attr_infos;
   AttrInfoSqlNode *                 attr_info;
   Expression *                      expression;
   std::vector<Expression *> *       expression_list;
+  std::vector<std::vector<Expression *>> *       expressions_list;
   std::vector<ConditionSqlNode> *   condition_list;
   RelAttrSqlNode *                  sort_attr;
   RelAttrSqlNode *                  rel_attr;
@@ -163,12 +163,12 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 /** type 定义了各种解析后的结果输出的是什么类型。类型对应了 union 中的定义的成员变量名称 **/
 %type <number>              type_meta
 %type <number>              type_note
+%type <number>              function_type
 %type <number>              join_type
 %type <number>              aggregation_func
 %type <sort_condition>      sort_condition
 %type <condition>           condition
 %type <value>               value
-%type <value_list>          value_list
 %type <number>              number
 %type <comp>                comp_op
 %type <comp>                comp_op_single
@@ -177,11 +177,12 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <attr_infos>          attr_def_list
 %type <attr_infos>          attr_def_list_for_create
 %type <attr_info>           attr_def
-%type <value_list>          insert_data
-%type <values_list>         insert_data_list
+%type <value_list>          value_list
+%type <expression_list>     insert_data
+%type <expressions_list>    insert_data_list
 %type <sort_condition_list> order_by  
-%type <condition_list>      where
 %type <sort_condition_list> sort_condition_list
+%type <condition_list>      where
 %type <condition_list>      condition_list
 
 %type <sort_attr>           sort_attr
@@ -189,7 +190,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <select_attr>         select_attr_impl
 %type <select_attr_list>    select_attr
 %type <select_attr_list>    select_attr_impl_list
-%type <rel_attr_list>       select_attr_impl_piece
+%type <expression_list>     select_attr_impl_piece
 %type <rel_attr_list>       rel_attr_list
 %type <join_list>           joins
 %type <join_node>           join 
@@ -250,13 +251,13 @@ command_list:
   {
     $$ = nullptr;
   }
-  | SEMICOLON command_wrapper opt_semicolon command_list {
-    if ($4 == nullptr) {
+  | command_wrapper opt_semicolon command_list {
+    if ($3 == nullptr) {
       $$ = new std::vector<ParsedSqlNode *>;
-      $$->emplace_back($2);
+      $$->emplace_back($1);
     } else {
-      $4->emplace_back($2);
-      $$ = $4;
+      $3->emplace_back($1);
+      $$ = $3;
     }
   }
   ;
@@ -527,7 +528,7 @@ insert_stmt:        /*insert   语句的语法解析树*/
         std::reverse($6->begin(), $6->end());
         $$->insertion.values_list = $6;
       } else {
-        $$->insertion.values_list = new std::vector<vector<ValueWrapper>>;
+        $$->insertion.values_list = new std::vector<vector<Expression *>>;
         $$->insertion.values_list->emplace_back(*$5);
       }
       delete $5;
@@ -544,7 +545,7 @@ insert_data_list:
         $3->emplace_back(*$2);
         $$ = $3;
       } else {
-        $$ = new std::vector<vector<ValueWrapper>>;
+        $$ = new std::vector<vector<Expression *>>;
         $$->emplace_back(*$2);
       }
       delete $2;
@@ -552,33 +553,10 @@ insert_data_list:
     ;
 
 insert_data:
-    LBRACE value value_list RBRACE {
-      if ($3 != nullptr) {
-        $3->emplace_back(*$2);
-        std::reverse($3->begin(), $3->end());
-        $$ = $3;
-      } else {
-        $$ = new std::vector<ValueWrapper>;
-        $$->emplace_back(*$2);
-      }   
-      delete $2;
+    LBRACE expression_list RBRACE {
+      $$ = $2;
     }
 
-value_list:
-    /* empty */
-    {
-      $$ = nullptr;
-    }
-    | COMMA value value_list  { 
-      if ($3 != nullptr) {
-        $$ = $3;
-      } else {
-        $$ = new std::vector<ValueWrapper>;
-      }
-      $$->emplace_back(*$2);
-      delete $2;
-    }
-    ;
 value:
     NUMBER {
       $$ = new ValueWrapper;
@@ -606,22 +584,36 @@ value:
       $$ = new ValueWrapper;
       $$->value.set_null();
     }
-    | LBRACE select_stmt RBRACE {
-      $$ = new ValueWrapper;
-      $$->select = new SelectSqlNode;
-      *($$->select) = $2->selection;
-      delete $2;
-    }
-    | insert_data {
-      $$ = new ValueWrapper;
-      $$->values = new std::vector<Value>;
-      for (ValueWrapper &vw : *$1) {
-        $$->values->emplace_back(vw.value);
+    | LBRACE value value_list RBRACE {
+      std::vector<Value> *values;
+      if ($3 != nullptr) {
+        values = $3;
+      } else {
+        values = new std::vector<Value>;
       }
-      delete $1;
+      values->emplace_back(*$2);
+      std::reverse(values->begin(), values->end());
+      $$ = new Value(values);
+      delete $2;
     }
     ;
     
+value_list:
+  /* empty */
+  {
+    $$ = nullptr;
+  }
+  | COMMA value value_list  { 
+    if ($3 != nullptr) {
+      $$ = $3;
+    } else {
+      $$ = new std::vector<Value>;
+    }
+    $$->emplace_back(*$2);
+    delete $2;
+  }
+  ;
+
 delete_stmt:    /*  delete 语句的语法解析树*/
     DELETE FROM ID where 
     {
@@ -681,6 +673,13 @@ calc_stmt:
       $$->calc.expressions.swap(*$2);
       delete $2;
     }
+    | SELECT expression_list
+    {
+      $$ = new ParsedSqlNode(SCF_CALC);
+      std::reverse($2->begin(), $2->end());
+      $$->calc.expressions.swap(*$2);
+      delete $2;
+    }
     ;
 
 expression_list:
@@ -716,13 +715,30 @@ expression:
       $$ = $2;
       $$->set_name(token_name(sql_string, &@$));
     }
+    | function_type LBRACE expression RBRACE {
+      $$ = $3;
+      $$->set_func_type((FunctionType)$1);
+      $$->set_name(token_name(sql_string, &@$));
+    }
     | '-' expression %prec UMINUS {
       $$ = create_arithmetic_expression(ArithmeticExpr::Type::NEGATIVE, $2, nullptr, sql_string, &@$);
     }
     | value {
-      $$ = new ValueExpr($1->value);
+      $$ = new ValueExpr(*$1);
       $$->set_name(token_name(sql_string, &@$));
       delete $1;
+    }
+    | rel_attr {
+      $$ = new FieldExpr(*$1);
+      $$->set_name(token_name(sql_string, &@$));
+      delete $1;
+    }
+    | LBRACE select_stmt RBRACE {
+      SelectSqlNode *select = new SelectSqlNode; 
+      select->swap($2->selection);
+      $$ = new SubQueryExpr(select);
+      $$->set_name(token_name(sql_string, &@$));
+      delete $2;
     }
     ;
 
@@ -763,6 +779,11 @@ join:
 join_type:
     JOIN { $$ = (JoinType)JOIN_INNER; }
   | INNER JOIN { $$ = (JoinType)JOIN_INNER; }
+
+function_type:
+  DATE_FORMAT { $$ = (FunctionType)FUNC_DATE_FORMAT; }
+  | ROUND { $$ = (FunctionType)FUNC_ROUND; }
+  | LENGTH { $$ = (FunctionType)FUNC_LENGTH; }
 
 select_stmt:        /*  select 语句的语法解析树*/
     SELECT select_attr FROM ID id_list joins where order_by
@@ -886,43 +907,39 @@ select_attr_impl_list:
   }
 
 select_attr_impl:
-  rel_attr {
+  '*' {
     $$ = new SelectAttr();
-    $$->nodes.emplace_back(*$1);
+    RelAttrSqlNode rel_attr("", "*");
+    FieldExpr *field_expr = new FieldExpr(rel_attr);
+    $$->expr_nodes.emplace_back(field_expr);
     $$->agg_type = AGG_UNDEFINED;
-    delete $1;
-  }
-  | aggregation_func LBRACE RBRACE {
-    $$ = new SelectAttr();
-    $$->agg_type = (AggType)$1;
   }
   | aggregation_func LBRACE select_attr_impl_piece RBRACE {
     $$ = new SelectAttr();
-    $$->nodes = *$3;
     $$->agg_type = (AggType)$1;
-    delete $3;
+    if ($3 != nullptr) {
+      $$->expr_nodes = *$3;
+      delete $3;
+    }
+  }
+  | expression {
+    $$ = new SelectAttr();
+    $$->expr_nodes.emplace_back($1);
+    $$->agg_type = AGG_UNDEFINED;
   }
   ;
 
 select_attr_impl_piece:
-    rel_attr rel_attr_list {
-      if ($2 != nullptr) {
-        $$ = $2;
-      } else {
-        $$ = new std::vector<RelAttrSqlNode>;
-      }
-      $$->emplace_back(*$1);
-      delete $1;
+    {
+      $$ = nullptr;
+    }
+    | expression_list {
+      $$ = $1;
     }
     ;
 
 rel_attr:
-    '*' {
-      $$ = new RelAttrSqlNode;
-      $$->relation_name  = "";
-      $$->attribute_name = "*";
-    }
-    | ID {
+    ID {
       $$ = new RelAttrSqlNode;
       $$->attribute_name = $1;
       free($1);
@@ -1014,53 +1031,12 @@ condition_list:
     ;
 
 condition:
-    rel_attr comp_op value
+    expression comp_op expression
     {
       $$ = new ConditionSqlNode;
-      $$->left_type = CON_ATTR;
-      $$->left_attr = *$1;
-      $$->right_type = CON_VALUE;
-      $$->right_value = *$3;
+      $$->left_expr = $1;
+      $$->right_expr = $3;
       $$->comp = $2;
-
-      delete $1;
-      delete $3;
-    }
-    | value comp_op value 
-    {
-      $$ = new ConditionSqlNode;
-      $$->left_type = CON_VALUE;
-      $$->left_value = *$1;
-      $$->right_type = CON_VALUE;
-      $$->right_value = *$3;
-      $$->comp = $2;
-
-      delete $1;
-      delete $3;
-    }
-    | rel_attr comp_op rel_attr
-    {
-      $$ = new ConditionSqlNode;
-      $$->left_type = CON_ATTR;
-      $$->left_attr = *$1;
-      $$->right_type = CON_ATTR;
-      $$->right_attr = *$3;
-      $$->comp = $2;
-
-      delete $1;
-      delete $3;
-    }
-    | value comp_op rel_attr
-    {
-      $$ = new ConditionSqlNode;
-      $$->left_type = CON_VALUE;
-      $$->left_value = *$1;
-      $$->right_type = CON_ATTR;
-      $$->right_attr = *$3;
-      $$->comp = $2;
-
-      delete $1;
-      delete $3;
     }
     | comp_op_single LBRACE select_stmt RBRACE
     {

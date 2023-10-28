@@ -143,6 +143,9 @@ EXISTS                                  RETURN_TOKEN(EXISTS_TOKEN);
 ORDER                                   RETURN_TOKEN(ORDER);
 BY                                      RETURN_TOKEN(BY);
 AS                                      RETURN_TOKEN(AS);
+LENGTH                                  RETURN_TOKEN(LENGTH);
+ROUND                                   RETURN_TOKEN(ROUND);
+DATE_FORMAT                             RETURN_TOKEN(DATE_FORMAT);
 {ID}                                    yylval->string=strdup(yytext); RETURN_TOKEN(ID);
 "("                                     RETURN_TOKEN(LBRACE);
 ")"                                     RETURN_TOKEN(RBRACE);
@@ -159,7 +162,7 @@ AS                                      RETURN_TOKEN(AS);
 "+" |
 "-" |
 "*" |
-"/"                                     { return yytext[0]; }
+"/"                                     { LOG_DEBUG("%c", yytext[0]); return yytext[0]; }
 {DATE}                                  yylval->string = strdup(yytext); RETURN_TOKEN(DATE);
 \"[^"]*\"                               yylval->string = strdup(yytext); RETURN_TOKEN(SSS);
 '[^']*\'                                yylval->string = strdup(yytext); RETURN_TOKEN(SSS);

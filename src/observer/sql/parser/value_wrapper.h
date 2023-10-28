@@ -21,6 +21,4 @@ struct ValueWrapper
   Value value;
   std::vector<Value> *values = nullptr;
   SelectSqlNode *select = nullptr;
-  SessionStage *ss = nullptr;
-  SQLStageEvent *sql_event = nullptr;
 };
