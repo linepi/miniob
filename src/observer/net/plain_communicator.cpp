@@ -20,6 +20,7 @@ See the Mulan PSL v2 for more details. */
 #include "session/session.h"
 #include "common/io/io.h"
 #include "common/log/log.h"
+#include "session/alias.h"
 
 PlainCommunicator::PlainCommunicator()
 {
@@ -387,6 +388,12 @@ RC PlainCommunicator::write_result_internal(SessionEvent *event, bool &need_disc
   if (OB_SUCC(rc)) {
     rc = rc_close;
   }
+
+  field2alias_mp.clear();
+  field_exis.clear();
+
+  table2alias_mp.clear(); ///< alias-->table_name
+  alias_exis.clear();   
 
   return rc;
 }

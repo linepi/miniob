@@ -195,13 +195,16 @@ RC select_pre_process(SelectSqlNode *select_sql)
     if(select_node.nodes.empty())continue;
     if(select_node.nodes.front().attribute_name == "*")continue;
     if (select_node.agg_type != AGG_UNDEFINED)continue;
-    RelAttrSqlNode &node = select_node.nodes.front();
-    if (!field_exis[node.alias] && !node.alias.empty()){
-      field2alias_mp[node.alias] = node.attribute_name;
-      field_exis[node.alias] = 1;
-    }
-    if (alias_exis[node.relation_name]){
-      node.relation_name = table2alias_mp[node.relation_name];
+  
+    for (RelAttrSqlNode &node : select_node.nodes)
+    {
+      if (!field_exis[node.alias] && !node.alias.empty()){
+        field2alias_mp[node.alias] = node.attribute_name;
+        field_exis[node.alias] = 1;
+      }
+      if (alias_exis[node.relation_name]){
+        node.relation_name = table2alias_mp[node.relation_name];
+      }
     }
   }
 
@@ -219,6 +222,7 @@ RC select_pre_process(SelectSqlNode *select_sql)
 
   for (JoinNode &join_node : select_sql->joins)
   {
+    
     for (ConditionSqlNode con_node : join_node.on)
     {
       if (con_node.left_type == CON_ATTR){
