@@ -17,8 +17,8 @@ AggregationFunc::~AggregationFunc() {
   }
 }
 
-AggregationFunc::AggregationFunc(AggType agg_type, bool star, Field *field, bool multi_table) 
-  : agg_type_(agg_type), star_(star), field_(field), multi_table_(multi_table)
+AggregationFunc::AggregationFunc(AggType agg_type, bool star, Field *field, bool multi_table, std::string agg_alias) 
+  : agg_type_(agg_type), star_(star), field_(field), multi_table_(multi_table),agg_alias(agg_alias)
 { 
   result_.set_null(); 
   sum_.set_null();

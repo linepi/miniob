@@ -20,12 +20,16 @@ extern const char *AGG_TYPE_NAME[];
 class Field;
 class AggregationFunc {
 public:
-	AggregationFunc(AggType agg_type, bool star, Field *field, bool multi_table); 
+	AggregationFunc(AggType agg_type, bool star, Field *field, bool multi_table, std::string agg_alias); 
 	AggregationFunc(); 
 	~AggregationFunc(); 
 
 	RC aggregate(Value *value);
 	Value result();
+
+	std::string get_agg_alias(){
+		return agg_alias;
+	}
 
 private:
 	void min(Value *value) ;
@@ -46,4 +50,5 @@ public:
 	Value result_;
 	Value sum_;
 	int cnt_ = 0;
+	std::string agg_alias;
 };

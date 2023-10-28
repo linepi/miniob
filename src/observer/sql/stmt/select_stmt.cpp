@@ -80,7 +80,25 @@ RC SelectStmt::create(Db *db, SelectSqlNode select_sql, Stmt *&stmt)
     if ((rc = add_table(db, tables, table_map, table_name, false)) != RC::SUCCESS) 
       return rc;
   }
-
+  for (size_t i = 0; i < tables.size(); i++)
+  {
+    const TableMeta meta = tables[i]->table_meta();
+    const std::vector<FieldMeta> *field_meta1 = meta.field_metas();
+    for (size_t j = 0; j < field_meta1->size(); j++)
+    {
+      for (size_t k = 0; k < select_sql.conditions.size(); k++)
+      {
+        if (select_sql.conditions[k].left_attr.alias == (*field_meta1)[j].name())
+        {
+          return RC::SAME_ALIAS;
+        }
+        if (select_sql.conditions[k].right_attr.alias == (*field_meta1)[j].name())
+        {
+          return RC::SAME_ALIAS;
+        }
+      }
+    }
+  }
   // collect tables and conditions in 'join' statement
   std::vector<ConditionSqlNode> conditions = select_sql.conditions;
   for (const JoinNode &jnode : select_sql.joins) {
@@ -147,7 +165,7 @@ RC SelectStmt::create(Db *db, SelectSqlNode select_sql, Stmt *&stmt)
           LOG_WARN("no %s(*) in syntax", AGG_TYPE_NAME[select_attr.agg_type]);
           return RC::INVALID_ARGUMENT;
         }
-        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, true, new Field(), tables.size() > 1));
+        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, true, new Field(), tables.size() > 1, select_attr.agg_alias));
       }
       for (Table *table : tables) {
         wildcard_fields(table, query_fields);
@@ -180,7 +198,7 @@ RC SelectStmt::create(Db *db, SelectSqlNode select_sql, Stmt *&stmt)
           LOG_WARN("avg and sum can not be used on chars and dates");
           return RC::INVALID_ARGUMENT;
         }
-        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, false, new Field(table, field_meta), tables.size() > 1));
+        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, false, new Field(table, field_meta), tables.size() > 1, select_attr.agg_alias));
       }
       query_fields.push_back(Field(table, field_meta));
     }

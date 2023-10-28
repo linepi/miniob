@@ -49,7 +49,8 @@ struct RelAttrSqlNode
 struct SelectAttr
 {
   std::vector<RelAttrSqlNode> nodes;
-  AggType agg_type = AGG_UNDEFINED;  
+  AggType agg_type = AGG_UNDEFINED;
+  std::string agg_alias;
 };
 
 /**

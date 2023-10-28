@@ -130,6 +130,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
   ValueWrapper *                           value;
   std::vector<ValueWrapper> *              value_list;
   std::vector<std::vector<ValueWrapper>> * values_list;
+  RelAttrSqlNode *                  aggregation_func_alias;
 
   enum SortType                     sort_type;
   enum CompOp                       comp;
@@ -177,7 +178,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <comp>                comp_op
 %type <comp>                comp_op_single
 %type <sort_type>           sort_type
-
+%type <aggregation_func_alias> aggregation_func_alias
 %type <attr_infos>          attr_def_list
 %type <attr_info>           attr_def
 %type <value_list>          insert_data
@@ -929,15 +930,43 @@ select_attr_impl:
     $$->agg_type = AGG_UNDEFINED;
     delete $1;
   }
-  | aggregation_func LBRACE RBRACE {
+  | aggregation_func LBRACE RBRACE  {
     $$ = new SelectAttr();
     $$->agg_type = (AggType)$1;
   }
-  | aggregation_func LBRACE select_attr_impl_piece RBRACE {
+  | aggregation_func LBRACE select_attr_impl_piece RBRACE  {
     $$ = new SelectAttr();
     $$->nodes = *$3;
     $$->agg_type = (AggType)$1;
     delete $3;
+  }
+  | aggregation_func LBRACE RBRACE AS ID {
+    $$ = new SelectAttr();
+    $$->agg_type = (AggType)$1;
+    $$->agg_alias = $5;
+    delete $5;
+  }
+  | aggregation_func LBRACE select_attr_impl_piece RBRACE AS ID {
+    $$ = new SelectAttr();
+    $$->nodes = *$3;
+    $$->agg_type = (AggType)$1;
+    $$->agg_alias = $6;
+    delete $3;
+    delete $6;
+  }
+  | aggregation_func LBRACE RBRACE ID {
+    $$ = new SelectAttr();
+    $$->agg_type = (AggType)$1;
+    $$->agg_alias = $4;
+    delete $4;
+  }
+  | aggregation_func LBRACE select_attr_impl_piece RBRACE ID {
+    $$ = new SelectAttr();
+    $$->nodes = *$3;
+    $$->agg_type = (AggType)$1;
+    $$->agg_alias = $5;
+    delete $3;
+    delete $5;
   }
   | alias_attr {
     $$ = new SelectAttr();
@@ -947,8 +976,58 @@ select_attr_impl:
   }
   ;
 
-alias_attr:
+aggregation_func_alias:
     ID {
+      $$ = new RelAttrSqlNode;
+      $$->alias = $1;
+    }
+    | AS ID {
+      $$ = new RelAttrSqlNode;
+      $$->alias = $2;
+    }
+    ;
+
+alias_attr:
+    '*' {
+      $$ = new RelAttrSqlNode;
+
+      $$->attribute_name = "*";
+    }
+    | ID DOT '*' {
+      $$ = new RelAttrSqlNode;
+      $$->relation_name  = $1;
+      $$->attribute_name = "*";
+      free($1);
+    }
+    | '*' AS ID {
+      $$ = new RelAttrSqlNode;
+      $$->alias = $3;
+      $$->attribute_name = "*";
+      free($3);
+    }
+    | '*' ID {
+      $$ = new RelAttrSqlNode;
+      $$->alias = $2;
+      $$->attribute_name = "*";
+      free($2);
+    }
+    | ID DOT '*' ID {
+      $$ = new RelAttrSqlNode;
+      $$->relation_name  = $1;
+      $$->attribute_name = "*";
+      $$->alias = $4;
+      free($4);
+      free($1);
+    }
+    | ID DOT '*' AS ID {
+      $$ = new RelAttrSqlNode;
+      $$->relation_name  = $1;
+      $$->attribute_name = "*";
+      $$->alias = $5;
+      free($5);
+      free($1);      
+    }
+    | ID {
       $$ = new RelAttrSqlNode;
       $$->attribute_name = $1;
       free($1);

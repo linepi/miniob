@@ -304,24 +304,35 @@ RC PlainCommunicator::write_result_internal(SessionEvent *event, bool &need_disc
         const char *delim = " | ";
         rc = writer_->writen(delim, strlen(delim));
       }
-      std::string out;
-      out += AGG_TYPE_NAME[func->agg_type_];
-      out += std::string("(");
-      if (func->star_) {
-        out += "*)";
-      } else {
-        if (func->multi_table_) {
-          out += func->field_->table_name();
-          out += ".";
+      if (func->agg_alias.empty()){
+        std::string out;
+        out += AGG_TYPE_NAME[func->agg_type_];
+        out += std::string("(");
+        if (func->star_) {
+          out += "*)";
+        } else {
+          if (func->multi_table_) {
+            out += func->field_->table_name();
+            out += ".";
+          }
+          out += func->field_->field_name(); 
+          out += ")";
         }
-        out += func->field_->field_name(); 
-        out += ")";
-      }
-      rc = writer_->writen(out.c_str(), out.size());
-      if (OB_FAIL(rc)) {
-        LOG_WARN("failed to send data to client. err=%s", strerror(errno));
-        sql_result->close();
-        return rc;
+        rc = writer_->writen(out.c_str(), out.size());
+        if (OB_FAIL(rc)) {
+          LOG_WARN("failed to send data to client. err=%s", strerror(errno));
+          sql_result->close();
+          return rc;
+        }
+      } else {
+        std::string out = func->agg_alias;
+
+        rc = writer_->writen(out.c_str(), out.size());
+        if (OB_FAIL(rc)) {
+          LOG_WARN("failed to send data to client. err=%s", strerror(errno));
+          sql_result->close();
+          return rc;
+        }
       }
       i++;
     }

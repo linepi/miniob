@@ -122,7 +122,6 @@ void SessionStage::handle_request(StageEvent *event)
     SQLStageEvent sql_event(sev, sql);
     
     (void)handle_sql(this, &sql_event, true);
-
     Communicator *communicator = sev->get_communicator();
     communicator->session()->set_sql_debug(true);
 
@@ -160,8 +159,12 @@ std::map<std::string, int> field_exis;
 std::map<std::string, std::string> table2alias_mp; ///< alias-->table_name
 std::map<std::string, int> alias_exis;          /// if alias exis (1 or 0)
 
+std::map<std::string, std::string> agg2alias_mp;
+std::map<std::string, int> agg_exis;
+
 RC select_pre_process(SelectSqlNode *select_sql)
 {
+  
   std::map<std::string, std::string> table2alias_map_tmp; ///< alias-->table_name
   std::map<std::string, int> alias_exist_tmp;  
 
@@ -228,10 +231,35 @@ RC select_pre_process(SelectSqlNode *select_sql)
   for (SelectAttr &select_node : select_sql->attributes)
   {
     if(select_node.nodes.empty())continue;
-    if (select_node.agg_type != AGG_UNDEFINED)continue;
+    if (select_node.agg_type != AGG_UNDEFINED){
+      if (select_node.nodes.size() == 0){
+        return RC::SAME_ALIAS;
+      }
+      // if (agg_exis[select_node.agg_alias]){
+      //   return RC::SAME_ALIAS;
+      // }
+      // agg2alias_mp[select_node.agg_alias] = 
+      for (RelAttrSqlNode &node : select_node.nodes)
+      {
+        if (alias_exist_tmp[node.relation_name]){
+          node.relation_name = table2alias_map_tmp[node.relation_name];
+        }
+        else if (alias_exis[node.relation_name]){
+          node.relation_name = table2alias_mp[node.relation_name];
+        }
+        
+        if (field_exis[node.attribute_name]){
+          node.attribute_name = field2alias_mp[node.attribute_name];
+        }
+      }
+    }
   
     for (RelAttrSqlNode &node : select_node.nodes)
     {
+      if(!node.alias.empty() && node.attribute_name == "*")
+      {
+        return RC::SAME_ALIAS;
+      }
       if (!field_exis[node.alias] && !node.alias.empty() && node.attribute_name != "*"){
         field2alias_mp[node.alias] = node.attribute_name;
         field_exis[node.alias] = 1;
@@ -268,7 +296,26 @@ RC select_pre_process(SelectSqlNode *select_sql)
     {
       if (con_node.left_type == CON_ATTR){
         if (field_exis[con_node.left_attr.attribute_name]){
-          con_node.left_attr.attribute_name = field2alias_mp[con_node.left_attr.attribute_name];
+          return RC::SAME_ALIAS;
+          // size_t i = 0;
+          // for (SelectAttr &select_node : select_sql->attributes)
+          // {   
+          //   if(con_node.left_attr.attribute_name == select_node.agg_alias)
+          //   {
+          //     i++;
+          //   }
+          //   for (RelAttrSqlNode &node : select_node.nodes)
+          //   {
+          //     if(node.alias == con_node.left_attr.attribute_name)
+          //     {
+          //       i++;
+          //     }
+          //   }  
+          // }
+          // con_node.left_attr.alias = con_node.left_attr.attribute_name;
+          // con_node.left_attr.attribute_name = field2alias_mp[con_node.left_attr.attribute_name];
+          // if (i == 0)
+          //   return RC::SAME_ALIAS;
         }
         if (alias_exist_tmp[con_node.left_attr.relation_name]){
           con_node.left_attr.relation_name = table2alias_map_tmp[con_node.left_attr.relation_name];
@@ -279,7 +326,26 @@ RC select_pre_process(SelectSqlNode *select_sql)
       }
       if (con_node.right_type == CON_ATTR){
         if (field_exis[con_node.right_attr.attribute_name]){
-          con_node.right_attr.attribute_name = field2alias_mp[con_node.right_attr.attribute_name];
+          return RC::SAME_ALIAS;
+          // size_t i = 0;
+          // for (SelectAttr &select_node : select_sql->attributes)
+          // {   
+          //   if(con_node.right_attr.attribute_name == select_node.agg_alias)
+          //   {
+          //     i++;
+          //   }
+          //   for (RelAttrSqlNode &node : select_node.nodes)
+          //   {
+          //     if(node.alias == con_node.right_attr.attribute_name)
+          //     {
+          //       i++;
+          //     }
+          //   }  
+          // }
+          // con_node.right_attr.alias = con_node.right_attr.attribute_name;
+          // con_node.right_attr.attribute_name = field2alias_mp[con_node.right_attr.attribute_name];
+          // if (i == 0)
+          //   return RC::SAME_ALIAS;
         }
         if (alias_exist_tmp[con_node.right_attr.relation_name]){
           con_node.right_attr.relation_name = table2alias_map_tmp[con_node.right_attr.relation_name];
@@ -309,7 +375,27 @@ RC select_pre_process(SelectSqlNode *select_sql)
   {
     if (con_node.left_type == CON_ATTR){
       if (field_exis[con_node.left_attr.attribute_name]){
-        con_node.left_attr.attribute_name = field2alias_mp[con_node.left_attr.attribute_name];
+        return RC::SAME_ALIAS;
+        // size_t i = 0;
+        // for (SelectAttr &select_node : select_sql->attributes)
+        // {   
+        //   if(con_node.left_attr.attribute_name == select_node.agg_alias)
+        //   {
+        //     i++;
+        //   }
+        //   for (RelAttrSqlNode &node : select_node.nodes)
+        //   {
+        //     if(node.alias == con_node.left_attr.attribute_name)
+        //     {
+        //       i++;
+        //     }
+        //   }  
+        // }
+        // con_node.left_attr.alias = con_node.left_attr.attribute_name;
+        // con_node.left_attr.attribute_name = field2alias_mp[con_node.left_attr.attribute_name];
+        // if (i == 0)
+        //   return RC::SAME_ALIAS;
+        
       }
       if (alias_exist_tmp[con_node.left_attr.relation_name]){
         con_node.left_attr.relation_name = table2alias_map_tmp[con_node.left_attr.relation_name];
@@ -320,7 +406,26 @@ RC select_pre_process(SelectSqlNode *select_sql)
     }
     if (con_node.right_type == CON_ATTR){
       if (field_exis[con_node.right_attr.attribute_name]){
-        con_node.right_attr.attribute_name = field2alias_mp[con_node.right_attr.attribute_name];
+        return RC::SAME_ALIAS;
+        // size_t i = 0;
+        // for (SelectAttr &select_node : select_sql->attributes)
+        // {   
+        //   if(con_node.right_attr.attribute_name == select_node.agg_alias)
+        //   {
+        //     i++;
+        //   }
+        //   for (RelAttrSqlNode &node : select_node.nodes)
+        //   {
+        //     if(node.alias == con_node.right_attr.attribute_name)
+        //     {
+        //       i++;
+        //     }
+        //   }  
+        // }
+        // con_node.right_attr.alias = con_node.right_attr.attribute_name;
+        // con_node.right_attr.attribute_name = field2alias_mp[con_node.right_attr.attribute_name];
+        // if (i == 0)
+        //   return RC::SAME_ALIAS; 
       }
       if (alias_exist_tmp[con_node.right_attr.relation_name]){
         con_node.right_attr.relation_name = table2alias_map_tmp[con_node.right_attr.relation_name];
@@ -366,10 +471,13 @@ RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
   //判断sql_event是否为selectsqlnode，若是的话，调用RC select_pre_process(SelectSqlNode *select_sql)对其select_sql进行预处理
   if (sql_event->getSqlNodeRawPointer() && 
     sql_event->getSqlNodeRawPointer()->flag == SqlCommandFlag::SCF_SELECT && main_query) {
+    SessionEvent *session_event = sql_event->session_event();
+    SqlResult    *sql_result    = session_event->sql_result();
     SelectSqlNode* select_sql = &sql_event->getSqlNodeRawPointer()->selection;
     rc = select_pre_process(select_sql);
     if (OB_FAIL(rc)) {
       LOG_TRACE("failed to do select pre-process. rc=%s", strrc(rc));
+      sql_result->set_return_code(rc);
       return rc;
     }
   }
