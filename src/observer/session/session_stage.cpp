@@ -192,6 +192,7 @@ RC select_pre_process(SelectSqlNode *select_sql)
 
   for (SelectAttr &select_node : select_sql->attributes)
   {
+    if(select_node.nodes.empty())continue;
     if(select_node.nodes.front().attribute_name == "*")continue;
     if (select_node.agg_type != AGG_UNDEFINED)continue;
     RelAttrSqlNode &node = select_node.nodes.front();

@@ -746,7 +746,7 @@ join:
   | join_type ID ON condition condition_list {
     $$ = new JoinNode();
     $$->type = (JoinType)$1;
-    $$->relation_name = *$2;
+    $$->relation_name = $2;
     if ($5 != nullptr) {
       $$->on.swap(*$5);
       delete $5;
