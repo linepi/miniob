@@ -107,9 +107,12 @@ RC LogicalPlanGenerator::create_plan(
       }
     } else {
       for (Expression *expr : all_exprs) {
-        FieldExpr *field_expr = static_cast<FieldExpr *>(expr);
-        if (0 == strcmp(field_expr->table_name(), table->name())) {
-          fields.push_back(field_expr->field());
+        std::vector<FieldExpr *> field_exprs;
+        expr->get_field_expr(field_exprs, false);
+        for (FieldExpr *field_expr : field_exprs) {
+          if (0 == strcmp(field_expr->table_name(), table->name())) {
+            fields.push_back(field_expr->field());
+          }
         }
       }
     }

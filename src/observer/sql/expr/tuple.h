@@ -230,18 +230,6 @@ public:
     return RC::NOTFOUND;
   }
 
-#if 0
-  RC cell_spec_at(int index, const TupleCellSpec *&spec) const override
-  {
-    if (index < 0 || index >= static_cast<int>(speces_.size())) {
-      LOG_WARN("invalid argument. index=%d", index);
-      return RC::INVALID_ARGUMENT;
-    }
-    spec = speces_[index];
-    return RC::SUCCESS;
-  }
-#endif
-
   Record &record()
   {
     return *record_;
@@ -271,13 +259,7 @@ class ProjectTuple : public Tuple
 {
 public:
   ProjectTuple() = default;
-  virtual ~ProjectTuple()
-  {
-    for (TupleCellSpec *spec : speces_) {
-      delete spec;
-    }
-    speces_.clear();
-  }
+  virtual ~ProjectTuple() = default;
 
   void set_tuple(Tuple *tuple)
   {
@@ -288,36 +270,34 @@ public:
       return new ProjectTuple(*this);
   }
 
-  void add_cell_spec(TupleCellSpec *spec)
-  {
-    speces_.push_back(spec);
+  void add_expr(Expression *expr) {
+    exprs_.push_back(expr);
   }
+
   int cell_num() const override
   {
-    return speces_.size();
+    if (exprs_[0]->type() == ExprType::STAR) {
+      return static_cast<StarExpr *>(exprs_[0])->field().size();
+    } else {
+      return exprs_.size();
+    }
   }
 
   RC cell_at(int index, Value &cell) const override
   {
-    if (index < 0 || index >= static_cast<int>(speces_.size())) {
+    if (index < 0 || index >= static_cast<int>(exprs_.size())) {
       return RC::INTERNAL;
     }
     if (tuple_ == nullptr) {
       return RC::INTERNAL;
     }
 
-    const TupleCellSpec *spec = speces_[index];
-    return tuple_->find_cell(*spec, cell);
-  }
-
-  RC cell_at_field(Field &field, Value &cell) {
-    for (const TupleCellSpec *spec : speces_) {
-      if (strcasecmp(field.field_name(), spec->field_name()) == 0
-        && strcasecmp(field.table_name(), spec->table_name()) == 0) {
-        return tuple_->find_cell(*spec, cell);
-      }
+    Expression *expr = exprs_[index];
+    if (expr->type() == ExprType::STAR) {
+      return tuple_->cell_at(index, cell);
+    } else {
+      return expr->get_value(*tuple_, cell);
     }
-    assert(0);
   }
 
   RC find_cell(const TupleCellSpec &spec, Value &cell) const override
@@ -325,18 +305,15 @@ public:
     return tuple_->find_cell(spec, cell);
   }
 
-#if 0
-  RC cell_spec_at(int index, const TupleCellSpec *&spec) const override
-  {
-    if (index < 0 || index >= static_cast<int>(speces_.size())) {
-      return RC::NOTFOUND;
+  RC cell_at_expr(Expression *expr, Value &cell) const {
+    if (std::find(exprs_.begin(), exprs_.end(), expr) != exprs_.end()) {
+      return expr->get_value(*tuple_, cell);
     }
-    spec = speces_[index];
-    return RC::SUCCESS;
+    return RC::EMPTY;
   }
-#endif
+
 private:
-  std::vector<TupleCellSpec *> speces_;
+  std::vector<Expression *> exprs_;
   Tuple *tuple_ = nullptr;
 };
 

@@ -32,6 +32,16 @@ RC Expression::get_relations(std::unordered_set<std::string> &relations) {
   return visit_field_expr(visitor, true);
 }
 
+RC Expression::get_field_expr(std::vector<FieldExpr *> &field_exprs, bool deepinto) {
+  auto visitor = [&field_exprs](std::unique_ptr<Expression> &expr) {
+    assert(expr->type() == ExprType::FIELD);
+    FieldExpr *field_expr = static_cast<FieldExpr *>(expr.get());
+    field_exprs.push_back(field_expr);
+    return RC::SUCCESS;
+  };
+  return visit_field_expr(visitor, deepinto);
+}
+
 RC Expression::func_length(Value& value) const {
   if (value.attr_type() == CHARS) {
     value.set_int(value.get_string().length());
@@ -520,10 +530,10 @@ RC ConjunctionExpr::get_value(const Tuple &tuple, Value &value) const
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ArithmeticExpr::ArithmeticExpr(ArithmeticExpr::Type type, Expression *left, Expression *right)
+ArithmeticExpr::ArithmeticExpr(ArithType type, Expression *left, Expression *right)
     : arithmetic_type_(type), left_(left), right_(right)
 {}
-ArithmeticExpr::ArithmeticExpr(ArithmeticExpr::Type type, unique_ptr<Expression> left, unique_ptr<Expression> right)
+ArithmeticExpr::ArithmeticExpr(ArithType type, unique_ptr<Expression> left, unique_ptr<Expression> right)
     : arithmetic_type_(type), left_(std::move(left)), right_(std::move(right))
 {}
 
@@ -535,7 +545,7 @@ AttrType ArithmeticExpr::value_type() const
 
   if (left_->value_type() == AttrType::INTS &&
       right_->value_type() == AttrType::INTS &&
-      arithmetic_type_ != Type::DIV) {
+      arithmetic_type_ != ARITH_DIV) {
     return AttrType::INTS;
   }
   
@@ -544,57 +554,25 @@ AttrType ArithmeticExpr::value_type() const
 
 RC ArithmeticExpr::calc_value(const Value &left_value, const Value &right_value, Value &value) const
 {
-  const AttrType target_type = value_type();
-
   switch (arithmetic_type_) {
-    case Type::ADD: {
-      if (target_type == AttrType::INTS) {
-        value.set_int(left_value.get_int() + right_value.get_int());
-      } else {
-        value.set_float(left_value.get_float() + right_value.get_float());
-      }
+    case ARITH_ADD: {
+      value = left_value + right_value;
     } break;
 
-    case Type::SUB: {
-      if (target_type == AttrType::INTS) {
-        value.set_int(left_value.get_int() - right_value.get_int());
-      } else {
-        value.set_float(left_value.get_float() - right_value.get_float());
-      }
+    case ARITH_SUB: {
+      value = left_value - right_value;
     } break;
 
-    case Type::MUL: {
-      if (target_type == AttrType::INTS) {
-        value.set_int(left_value.get_int() * right_value.get_int());
-      } else {
-        value.set_float(left_value.get_float() * right_value.get_float());
-      }
+    case ARITH_MUL: {
+      value = left_value * right_value;
     } break;
 
-    case Type::DIV: {
-      if (target_type == AttrType::INTS) {
-        if (right_value.get_int() == 0) {
-          // NOTE: 设置为整数最大值是不正确的。通常的做法是设置为NULL，但是当前的miniob没有NULL概念，所以这里设置为整数最大值。
-          value.set_int(numeric_limits<int>::max());
-        } else {
-          value.set_int(left_value.get_int() / right_value.get_int());
-        }
-      } else {
-        if (right_value.get_float() > -EPSILON && right_value.get_float() < EPSILON) {
-          // NOTE: 设置为浮点数最大值是不正确的。通常的做法是设置为NULL，但是当前的miniob没有NULL概念，所以这里设置为浮点数最大值。
-          value.set_float(numeric_limits<float>::max());
-        } else {
-          value.set_float(left_value.get_float() / right_value.get_float());
-        }
-      }
+    case ARITH_DIV: {
+      value = left_value / right_value;
     } break;
 
-    case Type::NEGATIVE: {
-      if (target_type == AttrType::INTS) {
-        value.set_int(-left_value.get_int());
-      } else {
-        value.set_float(-left_value.get_float());
-      }
+    case ARITH_NEG: {
+      value = Value(0) - left_value;
     } break;
 
     default: {
@@ -650,10 +628,10 @@ RC ArithmeticExpr::try_get_value(Value &value) const
 }
 
 const char *ARITHMATIC_NAME[] = {
-  [(int)ArithmeticExpr::Type::ADD] = "ADD",
-  [(int)ArithmeticExpr::Type::SUB] = "SUB",
-  [(int)ArithmeticExpr::Type::MUL] = "MUL",
-  [(int)ArithmeticExpr::Type::DIV] = "DIV",
-  [(int)ArithmeticExpr::Type::NEGATIVE] = "NEGATIVE",
+  [(int)ARITH_ADD] = "ADD",
+  [(int)ARITH_SUB] = "SUB",
+  [(int)ARITH_MUL] = "MUL",
+  [(int)ARITH_DIV] = "DIV",
+  [(int)ARITH_NEG] = "NEGATIVE",
 };
 

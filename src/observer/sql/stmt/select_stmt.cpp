@@ -134,7 +134,7 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
           LOG_WARN("no %s(*) in syntax", AGG_TYPE_NAME[select_attr.agg_type]);
           return RC::INVALID_ARGUMENT;
         }
-        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, true, new Field(), tables.size() > 1));
+        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, true, select_expr, tables.size() > 1));
       }
 
       for (Table *table : tables) {
@@ -147,7 +147,7 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
       break;
     }
 
-    auto visitor = [&select_attr, &aggregation_funcs, &tables, &table_map, &db](std::unique_ptr<Expression> &expr) {
+    auto visitor = [&select_attr, &aggregation_funcs, &tables, &table_map, &db, &select_expr](std::unique_ptr<Expression> &expr) {
       assert(expr->type() == ExprType::FIELD);
       FieldExpr *field_expr = static_cast<FieldExpr *>(expr.get());
       RelAttrSqlNode relation_attr = field_expr->rel_attr();
@@ -181,7 +181,7 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
           LOG_WARN("avg and sum can not be used on chars and dates");
           return RC::INVALID_ARGUMENT;
         }
-        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, false, new Field(table, field_meta), tables.size() > 1));
+        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, false, select_expr, tables.size() > 1));
       }
       field_expr->set_field(Field(table, field_meta));
       return RC::SUCCESS;

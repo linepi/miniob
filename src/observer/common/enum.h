@@ -64,6 +64,15 @@ enum ConjuctType
   CONJ_OR
 };
 
+enum ArithType
+{
+  ARITH_ADD,
+  ARITH_SUB,
+  ARITH_MUL,
+  ARITH_DIV,
+  ARITH_NEG,
+};
+
 /**
  * @brief 表达式类型
  * @ingroup Expression

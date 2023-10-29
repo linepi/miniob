@@ -51,7 +51,11 @@ public:
 
   Value(const Value &other) = default;
   Value &operator=(const Value &other);
-  Value operator+(const Value &other);
+  Value operator+(const Value &other) const;
+  Value operator-(const Value &other) const;
+  Value operator*(const Value &other) const;
+  Value operator/(const Value &other) const;
+  Value operator_arith(const Value &other, ArithType type) const;
 
   void set_type(AttrType type)
   {

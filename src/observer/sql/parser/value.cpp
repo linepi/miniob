@@ -20,6 +20,7 @@ See the Mulan PSL v2 for more details. */
 #include "common/lang/comparator.h"
 #include "common/lang/string.h"
 #include "common/lang/comparator.h"
+#include "sql/expr/expression.h"
 #include <regex>
 
 const char *ATTR_TYPE_NAME[] = {"undefined", "chars", "ints", "floats", "dates", "booleans", "null_type", "empty_type"};
@@ -291,22 +292,54 @@ int Value::from_string(std::string str) {
   return 0;
 }
 
-Value Value::operator+(const Value &other) {
-  if (this->attr_type_ == NULL_TYPE) return other;
-  if (other.attr_type_ == NULL_TYPE) return *this;
+static float arith_float(float a, float b, ArithType type) {
+  switch (type)
+  {
+  case ARITH_ADD:
+    return a + b;
+  case ARITH_SUB:
+    return a - b;
+  case ARITH_MUL:
+    return a * b;
+  case ARITH_DIV:
+    return a / b;
+  default:
+    return 0;
+  }
+}
+
+static int arith_int(int a, int b, ArithType type) {
+  switch (type)
+  {
+  case ARITH_ADD:
+    return a + b;
+  case ARITH_SUB:
+    return a - b;
+  case ARITH_MUL:
+    return a * b;
+  case ARITH_DIV:
+    return a / b;
+  default:
+    return 0;
+  }
+}
+
+Value Value::operator_arith(const Value &other, ArithType type) const {
+  if (this->attr_type_ == NULL_TYPE) return Value(NULL_TYPE);
+  if (other.attr_type_ == NULL_TYPE) return Value(NULL_TYPE);
   Value result;
   if (this->attr_type_ == other.attr_type_) {
     switch (this->attr_type_) {
       case INTS: {
-        result.set_int(this->num_value_.int_value_ + other.num_value_.int_value_);
+        result.set_int(arith_int(this->num_value_.int_value_, other.num_value_.int_value_, type));
       } break;
       case FLOATS: {
-        result.set_float(this->num_value_.float_value_ + other.num_value_.float_value_);
+        result.set_float(arith_float(this->num_value_.float_value_, other.num_value_.float_value_, type));
       } break;
       case CHARS: {
         float this_f = std::stof(this->to_string());
         float other_f = std::stof(other.to_string());
-        result.set_float(this_f + other_f);
+        result.set_float(arith_float(this_f, other_f, type));
       } break;
       default: {
         LOG_PANIC("unsupported type: %d + %d", 
@@ -315,15 +348,33 @@ Value Value::operator+(const Value &other) {
       }
     }
   } else if (this->attr_type_ == INTS && other.attr_type_ == FLOATS) {
-    result.set_float(this->num_value_.int_value_ + other.num_value_.float_value_);
+    result.set_float(arith_int(this->num_value_.int_value_, other.num_value_.float_value_, type));
   } else if (this->attr_type_ == FLOATS && other.attr_type_ == INTS) {
-    result.set_float(this->num_value_.float_value_ + other.num_value_.int_value_);
+    result.set_float(arith_float(this->num_value_.float_value_, other.num_value_.int_value_, type));
   } else {
     float this_f = std::stof(this->to_string());
     float other_f = std::stof(other.to_string());
-    result.set_float(this_f + other_f);
+    result.set_float(arith_float(this_f, other_f, type));
   }
   return result;
+}
+
+Value Value::operator+(const Value &other) const {
+  return operator_arith(other, ARITH_ADD);
+}
+
+Value Value::operator-(const Value &other) const {
+  return operator_arith(other, ARITH_SUB);
+}
+
+Value Value::operator*(const Value &other) const {
+  return operator_arith(other, ARITH_MUL);
+}
+
+Value Value::operator/(const Value &other) const {
+  if (other.get_int() == 0) 
+    return Value(NULL_TYPE);
+  return operator_arith(other, ARITH_DIV);
 }
 
 std::string Value::to_string() const

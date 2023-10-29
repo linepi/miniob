@@ -49,6 +49,7 @@ public:
       return rc;
     }
     emitted_ = true;
+    return rc;
 
     int cell_num = tuple_.cell_num();
     for (int i = 0; i < cell_num; i++) {

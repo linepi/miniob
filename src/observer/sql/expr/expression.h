@@ -26,6 +26,7 @@ See the Mulan PSL v2 for more details. */
 
 class Tuple;
 class SubQueryExpr;
+class FieldExpr;
 
 /**
  * @defgroup Expression
@@ -93,9 +94,10 @@ public:
   // get all field expressions in a expression, not deep into sub query expression
   bool is_condition() const;
   RC visit_field_expr(std::function<RC (std::unique_ptr<Expression> &)> visitor, bool deepinto);
+  RC get_field_expr(std::vector<FieldExpr *> &field_exprs, bool deepinto);
   RC get_subquery_expr(std::vector<SubQueryExpr *> &result);
   RC get_relations(std::unordered_set<std::string> &relations);
-  std::string dump_tree(int indent = 0) ;
+  std::string dump_tree(int indent = 0);
 
 private:
   std::string  name_;
@@ -380,17 +382,8 @@ extern const char *ARITHMATIC_NAME[];
 class ArithmeticExpr : public Expression 
 {
 public:
-  enum class Type {
-    ADD,
-    SUB,
-    MUL,
-    DIV,
-    NEGATIVE,
-  };
-
-public:
-  ArithmeticExpr(Type type, Expression *left, Expression *right);
-  ArithmeticExpr(Type type, std::unique_ptr<Expression> left, std::unique_ptr<Expression> right);
+  ArithmeticExpr(ArithType type, Expression *left, Expression *right);
+  ArithmeticExpr(ArithType type, std::unique_ptr<Expression> left, std::unique_ptr<Expression> right);
   virtual ~ArithmeticExpr() = default;
 
   ExprType type() const override { return ExprType::ARITHMETIC; }
@@ -400,7 +393,7 @@ public:
   RC get_value(const Tuple &tuple, Value &value) const override;
   RC try_get_value(Value &value) const override;
 
-  Type arithmetic_type() const { return arithmetic_type_; }
+  ArithType arithmetic_type() const { return arithmetic_type_; }
 
   std::unique_ptr<Expression> &left() { return left_; }
   std::unique_ptr<Expression> &right() { return right_; }
@@ -409,7 +402,7 @@ private:
   RC calc_value(const Value &left_value, const Value &right_value, Value &value) const;
   
 private:
-  Type arithmetic_type_;
+  ArithType arithmetic_type_;
   std::unique_ptr<Expression> left_;
   std::unique_ptr<Expression> right_;
 };

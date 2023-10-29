@@ -88,7 +88,7 @@ RC ExecuteStage::handle_request_with_physical_operator(SQLStageEvent *sql_event)
             schema.append_cell(field_expr->field_name());
           }
         } else {
-          assert(0);
+          schema.append_cell(expr->name().c_str());
         }
       }
     } break;

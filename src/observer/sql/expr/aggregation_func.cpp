@@ -10,15 +10,10 @@ const char *AGG_TYPE_NAME[] = {
   "COUNT",       
 };
 
-AggregationFunc::~AggregationFunc() {
-  if (field_ != nullptr) {
-    delete field_;
-    field_ = nullptr;
-  }
-}
+AggregationFunc::~AggregationFunc() {}
 
-AggregationFunc::AggregationFunc(AggType agg_type, bool star, Field *field, bool multi_table) 
-  : agg_type_(agg_type), star_(star), field_(field), multi_table_(multi_table)
+AggregationFunc::AggregationFunc(AggType agg_type, bool star, Expression *expr, bool multi_table) 
+  : agg_type_(agg_type), star_(star), expr_(expr), multi_table_(multi_table)
 { 
   result_.set_null(); 
   sum_.set_null();

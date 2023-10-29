@@ -30,7 +30,7 @@ int yyerror(YYLTYPE *llocp, const char *sql_string, ParsedSqlResult *sql_result,
   return 0;
 }
 
-ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
+ArithmeticExpr *create_arithmetic_expression(ArithType type,
                                              Expression *left,
                                              Expression *right,
                                              const char *sql_string,
@@ -85,8 +85,6 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         VALUES
         FROM
         WHERE
-        AND
-        OR
         SET
         ON
         LOAD
@@ -106,13 +104,19 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         SUM
         NOT
         LIKE
+        NOT_LIKE
         INNER 
         JOIN
         IS_TOKEN
+        IS_NOT_TOKEN
         NULL_TOKEN
         UNIQUE
         IN_TOKEN
+        NOT_IN_TOKEN
         EXISTS_TOKEN
+        NOT_EXISTS_TOKEN
+        AND
+        OR
         NULLABLE
         ORDER
         BY
@@ -223,8 +227,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
 %type <sql_node>            commands
 %type <sql_nodes>           command_list
 
-%left "AND" "OR"
-%left '<' '>' "!=" '=' ">=" "<=" "<>"
+%left AND OR
+%left LT EQ GT LE GE NE LIKE NOT_LIKE IS_TOKEN IN_TOKEN IS_NOT_TOKEN NOT_IN_TOKEN EXISTS_TOKEN NOT_EXISTS_TOKEN
 %left '+' '-'
 %left '*' '/'
 %nonassoc UMINUS
@@ -684,32 +688,32 @@ expression_list:
     }
     ;
 expression:
-    expression '+' expression {
-      $$ = create_arithmetic_expression(ArithmeticExpr::Type::ADD, $1, $3, sql_string, &@$);
-    }
-    | expression '-' expression {
-      $$ = create_arithmetic_expression(ArithmeticExpr::Type::SUB, $1, $3, sql_string, &@$);
-    }
-    | expression '*' expression {
-      $$ = create_arithmetic_expression(ArithmeticExpr::Type::MUL, $1, $3, sql_string, &@$);
-    }
-    | expression '/' expression {
-      $$ = create_arithmetic_expression(ArithmeticExpr::Type::DIV, $1, $3, sql_string, &@$);
-    }
-    | '-' expression %prec UMINUS {
-      $$ = create_arithmetic_expression(ArithmeticExpr::Type::NEGATIVE, $2, nullptr, sql_string, &@$);
+    expression conjunct_type expression {
+      $$ = new ConjunctionExpr((ConjuctType)$2, $1, $3);
+      $$->set_name(token_name(sql_string, &@$));
     }
     | expression comp_op expression {
       $$ = new ComparisonExpr((CompOp)$2, $1, $3);
       $$->set_name(token_name(sql_string, &@$));
     }
-    | expression conjunct_type expression {
-      $$ = new ConjunctionExpr((ConjuctType)$2, $1, $3);
-      $$->set_name(token_name(sql_string, &@$));
-    }
     | comp_op_single expression {
       $$ = new ComparisonExpr((CompOp)$1, $2);
       $$->set_name(token_name(sql_string, &@$));
+    }
+    | expression '+' expression {
+      $$ = create_arithmetic_expression(ARITH_ADD, $1, $3, sql_string, &@$);
+    }
+    | expression '-' expression {
+      $$ = create_arithmetic_expression(ARITH_SUB, $1, $3, sql_string, &@$);
+    }
+    | expression '*' expression {
+      $$ = create_arithmetic_expression(ARITH_MUL, $1, $3, sql_string, &@$);
+    }
+    | expression '/' expression {
+      $$ = create_arithmetic_expression(ARITH_DIV, $1, $3, sql_string, &@$);
+    }
+    | '-' expression %prec UMINUS {
+      $$ = create_arithmetic_expression(ARITH_NEG, $2, nullptr, sql_string, &@$);
     }
     | LBRACE expression RBRACE {
       $$ = $2;
@@ -985,15 +989,15 @@ comp_op:
     | GE { $$ = GREAT_EQUAL; }
     | NE { $$ = NOT_EQUAL; }
     | LIKE { $$ = LIKE_OP; }
-    | NOT LIKE { $$ = NOT_LIKE_OP; }
+    | NOT_LIKE { $$ = NOT_LIKE_OP; }
     | IS_TOKEN { $$ = IS; }
-    | IS_TOKEN NOT { $$ = IS_NOT; }
+    | IS_NOT_TOKEN { $$ = IS_NOT; }
     | IN_TOKEN { $$ = IN; }
-    | NOT IN_TOKEN { $$ = NOT_IN; }
+    | NOT_IN_TOKEN { $$ = NOT_IN; }
     ;
 
 comp_op_single:
-  NOT EXISTS_TOKEN { $$ = NOT_EXISTS; }
+  NOT_EXISTS_TOKEN { $$ = NOT_EXISTS; }
   | EXISTS_TOKEN { $$ = EXISTS; }
   ;
 

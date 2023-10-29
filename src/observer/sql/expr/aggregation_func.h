@@ -18,9 +18,11 @@ enum AggType {
 extern const char *AGG_TYPE_NAME[];
 
 class Field;
+class Expression;
+
 class AggregationFunc {
 public:
-	AggregationFunc(AggType agg_type, bool star, Field *field, bool multi_table); 
+	AggregationFunc(AggType agg_type, bool star, Expression *expr, bool multi_table); 
 	AggregationFunc(); 
 	~AggregationFunc(); 
 
@@ -41,7 +43,7 @@ private:
 public:
 	AggType agg_type_ = AGG_UNDEFINED;
 	bool star_ = false;
-	Field *field_ = nullptr;
+	Expression *expr_ = nullptr;
 	bool multi_table_ = false;
 	Value result_;
 	Value sum_;

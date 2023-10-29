@@ -189,7 +189,7 @@ static RC with_aggregation_func(Tuple *tuple, std::vector<AggregationFunc *> * a
     } else {
       ProjectTuple *pt = static_cast<ProjectTuple *>(tuple);
       Value value;
-      rc = pt->cell_at_field(*(aggregation_func->field_), value);
+      rc = pt->cell_at_expr(aggregation_func->expr_, value);
       if (rc != RC::SUCCESS) {
         return rc;
       }
@@ -219,15 +219,7 @@ static RC not_with_aggregation_func(Writer *writer_, Tuple *tuple) {
     if (rc != RC::SUCCESS) {
       return rc;
     }
-    if (value.attr_type() == NULL_TYPE)
-    {
-      std::string cell_str = "null";
-      rc = writer_->writen(cell_str.data(), cell_str.size());
-    }
-    else{
-      std::string cell_str = value.to_string();
-      rc = writer_->writen(cell_str.data(), cell_str.size());
-    }
+    rc = writer_->writen(value.to_string().c_str(), value.to_string().size());
     if (OB_FAIL(rc)) {
       LOG_WARN("failed to send data to client. err=%s", strerror(errno));
       return rc;
@@ -296,57 +288,23 @@ RC PlainCommunicator::write_result_internal(SessionEvent *event, bool &need_disc
   TupleSchema &schema = const_cast<TupleSchema &>(sql_result->tuple_schema());
   const int cell_num = schema.cell_num();
 
-  if (schema.aggregation_funcs_ && schema.aggregation_funcs_->size() != 0) {
-    int i = 0;
-    for (AggregationFunc *func : *schema.aggregation_funcs_) {
-      if (i != 0) {
-        const char *delim = " | ";
-        rc = writer_->writen(delim, strlen(delim));
-      }
-      std::string out;
-      out += AGG_TYPE_NAME[func->agg_type_];
-      out += std::string("(");
-      if (func->star_) {
-        out += "*)";
+  for (int i = 0; i < cell_num; i++) {
+    const TupleCellSpec &spec = schema.cell_at(i);
+    if (i != 0) {
+      const char *delim = " | ";
+      writer_->writen(delim, strlen(delim));
+    }
+    std::string out;
+    if (spec.alias() || spec.alias()[0] != 0) {
+      out = spec.alias();
+    } else {
+      if (spec.table_name()) {
+        out = spec.table_name() + std::string(".") + spec.field_name();
       } else {
-        if (func->multi_table_) {
-          out += func->field_->table_name();
-          out += ".";
-        }
-        out += func->field_->field_name(); 
-        out += ")";
-      }
-      rc = writer_->writen(out.c_str(), out.size());
-      if (OB_FAIL(rc)) {
-        LOG_WARN("failed to send data to client. err=%s", strerror(errno));
-        sql_result->close();
-        return rc;
-      }
-      i++;
-    }
-  } else {
-    for (int i = 0; i < cell_num; i++) {
-      const TupleCellSpec &spec = schema.cell_at(i);
-      const char *alias = spec.alias();
-      if (nullptr != alias || alias[0] != 0) {
-        if (0 != i) {
-          const char *delim = " | ";
-          rc = writer_->writen(delim, strlen(delim));
-          if (OB_FAIL(rc)) {
-            LOG_WARN("failed to send data to client. err=%s", strerror(errno));
-            sql_result->close();
-            return rc;
-          }
-        }
-        int len = strlen(alias);
-        rc = writer_->writen(alias, len);
-        if (OB_FAIL(rc)) {
-          LOG_WARN("failed to send data to client. err=%s", strerror(errno));
-          sql_result->close();
-          return rc;
-        }
+        out = spec.field_name();
       }
     }
+    writer_->writen(out.c_str(), out.size());
   }
 
   if (cell_num > 0) {
