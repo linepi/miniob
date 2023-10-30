@@ -47,7 +47,8 @@ RC SqlResult::close()
     LOG_WARN("failed to close operator. rc=%s", strrc(rc));
   }
 
-  operator_.reset();
+  if (!correlated_query_)
+    operator_.reset();
 
   if (session_ && !session_->is_trx_multi_operation_mode()) {
     if (rc == RC::SUCCESS) {
@@ -75,6 +76,7 @@ RC SqlResult::next_tuple(Tuple *&tuple)
 
 void SqlResult::set_operator(std::unique_ptr<PhysicalOperator> oper)
 {
-  ASSERT(operator_ == nullptr, "current operator is not null. Result is not closed?");
+  if (!correlated_query_)
+    ASSERT(operator_ == nullptr, "current operator is not null. Result is not closed?");
   operator_ = std::move(oper);
 }

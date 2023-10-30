@@ -27,6 +27,7 @@ RC check_correlated_query(SubQueryExpr *expr, std::vector<std::string> *father_t
   }
 
   for (Expression *con : conditions) {
+    if (!con) continue;
     if(!con->is_condition()) {
       LOG_WARN("not a valid condition");
       return RC::INVALID_ARGUMENT;
@@ -91,7 +92,8 @@ RC check_correlated_query(SubQueryExpr *expr, std::vector<std::string> *father_t
 }
 
 static RC fill_value_for_correlated_query(
-  SelectSqlNode *select, const Tuple &tuple, std::unordered_map<std::unique_ptr<Expression> *, FieldExpr *> &saved_fieldexpr) {
+  SelectSqlNode *select, const std::vector<std::string> &father_relations, 
+  const Tuple &tuple, std::unordered_map<std::unique_ptr<Expression> *, FieldExpr *> &saved_fieldexpr) {
 
   RC rc = RC::SUCCESS;
   if (!select) return rc;
@@ -103,26 +105,26 @@ static RC fill_value_for_correlated_query(
   }
 
   for (Expression *con : conditions) {
+    if (!con) continue;
     if(!con->is_condition()) {
       LOG_WARN("not a valid condition");
       return RC::INVALID_ARGUMENT;
     }
 
-    auto visitor = [&select, &tuple, &saved_fieldexpr](std::unique_ptr<Expression> &expr) {
+    auto visitor = [&father_relations, &tuple, &saved_fieldexpr](std::unique_ptr<Expression> &expr) {
       assert(expr->type() == ExprType::FIELD);
       FieldExpr *field_expr = static_cast<FieldExpr *>(expr.get());
-
-      if (std::find(select->relations.begin(), select->relations.end(), field_expr->rel_attr().relation_name) == select->relations.end()) {
-        Value v;
-        RC rc = tuple.find_cell(TupleCellSpec(field_expr->rel_attr().relation_name.c_str(), field_expr->rel_attr().attribute_name.c_str()), v);
-        if (rc != RC::SUCCESS) 
-          return rc;
-        
-        expr.release();
-        saved_fieldexpr.insert(std::pair<std::unique_ptr<Expression> *, FieldExpr *>(&expr, field_expr));
-        ValueExpr *value_expr = new ValueExpr(v);
-        expr.reset(value_expr);
-      }
+      Value v;
+      RC rc = tuple.find_cell(
+        TupleCellSpec(field_expr->rel_attr().relation_name.c_str(), 
+                      field_expr->rel_attr().attribute_name.c_str()), v);
+      if (rc != RC::SUCCESS) 
+        return RC::SUCCESS;
+      
+      expr.release();
+      saved_fieldexpr.insert(std::pair<std::unique_ptr<Expression> *, FieldExpr *>(&expr, field_expr));
+      ValueExpr *value_expr = new ValueExpr(v);
+      expr.reset(value_expr);
       return RC::SUCCESS;
     };
     rc = con->visit_field_expr(visitor, true);
@@ -139,7 +141,7 @@ static RC fill_value_for_correlated_query(
     }
 
     for (SubQueryExpr * sub_query : sub_querys) {
-      rc = fill_value_for_correlated_query(sub_query->select(), tuple, saved_fieldexpr);
+      rc = fill_value_for_correlated_query(sub_query->select(), father_relations, tuple, saved_fieldexpr);
       if (rc != RC::SUCCESS) {
         LOG_WARN("check_correlated_query failed");
         return rc;
@@ -150,21 +152,24 @@ static RC fill_value_for_correlated_query(
 }
 
 RC SubQueryExpr::get_value(const Tuple &tuple, Value &value) const {
-	RC rc = RC::SUCCESS;
+  RC rc = RC::SUCCESS;
   if (!correlated_) {
+    value = value_;
     return rc;
   } 
 
   // 开始子查询
   std::unordered_map<std::unique_ptr<Expression> *, FieldExpr *> saved_fieldexpr;
 
-  rc = fill_value_for_correlated_query(select_, tuple, saved_fieldexpr);
+  rc = fill_value_for_correlated_query(select_, select_->relations, tuple, saved_fieldexpr);
   if (rc != RC::SUCCESS) {
     LOG_WARN("fill_value_for_correlated_query error");
   }
 
   std::string std_out;
+  sql_event_->set_correlated_query(true);
   rc = sub_query_extract(select_, ss_, sql_event_, std_out);
+  sql_event_->set_correlated_query(false);
   if (rc != RC::SUCCESS) {
     LOG_WARN("error in sub_query_extract %s", strrc(rc));
     return rc;
@@ -178,5 +183,8 @@ RC SubQueryExpr::get_value(const Tuple &tuple, Value &value) const {
   for (auto node : saved_fieldexpr) {
     node.first->reset(node.second);
   }
+
+  SubQueryExpr *nonconstthis = const_cast<SubQueryExpr *>(this);
+  nonconstthis->value_ = value;
   return rc;
 }

@@ -77,9 +77,6 @@ RC value_from_sql_stdout(std::string &std_out, Value &value)
   if (values->size() == 0) {
     value.set_empty();
     delete values;
-  } else if (values->size() == 1) {
-    value.set_value((*values)[0]); 
-    delete values;
   } else {
     value.set_list(values);
   }
@@ -206,10 +203,6 @@ RC expression_sub_query_extract(Expression *expr, SessionStage *ss, SQLStageEven
     }
     sub_query_expr->set_value(value);
 
-    // for debug
-    sql_debug("[%s] = %s", expr->name().c_str(), value.beauty_string().c_str());
-    // end for debug
-
     return rc;
   }
 
@@ -315,6 +308,13 @@ RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionSt
         }
         father_tables->push_back(relation_name);
       }
+      for (SelectAttr &attr : node->selection.attributes) {
+        rc = expression_sub_query_extract(attr.expr_nodes[0], ss, sql_event, father_tables);
+        if (rc != RC::SUCCESS) {
+          LOG_WARN("selection.condition value extract error");
+          goto deal_rc;
+        }
+      }
 
       rc = expression_sub_query_extract(node->selection.condition, ss, sql_event, father_tables);
       if (rc != RC::SUCCESS) {
@@ -378,7 +378,7 @@ deal_rc:
 RC ResolveStage::handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
 {
   // for debug
-  if (main_query) {
+  if (false) {
     std::unordered_set<std::string> relations;
     if (sql_event->sql_node().get()->flag == SCF_SELECT) {
       get_relation_from_select(&(sql_event->sql_node().get()->selection), relations); 

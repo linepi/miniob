@@ -28,10 +28,6 @@ SelectStmt::~SelectStmt()
   }
 }
 
-void wildcard_fields(Table *table, std::vector<Field> &field_metas)
-{
-}
-
 RC add_table(
   Db *db,
   std::vector<Table *> &tables, 
@@ -126,16 +122,14 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
     if (select_expr->type() == ExprType::STAR) {
       StarExpr *star_expr = static_cast<StarExpr *>(select_expr);
 
-      if (select_attr.agg_type != AGG_UNDEFINED) {
-        if (select_attr.agg_type == AGG_MIN || 
-          select_attr.agg_type == AGG_MAX || 
-          select_attr.agg_type == AGG_SUM || 
-          select_attr.agg_type == AGG_AVG) {
-          LOG_WARN("no %s(*) in syntax", AGG_TYPE_NAME[select_attr.agg_type]);
-          return RC::INVALID_ARGUMENT;
-        }
+      if (select_attr.agg_type == AGG_MIN || 
+        select_attr.agg_type == AGG_MAX || 
+        select_attr.agg_type == AGG_SUM || 
+        select_attr.agg_type == AGG_AVG) {
+        LOG_WARN("no %s(*) in syntax", AGG_TYPE_NAME[select_attr.agg_type]);
+        return RC::INVALID_ARGUMENT;
+      } else if (select_attr.agg_type != AGG_UNDEFINED)
         aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, true, select_expr, tables.size() > 1));
-      }
 
       for (Table *table : tables) {
         const TableMeta &table_meta = table->table_meta();
@@ -186,7 +180,7 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
       field_expr->set_field(Field(table, field_meta));
       return RC::SUCCESS;
     };
-    rc = select_expr->visit_field_expr(visitor, true);
+    rc = select_expr->visit_field_expr(visitor, false);
     if (rc != RC::SUCCESS) return rc;
   }
 

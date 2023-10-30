@@ -662,13 +662,6 @@ calc_stmt:
       $$->calc.expressions.swap(*$2);
       delete $2;
     }
-    | SELECT expression_list
-    {
-      $$ = new ParsedSqlNode(SCF_CALC);
-      std::reverse($2->begin(), $2->end());
-      $$->calc.expressions.swap(*$2);
-      delete $2;
-    }
     ;
 
 expression_list:

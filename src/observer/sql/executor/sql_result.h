@@ -69,6 +69,7 @@ public:
   RC close();
   RC next_tuple(Tuple *&tuple);
 
+  bool correlated_query_;
 private:
   Session *session_ = nullptr; ///< 当前所属会话
   std::unique_ptr<PhysicalOperator> operator_;  ///< 执行计划

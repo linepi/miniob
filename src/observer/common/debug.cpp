@@ -168,7 +168,7 @@ void show_expressions(ParsedSqlNode *node) {
   for (Expression *expr : exprs) {
     if (expr) {
       sql_debug("\33[1;33m[expr]\33[0m");
-      sql_debug(expr->dump_tree().c_str());
+      sql_debug("%s", expr->dump_tree().c_str());
     }
   }
 }

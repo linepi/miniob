@@ -94,7 +94,8 @@ RC Expression::visit_field_expr(std::function<RC (std::unique_ptr<Expression> &)
     return rc;
   }
 
-  if (this->type() == ExprType::SUB_QUERY && deepinto) {
+  if (this->type() == ExprType::SUB_QUERY) {
+    if (!deepinto) return rc;
     SelectSqlNode *sub_query = static_cast<SubQueryExpr *>(this)->select();
     std::vector<Expression *> exprs;
     exprs.push_back(sub_query->condition);
@@ -107,12 +108,14 @@ RC Expression::visit_field_expr(std::function<RC (std::unique_ptr<Expression> &)
     }
 
     for (Expression *expr : exprs) {
+      if (!expr) continue;
       rc = expr->visit_field_expr(visitor, deepinto);
       if (rc != RC::SUCCESS) {
         LOG_WARN("error while visit field_expr: %s", strrc(rc));
         return rc;
       }
     }
+    return rc;
   }
 
   std::unique_ptr<Expression> *left, *right;
@@ -189,6 +192,7 @@ RC Expression::get_subquery_expr(std::vector<SubQueryExpr *> &result) {
 
   if (this->type() == ExprType::SUB_QUERY) {
     result.push_back(static_cast<SubQueryExpr *>(this));
+    return rc;
   }
 
   Expression *left, *right;
@@ -429,16 +433,22 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
 
 RC ComparisonExpr::try_get_value(Value &cell) const
 {
-  if (left_->type() != ExprType::VALUE || right_->type() != ExprType::VALUE) {
-    return RC::INVALID_ARGUMENT; 
+  Value lv, rv;
+  RC rc = RC::SUCCESS;
+  rc = left_->try_get_value(lv);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("try get value failed. rc=%s", strrc(rc));
+    return rc;
   }
-
-  Value lv = static_cast<ValueExpr *>(left_.get())->get_value();
-  Value rv = static_cast<ValueExpr *>(right_.get())->get_value();
+  rc = right_->try_get_value(rv);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("try get value failed. rc=%s", strrc(rc));
+    return rc;
+  }
 
   bool result = false;
 
-  RC rc = lv.compare_op(rv, comp_, result);
+  rc = lv.compare_op(rv, comp_, result);
   if (rc != RC::SUCCESS) {
     LOG_WARN("compare op error %s", strrc(rc));
     return rc;
@@ -516,6 +526,31 @@ RC ConjunctionExpr::get_value(const Tuple &tuple, Value &value) const
   rc = right_->get_value(tuple, rv);
   if (rc != RC::SUCCESS) {
     LOG_WARN("failed to get value by child expression. rc=%s", strrc(rc));
+    return rc;
+  }
+  bool lb = lv.get_boolean(), rb = rv.get_boolean();
+
+  if (conjunction_type_ == CONJ_AND)
+    value.set_boolean(lb && rb);
+  else
+    value.set_boolean(lb || rb);
+  
+  return func_impl(value);
+}
+
+RC ConjunctionExpr::try_get_value(Value &value) const
+{
+  RC rc = RC::SUCCESS;
+
+  Value lv, rv;
+  rc = left_->try_get_value(lv);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("try get value failed. rc=%s", strrc(rc));
+    return rc;
+  }
+  rc = right_->try_get_value(rv);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("try get value failed. rc=%s", strrc(rc));
     return rc;
   }
   bool lb = lv.get_boolean(), rb = rv.get_boolean();

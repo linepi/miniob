@@ -60,6 +60,8 @@ select * from csq_1 where (select avg(csq_2.col2) from csq_2) <> (select avg(csq
 3 | 3 | 13.5
 ID | COL1 | FEAT1
 
+// ----------------
+
 select * from csq_1 where feat1 > (select min(csq_2.feat2) from csq_2) and col1 <= (select min(csq_3.col3) from csq_3);
 2 | 2 | 12
 ID | COL1 | FEAT1

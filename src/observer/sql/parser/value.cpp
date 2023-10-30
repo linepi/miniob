@@ -308,54 +308,26 @@ static float arith_float(float a, float b, ArithType type) {
   }
 }
 
-static int arith_int(int a, int b, ArithType type) {
-  switch (type)
-  {
-  case ARITH_ADD:
-    return a + b;
-  case ARITH_SUB:
-    return a - b;
-  case ARITH_MUL:
-    return a * b;
-  case ARITH_DIV:
-    return a / b;
-  default:
-    return 0;
-  }
-}
-
 Value Value::operator_arith(const Value &other, ArithType type) const {
-  if (this->attr_type_ == NULL_TYPE) return Value(NULL_TYPE);
-  if (other.attr_type_ == NULL_TYPE) return Value(NULL_TYPE);
+  if (this->attr_type_ == NULL_TYPE || this->attr_type_ == EMPTY_TYPE) return Value(NULL_TYPE);
+  if (other.attr_type_ == NULL_TYPE || this->attr_type_ == EMPTY_TYPE) return Value(NULL_TYPE);
+
+  float this_float, other_float;
+
+  this_float = this->get_float();
+  other_float = other.get_float();
+
   Value result;
-  if (this->attr_type_ == other.attr_type_) {
-    switch (this->attr_type_) {
-      case INTS: {
-        result.set_int(arith_int(this->num_value_.int_value_, other.num_value_.int_value_, type));
-      } break;
-      case FLOATS: {
-        result.set_float(arith_float(this->num_value_.float_value_, other.num_value_.float_value_, type));
-      } break;
-      case CHARS: {
-        float this_f = std::stof(this->to_string());
-        float other_f = std::stof(other.to_string());
-        result.set_float(arith_float(this_f, other_f, type));
-      } break;
-      default: {
-        LOG_PANIC("unsupported type: %d + %d", 
-          attr_type_to_string(this->attr_type_), 
-          attr_type_to_string(other.attr_type_));
-      }
+  if (other_float == 0) 
+    result.set_null();
+  else {
+    if (this->attr_type_ == INTS && other.attr_type_ == INTS) {
+      result.set_int(arith_float(this_float, other_float, type));
+    } else {
+      result.set_float(arith_float(this_float, other_float, type));
     }
-  } else if (this->attr_type_ == INTS && other.attr_type_ == FLOATS) {
-    result.set_float(arith_int(this->num_value_.int_value_, other.num_value_.float_value_, type));
-  } else if (this->attr_type_ == FLOATS && other.attr_type_ == INTS) {
-    result.set_float(arith_float(this->num_value_.float_value_, other.num_value_.int_value_, type));
-  } else {
-    float this_f = std::stof(this->to_string());
-    float other_f = std::stof(other.to_string());
-    result.set_float(arith_float(this_f, other_f, type));
   }
+
   return result;
 }
 
@@ -372,8 +344,6 @@ Value Value::operator*(const Value &other) const {
 }
 
 Value Value::operator/(const Value &other) const {
-  if (other.get_int() == 0) 
-    return Value(NULL_TYPE);
   return operator_arith(other, ARITH_DIV);
 }
 
@@ -397,7 +367,10 @@ std::string Value::to_string() const
       os << "null";
     } break;
     case EMPTY_TYPE: {
-      os << "empty";
+      os << "";
+    } break;
+    case UNDEFINED: {
+      os << "";
     } break;
     default: {
       LOG_WARN("unsupported attr type: %d", attr_type_);
@@ -433,8 +406,8 @@ RC Value::is_in(CompOp op, const Value &other, bool &result) const {
   } 
 
   if (other.attr_type() != LIST_TYPE) {
-    LOG_WARN("`in` op can only be used in list");
-    return RC::INVALID_ARGUMENT;
+    result = false;
+    return RC::SUCCESS;
   }
 
   assert(other.list());
@@ -488,13 +461,26 @@ RC Value::compare_op(const Value &other, CompOp op, bool &result) const {
     return RC::INVALID_ARGUMENT;
   }
 
+  if (this->attr_type() == LIST_TYPE) {
+    return list_->at(0).compare_op(other, op, result);
+  }
+  if (other.attr_type() == LIST_TYPE) {
+    return compare_op(other.list_->at(0), op, result);
+  }
+
   if (op <= CompOp::GREAT_THAN && op >= CompOp::EQUAL_TO) {
     if (this->attr_type_ == NULL_TYPE || other.attr_type_ == NULL_TYPE) {
       result = false;
       return rc;
     }
+    if (this->attr_type_ == EMPTY_TYPE || other.attr_type_ == EMPTY_TYPE) {
+      result = false;
+      return rc;
+    }
+
     int cmp_result;
     rc = compare(other, cmp_result); 
+
     switch (op) {
     case EQUAL_TO: {
       result = (0 == cmp_result);
@@ -573,42 +559,12 @@ RC Value::compare(const Value &other, int &result) const
     result = 1;
   } else if (this->attr_type_ == NULL_TYPE && other.attr_type_ != NULL_TYPE) {
     result = -1;
-  } else if (this->attr_type_ == INTS && other.attr_type_ == FLOATS) {
-    float this_data = this->num_value_.int_value_;
-    result = common::compare_float((void *)&this_data, (void *)&other.num_value_.float_value_);
-  } else if (this->attr_type_ == FLOATS && other.attr_type_ == INTS) {
-    float other_data = other.num_value_.int_value_;
-    result = common::compare_float((void *)&this->num_value_.float_value_, (void *)&other_data);
-  } else if (this->attr_type_ == CHARS && other.attr_type_ == INTS) {
-    if (this->str_value_.size() == 0 || !std::isdigit(this->str_value_[0])) {
-      result = -1;
-    } else {
-      int this_int = std::stoi(this->str_value_);
-      result = common::compare_int((void *)&this_int, (void *)&other.num_value_.int_value_);
-    }
-  } else if (this->attr_type_ == INTS && other.attr_type_ == CHARS) {
-    if (other.str_value_.size() == 0 || !std::isdigit(other.str_value_[0])) {
-      result = 1;
-    } else {
-      int other_int = std::stoi(other.str_value_);
-      result = common::compare_int((void *)&this->num_value_.int_value_, (void *)&other_int);
-    }
-  } else if (this->attr_type_ == CHARS && other.attr_type_ == FLOATS) {
-    if (this->str_value_.size() == 0 || !std::isdigit(this->str_value_[0])) {
-      result = -1;
-    } else {
-      float this_float = std::stof(this->str_value_);
-      result = common::compare_float((void *)&this_float, (void *)&other.num_value_.float_value_);
-    }
-  } else if (this->attr_type_ == FLOATS && other.attr_type_ == CHARS) {
-    if (other.str_value_.size() == 0 || !std::isdigit(other.str_value_[0])) {
-      result = 1;
-    } else {
-      float other_float = std::stof(other.str_value_);
-      result = common::compare_float((void *)&this->num_value_.float_value_, (void *)&other_float);
-    }
-  } else {
-    rc = RC::VALUE_COMPERR;
+  } else { 
+    // all to floats
+    float this_float, other_float;
+    this_float = this->get_float();
+    other_float = other.get_float();
+    result = common::compare_float((void *)&this_float, (void *)&other_float);
   }
   return rc;
 }
@@ -677,6 +633,13 @@ int Value::get_int() const
       LOG_WARN("cannot conver date to int.");
       return 0;
     }
+    case LIST_TYPE: {
+      if (list_->size() != 1) {
+        LOG_WARN("unknown data type. type=%d", attr_type_);
+        return false;
+      }
+      return list_->at(0).get_boolean();
+    } break;
     default: {
       LOG_WARN("unknown data type. type=%d", attr_type_);
       return 0;
@@ -708,6 +671,13 @@ float Value::get_float() const
     case DATES: {
       LOG_WARN("cannot conver date to float.");
       return 0;
+    } break;
+    case LIST_TYPE: {
+      if (list_->size() != 1) {
+        LOG_WARN("unknown data type. type=%d", attr_type_);
+        return false;
+      }
+      return list_->at(0).get_boolean();
     } break;
     default: {
       LOG_WARN("unknown data type. type=%d", attr_type_);
@@ -757,6 +727,16 @@ bool Value::get_boolean() const
     case BOOLEANS: {
       return num_value_.bool_value_;
     } break;
+    case LIST_TYPE: {
+      if (list_->size() != 1) {
+        LOG_WARN("unknown data type. type=%d", attr_type_);
+        return false;
+      }
+      return list_->at(0).get_boolean();
+    } break;
+    case EMPTY_TYPE: case NULL_TYPE: {
+      return false;
+    }
     default: {
       LOG_WARN("unknown data type. type=%d", attr_type_);
       return false;

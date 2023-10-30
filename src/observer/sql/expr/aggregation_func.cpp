@@ -78,7 +78,10 @@ void AggregationFunc::max(Value *value) {
 }
 
 void AggregationFunc::avg(Value *value) {
-  sum_ = sum_ + *value;
+  if (sum_.attr_type() == NULL_TYPE ) 
+    sum_ = *value;
+  else
+    sum_ = sum_ + *value;
   cnt_ = cnt_ + 1;
   result_.set_float(sum_.get_float() / cnt_);
 }
@@ -89,6 +92,9 @@ void AggregationFunc::count(Value *value) {
 }
 
 void AggregationFunc::sum(Value *value) {
-  sum_ = result_ + *value;
+  if (sum_.attr_type() == NULL_TYPE ) 
+    sum_ = *value;
+  else
+    sum_ = result_ + *value;
   result_ = sum_;
 }

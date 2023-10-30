@@ -28,7 +28,7 @@ SQLStageEvent::SQLStageEvent(SQLStageEvent &other, bool main_query) {
   session_event_ = new SessionEvent(other.session_event()->get_communicator());
   main_query_ = main_query;
   correlated_query_ = other.correlated_query_;
-  for_create_table_ = other.for_create_table_;
+  session_event_->sql_result()->correlated_query_ = other.correlated_query_;
 }
 
 SQLStageEvent::~SQLStageEvent() noexcept

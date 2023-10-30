@@ -285,19 +285,18 @@ public:
 
   RC cell_at(int index, Value &cell) const override
   {
-    if (index < 0 || index >= static_cast<int>(exprs_.size())) {
-      return RC::INTERNAL;
-    }
     if (tuple_ == nullptr) {
       return RC::INTERNAL;
     }
-
-    Expression *expr = exprs_[index];
+    Expression *expr = exprs_[0];
     if (expr->type() == ExprType::STAR) {
       return tuple_->cell_at(index, cell);
-    } else {
-      return expr->get_value(*tuple_, cell);
+    } 
+
+    if (index < 0 || index >= static_cast<int>(exprs_.size())) {
+      return RC::INTERNAL;
     }
+    return exprs_[index]->get_value(*tuple_, cell);
   }
 
   RC find_cell(const TupleCellSpec &spec, Value &cell) const override

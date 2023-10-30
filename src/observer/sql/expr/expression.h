@@ -185,7 +185,7 @@ public:
 
   RC try_get_value(Value &value) const override { 
     value = value_;
-    return RC::SUCCESS; 
+    return func_impl(value);
   }
 
   ExprType type() const override { return ExprType::VALUE; }
@@ -217,14 +217,15 @@ public:
   virtual ~SubQueryExpr() = default;
 
   RC get_value(const Tuple &tuple, Value &value) const override;
+  void set_value(const Value &value) { value_ = value; }
+
   RC try_get_value(Value &value) const override { 
     if (value_.attr_type() == UNDEFINED)
-      return RC::INVALID_ARGUMENT;
+      return RC::SUB_QUERY_TO_BE_SELECT;
     else 
       value = value_; 
     return RC::SUCCESS;
   }
-  void set_value(const Value &value) { value_ = value; }
 
   ExprType type() const override { return ExprType::SUB_QUERY; }
 
@@ -361,6 +362,7 @@ public:
   AttrType value_type() const override { return BOOLEANS; }
 
   RC get_value(const Tuple &tuple, Value &value) const override;
+  RC try_get_value(Value &value) const override;
 
   ConjuctType conjunction_type() const { return conjunction_type_; }
 
