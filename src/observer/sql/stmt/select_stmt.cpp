@@ -72,12 +72,14 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
 
   // collect tables and conditions in 'join' statement
   std::vector<Expression *> conditions;
-  conditions.push_back(select_sql.condition);
+  if (select_sql.condition)
+    conditions.push_back(select_sql.condition);
   for (const JoinNode &jnode : select_sql.joins) {
     const char *table_name = jnode.relation_name.c_str();
     if ((rc = add_table(db, tables, table_map, table_name, false)) != RC::SUCCESS) 
       return rc;
-    conditions.push_back(jnode.condition);
+    if (jnode.condition)
+      conditions.push_back(jnode.condition);
   }
 
   Expression *utimate_condition = nullptr;
@@ -90,6 +92,7 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
     conj->init(conditions);
     utimate_condition = conj;
   }
+
 
   if (select_sql.attributes.size() == 0) {
     LOG_WARN("select attribute size is zero");
@@ -188,6 +191,7 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
   if (tables.size() == 1) {
     default_table = tables[0];
   }
+
 
   // create filter statement in `where` statement
   FilterStmt *filter_stmt = nullptr;

@@ -318,14 +318,10 @@ Value Value::operator_arith(const Value &other, ArithType type) const {
   other_float = other.get_float();
 
   Value result;
-  if (other_float == 0) 
+  if (type == ARITH_DIV && other_float == 0) 
     result.set_null();
   else {
-    if (this->attr_type_ == INTS && other.attr_type_ == INTS) {
-      result.set_int(arith_float(this_float, other_float, type));
-    } else {
-      result.set_float(arith_float(this_float, other_float, type));
-    }
+    result.set_float(arith_float(this_float, other_float, type));
   }
 
   return result;
@@ -559,6 +555,8 @@ RC Value::compare(const Value &other, int &result) const
     result = 1;
   } else if (this->attr_type_ == NULL_TYPE && other.attr_type_ != NULL_TYPE) {
     result = -1;
+  } else if (this->attr_type_ == DATES || other.attr_type_ == DATES) {
+    return RC::VALUE_COMPERR;
   } else { 
     // all to floats
     float this_float, other_float;
@@ -635,7 +633,7 @@ int Value::get_int() const
     }
     case LIST_TYPE: {
       if (list_->size() != 1) {
-        LOG_WARN("unknown data type. type=%d", attr_type_);
+        LOG_WARN("list size is not one");
         return false;
       }
       return list_->at(0).get_boolean();
@@ -674,7 +672,7 @@ float Value::get_float() const
     } break;
     case LIST_TYPE: {
       if (list_->size() != 1) {
-        LOG_WARN("unknown data type. type=%d", attr_type_);
+        LOG_WARN("list size is not one");
         return false;
       }
       return list_->at(0).get_boolean();
@@ -729,7 +727,7 @@ bool Value::get_boolean() const
     } break;
     case LIST_TYPE: {
       if (list_->size() != 1) {
-        LOG_WARN("unknown data type. type=%d", attr_type_);
+        LOG_WARN("list size is not one");
         return false;
       }
       return list_->at(0).get_boolean();

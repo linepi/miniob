@@ -54,8 +54,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 %parse-param { void * scanner }
 
 //标识tokens
-%token  SEMICOLON
-        CREATE
+%token  CREATE
         DROP
         TABLE
         TABLES
@@ -129,7 +128,6 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 /** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
 %union {
   ParsedSqlNode *                   sql_node;
-  std::vector<ParsedSqlNode *> *    sql_nodes;
   Value *                           value;
   std::vector<Value> *              value_list;
   enum SortType                     sort_type;
@@ -167,7 +165,6 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 %type <number>              function_type
 %type <number>              join_type
 %type <number>              aggregation_func
-%type <number>              conjunct_type
 %type <sort_condition>      sort_condition
 %type <value>               value
 %type <number>              number
@@ -195,7 +192,13 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 %type <join_node>           join 
 
 %type <relation_list>       id_list
+
 %type <expression>          expression
+%type <expression>          expression_elem
+%type <expression>          expression_comp
+%type <expression>          expression_conj
+%type <expression>          expression_full
+%type <expression>          sub_query_expr
 %type <expression_list>     expression_list
 
 %type <set_list>            set_list
@@ -225,41 +228,17 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 %type <sql_node>            command_wrapper
 // commands should be a list but I use a single command instead
 %type <sql_node>            commands
-%type <sql_nodes>           command_list
 
 %left AND OR
 %left LT EQ GT LE GE NE LIKE NOT_LIKE IS_TOKEN IN_TOKEN IS_NOT_TOKEN NOT_IN_TOKEN EXISTS_TOKEN NOT_EXISTS_TOKEN
 %left '+' '-'
 %left '*' '/'
-%nonassoc UMINUS
 %%
 
-commands: command_wrapper opt_semicolon command_list //commands or sqls. parser starts here.
+commands: command_wrapper //commands or sqls. parser starts here.
   {
     std::unique_ptr<ParsedSqlNode> sql_node = std::unique_ptr<ParsedSqlNode>($1);
     sql_result->add_sql_node(std::move(sql_node));
-    if ($3 != nullptr) {
-      for (auto node : *$3) {
-        std::unique_ptr<ParsedSqlNode> thenode = std::unique_ptr<ParsedSqlNode>(node);
-        sql_result->add_sql_node(std::move(thenode));
-      }
-      delete $3;
-    }
-  }
-  ;
-
-command_list: 
-  {
-    $$ = nullptr;
-  }
-  | command_wrapper opt_semicolon command_list {
-    if ($3 == nullptr) {
-      $$ = new std::vector<ParsedSqlNode *>;
-      $$->emplace_back($1);
-    } else {
-      $3->emplace_back($1);
-      $$ = $3;
-    }
   }
   ;
 
@@ -422,6 +401,7 @@ as_select_wrapper:
   | select_stmt {
     $$ = $1;
   }
+  ;
 
 attr_def_list_for_create:
   {
@@ -437,6 +417,7 @@ attr_def_list_for_create:
     std::reverse($$->begin(), $$->end());
     delete $2;
   }
+  ;
 
 create_table_stmt:    /*create table 语句的语法解析树*/
     CREATE TABLE ID attr_def_list_for_create as_select_wrapper
@@ -504,6 +485,7 @@ type_note:
   | NULLABLE { $$ = 1; }
   | NULL_TOKEN { $$ = 1; }
   | NOT NULL_TOKEN { $$ = 0; }
+  ;
 
 type_meta:
     INT_T      { $$=INTS; }
@@ -518,6 +500,7 @@ aggregation_func:
     | AVG { $$ = AGG_AVG; }
     | COUNT { $$ = AGG_COUNT; }
     | SUM { $$ = AGG_SUM; }
+    ;
 
 insert_stmt:        /*insert   语句的语法解析树*/
     INSERT INTO ID VALUES insert_data insert_data_list
@@ -559,10 +542,265 @@ insert_data:
       $$ = $2;
     }
 
+
+delete_stmt:    /*  delete 语句的语法解析树*/
+    DELETE FROM ID where 
+    {
+      $$ = new ParsedSqlNode(SCF_DELETE);
+      $$->deletion.relation_name = $3;
+      $$->deletion.condition = $4;
+      free($3);
+    }
+    ;
+
+set_list:
+  {
+    $$ = nullptr;
+  }
+  | COMMA ID EQ expression_full set_list
+  {
+    if ($5 != nullptr) {
+      $$ = $5;
+    } else {
+      $$ = new std::vector<std::pair<std::string, Expression *>>;
+    }
+    $$->emplace_back(std::pair<std::string, Expression *>($2, $4));
+    free($2);
+  }
+
+update_stmt:      /*  update 语句的语法解析树*/
+    UPDATE ID SET ID EQ expression_full set_list where 
+    {
+      $$ = new ParsedSqlNode(SCF_UPDATE);
+      $$->update.relation_name = $2;
+
+      if ($7 != nullptr) {
+        $$->update.av.swap(*$7);
+        delete $7;
+      }
+      $$->update.av.emplace_back(std::pair<std::string, Expression *>($4, $6));
+      std::reverse($$->update.av.begin(), $$->update.av.end());
+
+      $$->update.condition = $8;
+      free($2);
+      free($4);
+    }
+    ;
+calc_stmt:
+    CALC expression_list
+    {
+      $$ = new ParsedSqlNode(SCF_CALC);
+      std::reverse($2->begin(), $2->end());
+      $$->calc.expressions.swap(*$2);
+      delete $2;
+    }
+    ;
+
+expression_list:
+    expression_full
+    {
+      $$ = new std::vector<Expression*>;
+      $$->emplace_back($1);
+    }
+    | expression_full COMMA expression_list
+    {
+      if ($3 != nullptr) {
+        $$ = $3;
+      } else {
+        $$ = new std::vector<Expression *>;
+      }
+      $$->emplace_back($1);
+    }
+    ;
+
+expression_full:
+  expression_conj {
+    $$ = $1;
+  }
+  | LBRACE expression_full RBRACE {
+    $$ = $2;
+    $$->set_name(token_name(sql_string, &@$));
+  }
+  | function_type LBRACE expression_full RBRACE {
+    $$ = $3;
+    $$->set_name(token_name(sql_string, &@$));
+    $$->set_func_type((FunctionType)$1);
+  }
+  ;
+
+expression_conj:
+  expression_comp {
+    $$ = $1;
+  }
+  | expression_conj AND expression_conj {
+    $$ = new ConjunctionExpr((ConjuctType)CONJ_AND, $1, $3);
+    $$->set_name(token_name(sql_string, &@$));
+  }
+  | expression_conj OR expression_conj {
+    $$ = new ConjunctionExpr((ConjuctType)CONJ_OR, $1, $3);
+    $$->set_name(token_name(sql_string, &@$));
+  }
+  | LBRACE expression_conj RBRACE {
+    $$ = $2;
+    $$->set_name(token_name(sql_string, &@$));
+  }
+  | function_type LBRACE expression_conj RBRACE {
+    $$ = $3;
+    $$->set_name(token_name(sql_string, &@$));
+    $$->set_func_type((FunctionType)$1);
+  }
+  ;
+
+expression_comp:
+  expression {
+    $$ = $1;
+  }
+  | expression_comp LT expression_comp { 
+    $$ = new ComparisonExpr(CompOp::LESS_THAN, $1, $3); 
+    $$->set_name(token_name(sql_string, &@$)); 
+  } 
+  | expression_comp EQ expression_comp { 
+    $$ = new ComparisonExpr(CompOp::EQUAL_TO, $1, $3); 
+    $$->set_name(token_name(sql_string, &@$)); 
+  } 
+  | expression_comp GT expression_comp { 
+    $$ = new ComparisonExpr(CompOp::GREAT_THAN, $1, $3); 
+    $$->set_name(token_name(sql_string, &@$)); 
+  } 
+  | expression_comp LE expression_comp { 
+    $$ = new ComparisonExpr(CompOp::LESS_EQUAL, $1, $3); 
+    $$->set_name(token_name(sql_string, &@$)); 
+  } 
+  | expression_comp GE expression_comp { 
+      $$ = new ComparisonExpr(CompOp::GREAT_EQUAL, $1, $3); 
+      $$->set_name(token_name(sql_string, &@$)); 
+  } 
+  | expression_comp NE expression_comp { 
+      $$ = new ComparisonExpr(CompOp::NOT_EQUAL, $1, $3); 
+      $$->set_name(token_name(sql_string, &@$)); 
+  } 
+  | expression_comp LIKE expression_comp { 
+      $$ = new ComparisonExpr(CompOp::LIKE_OP, $1, $3); 
+      $$->set_name(token_name(sql_string, &@$)); 
+  } 
+  | expression_comp NOT_LIKE expression_comp { 
+      $$ = new ComparisonExpr(CompOp::NOT_LIKE_OP, $1, $3); 
+      $$->set_name(token_name(sql_string, &@$)); 
+  } 
+  | expression_comp IS_TOKEN expression_comp { 
+      $$ = new ComparisonExpr(CompOp::IS, $1, $3); 
+      $$->set_name(token_name(sql_string, &@$)); 
+  } 
+  | expression_comp IN_TOKEN expression_comp { 
+      $$ = new ComparisonExpr(CompOp::IN, $1, $3); 
+      $$->set_name(token_name(sql_string, &@$)); 
+  } 
+  | expression_comp IS_NOT_TOKEN expression_comp { 
+      $$ = new ComparisonExpr(CompOp::IS_NOT, $1, $3); 
+      $$->set_name(token_name(sql_string, &@$)); 
+  } 
+  | expression_comp NOT_IN_TOKEN expression_comp { 
+      $$ = new ComparisonExpr(CompOp::NOT_IN, $1, $3); 
+      $$->set_name(token_name(sql_string, &@$)); 
+  } 
+  | expression_comp EXISTS_TOKEN expression_comp { 
+      $$ = new ComparisonExpr(CompOp::EXISTS, $1, $3); 
+      $$->set_name(token_name(sql_string, &@$)); 
+  } 
+  | expression_comp NOT_EXISTS_TOKEN expression_comp { 
+      $$ = new ComparisonExpr(CompOp::NOT_EXISTS, $1, $3); 
+      $$->set_name(token_name(sql_string, &@$)); 
+  }
+  | LBRACE expression_comp RBRACE {
+    $$ = $2;
+    $$->set_name(token_name(sql_string, &@$));
+  }
+  | function_type LBRACE expression_comp RBRACE {
+    $$ = $3;
+    $$->set_name(token_name(sql_string, &@$));
+    $$->set_func_type((FunctionType)$1);
+  }
+  ;
+
+expression:
+    expression_elem {
+      $$ = $1;
+    }
+    | expression '+' expression {
+      $$ = create_arithmetic_expression(ARITH_ADD, $1, $3, sql_string, &@$);
+    }
+    | expression '-' expression {
+      $$ = create_arithmetic_expression(ARITH_SUB, $1, $3, sql_string, &@$);
+    }
+    | expression '*' expression {
+      $$ = create_arithmetic_expression(ARITH_MUL, $1, $3, sql_string, &@$);
+    }
+    | expression '/' expression {
+      $$ = create_arithmetic_expression(ARITH_DIV, $1, $3, sql_string, &@$);
+    }
+    | '-' LBRACE expression RBRACE {
+      $$ = create_arithmetic_expression(ARITH_NEG, $3, nullptr, sql_string, &@$);
+    }
+    | LBRACE expression RBRACE {
+      $$ = $2;
+      $$->set_name(token_name(sql_string, &@$));
+    }
+    | function_type LBRACE expression RBRACE {
+      $$ = $3;
+      $$->set_name(token_name(sql_string, &@$));
+      $$->set_func_type((FunctionType)$1);
+    }
+    ;
+
+
+expression_elem:
+  '*' {
+    $$ = new StarExpr();
+    $$->set_name(token_name(sql_string, &@$));
+  }
+  | value {
+    $$ = new ValueExpr(*$1);
+    $$->set_name(token_name(sql_string, &@$));
+    delete $1;
+  }
+  | rel_attr {
+    $$ = new FieldExpr(*$1);
+    $$->set_name(token_name(sql_string, &@$));
+    delete $1;
+  }
+  | sub_query_expr {
+    $$ = $1;
+  }
+  | comp_op_single sub_query_expr {
+    $$ = new ComparisonExpr((CompOp)$1, $2);
+    $$->set_name(token_name(sql_string, &@$));
+  }
+  | function_type sub_query_expr {
+    $$ = $2;
+    $$->set_name(token_name(sql_string, &@$));
+    $$->set_func_type((FunctionType)$1);
+  }
+  ;
+
+
+sub_query_expr:
+  LBRACE select_stmt RBRACE {
+    SelectSqlNode *select = new SelectSqlNode; 
+    (*select) = $2->selection;
+    $$ = new SubQueryExpr(select);
+    $$->set_name(token_name(sql_string, &@$));
+    delete $2;
+  }
+  ;
+
 value:
     NUMBER {
       $$ = new Value((int)$1);
       @$ = @1;
+    }
+    |'-' NUMBER {
+      $$ = new Value((int)-$2);
+      @$ = @2;
     }
     |FLOAT {
       $$ = new Value((float)$1);
@@ -611,142 +849,6 @@ value_list:
   }
   ;
 
-delete_stmt:    /*  delete 语句的语法解析树*/
-    DELETE FROM ID where 
-    {
-      $$ = new ParsedSqlNode(SCF_DELETE);
-      $$->deletion.relation_name = $3;
-      $$->deletion.condition = $4;
-      free($3);
-    }
-    ;
-
-set_list:
-  {
-    $$ = nullptr;
-  }
-  | COMMA ID EQ expression set_list
-  {
-    if ($5 != nullptr) {
-      $$ = $5;
-    } else {
-      $$ = new std::vector<std::pair<std::string, Expression *>>;
-    }
-    $$->emplace_back(std::pair<std::string, Expression *>($2, $4));
-    free($2);
-  }
-
-update_stmt:      /*  update 语句的语法解析树*/
-    UPDATE ID SET ID EQ expression set_list where 
-    {
-      $$ = new ParsedSqlNode(SCF_UPDATE);
-      $$->update.relation_name = $2;
-
-      if ($7 != nullptr) {
-        $$->update.av.swap(*$7);
-        delete $7;
-      }
-      $$->update.av.emplace_back(std::pair<std::string, Expression *>($4, $6));
-      std::reverse($$->update.av.begin(), $$->update.av.end());
-
-      $$->update.condition = $8;
-      free($2);
-      free($4);
-    }
-    ;
-calc_stmt:
-    CALC expression_list
-    {
-      $$ = new ParsedSqlNode(SCF_CALC);
-      std::reverse($2->begin(), $2->end());
-      $$->calc.expressions.swap(*$2);
-      delete $2;
-    }
-    ;
-
-expression_list:
-    expression
-    {
-      $$ = new std::vector<Expression*>;
-      $$->emplace_back($1);
-    }
-    | expression COMMA expression_list
-    {
-      if ($3 != nullptr) {
-        $$ = $3;
-      } else {
-        $$ = new std::vector<Expression *>;
-      }
-      $$->emplace_back($1);
-    }
-    ;
-expression:
-    expression conjunct_type expression {
-      $$ = new ConjunctionExpr((ConjuctType)$2, $1, $3);
-      $$->set_name(token_name(sql_string, &@$));
-    }
-    | expression comp_op expression {
-      $$ = new ComparisonExpr((CompOp)$2, $1, $3);
-      $$->set_name(token_name(sql_string, &@$));
-    }
-    | comp_op_single expression {
-      $$ = new ComparisonExpr((CompOp)$1, $2);
-      $$->set_name(token_name(sql_string, &@$));
-    }
-    | expression '+' expression {
-      $$ = create_arithmetic_expression(ARITH_ADD, $1, $3, sql_string, &@$);
-    }
-    | expression '-' expression {
-      $$ = create_arithmetic_expression(ARITH_SUB, $1, $3, sql_string, &@$);
-    }
-    | expression '*' expression {
-      $$ = create_arithmetic_expression(ARITH_MUL, $1, $3, sql_string, &@$);
-    }
-    | expression '/' expression {
-      $$ = create_arithmetic_expression(ARITH_DIV, $1, $3, sql_string, &@$);
-    }
-    | '-' expression %prec UMINUS {
-      $$ = create_arithmetic_expression(ARITH_NEG, $2, nullptr, sql_string, &@$);
-    }
-    | LBRACE expression RBRACE {
-      $$ = $2;
-      $$->set_name(token_name(sql_string, &@$));
-    }
-    | function_type LBRACE expression RBRACE {
-      $$ = $3;
-      $$->set_func_type((FunctionType)$1);
-      $$->set_name(token_name(sql_string, &@$));
-    }
-    | '*' {
-      $$ = new StarExpr();
-      $$->set_name(token_name(sql_string, &@$));
-    }
-    | value {
-      $$ = new ValueExpr(*$1);
-      $$->set_name(token_name(sql_string, &@$));
-      delete $1;
-    }
-    | rel_attr {
-      $$ = new FieldExpr(*$1);
-      $$->set_name(token_name(sql_string, &@$));
-      delete $1;
-    }
-    | LBRACE select_stmt RBRACE {
-      SelectSqlNode *select = new SelectSqlNode; 
-      (*select) = $2->selection;
-      $$ = new SubQueryExpr(select);
-      $$->set_name(token_name(sql_string, &@$));
-      delete $2;
-    }
-    | function_type LBRACE select_stmt RBRACE {
-      SelectSqlNode *select = new SelectSqlNode; 
-      (*select) = $3->selection;
-      $$ = new SubQueryExpr(select);
-      $$->set_name(token_name(sql_string, &@$));
-      $$->set_func_type((FunctionType)$1);
-      delete $3;
-    }
-    ;
 
 joins:
   {
@@ -761,6 +863,7 @@ joins:
     $$->emplace_back(*$1);
     free($1);
   }
+  ;
 
 join: 
   join_type ID {
@@ -769,26 +872,25 @@ join:
     $$->relation_name = $2;
     free($2);
   }
-  | join_type ID ON expression {
+  | join_type ID ON expression_full {
     $$ = new JoinNode();
     $$->type = (JoinType)$1;
     $$->relation_name = $2;
     $$->condition = $4;
     free($2);
   }
+  ;
 
 join_type:
     JOIN { $$ = (JoinType)JOIN_INNER; }
   | INNER JOIN { $$ = (JoinType)JOIN_INNER; }
-
-conjunct_type:
-  AND { $$ = CONJ_AND; }
-  | OR { $$ = CONJ_OR; }
+  ;
 
 function_type:
   DATE_FORMAT { $$ = (FunctionType)FUNC_DATE_FORMAT; }
   | ROUND { $$ = (FunctionType)FUNC_ROUND; }
   | LENGTH { $$ = (FunctionType)FUNC_LENGTH; }
+  ;
 
 select_stmt:        /*  select 语句的语法解析树*/
     SELECT select_attr FROM ID id_list joins where order_by
@@ -837,6 +939,7 @@ order_by:
     }
     delete $3;
   }
+  ;
 
 sort_attr:
     ID {
@@ -881,6 +984,7 @@ sort_condition_list:
     }
     delete $2;
   }
+  ;
 
 
 select_attr:
@@ -894,6 +998,7 @@ select_attr:
     }
     delete $1;
   }
+  ;
 
 select_attr_impl_list: 
   {
@@ -908,6 +1013,7 @@ select_attr_impl_list:
     $$->emplace_back(*$2);
     delete $2;
   }
+  ;
 
 select_attr_impl:
   aggregation_func LBRACE select_attr_impl_piece RBRACE {
@@ -918,7 +1024,7 @@ select_attr_impl:
       delete $3;
     }
   }
-  | expression {
+  | expression_full {
     $$ = new SelectAttr();
     $$->expr_nodes.emplace_back($1);
     $$->agg_type = AGG_UNDEFINED;
@@ -970,9 +1076,10 @@ where:
   {
     $$ = nullptr;
   }
-  | WHERE expression {
+  | WHERE expression_full {
     $$ = $2;
   }
+  ;
 
 comp_op:
       EQ { $$ = EQUAL_TO; }
@@ -1031,9 +1138,6 @@ set_variable_stmt:
     }
     ;
 
-opt_semicolon: /*empty*/
-    | SEMICOLON
-    ;
 %%
 //_____________________________________________________________________
 extern void scan_string(const char *str, yyscan_t scanner);

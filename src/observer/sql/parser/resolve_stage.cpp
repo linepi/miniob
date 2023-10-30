@@ -206,7 +206,7 @@ RC expression_sub_query_extract(Expression *expr, SessionStage *ss, SQLStageEven
     return rc;
   }
 
-  Expression *left, *right;
+  Expression *left = nullptr, *right = nullptr;
   if (expr->type() == ExprType::ARITHMETIC) {
     ArithmeticExpr *expr_ = static_cast<ArithmeticExpr *>(expr);
     left = expr_->left().get();
@@ -221,8 +221,10 @@ RC expression_sub_query_extract(Expression *expr, SessionStage *ss, SQLStageEven
       }
       return rc;
     }
-    left = expr_->left().get();
-    right = expr_->right().get();
+    if (left)
+      left = expr_->left().get();
+    if (right)
+      right = expr_->right().get();
   }
   else if (expr->type() == ExprType::CONJUNCTION) {
     ConjunctionExpr *expr_ = static_cast<ConjunctionExpr *>(expr);
@@ -309,6 +311,7 @@ RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionSt
         father_tables->push_back(relation_name);
       }
       for (SelectAttr &attr : node->selection.attributes) {
+        if (attr.expr_nodes.size() == 0) continue;
         rc = expression_sub_query_extract(attr.expr_nodes[0], ss, sql_event, father_tables);
         if (rc != RC::SUCCESS) {
           LOG_WARN("selection.condition value extract error");
@@ -378,7 +381,7 @@ deal_rc:
 RC ResolveStage::handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
 {
   // for debug
-  if (false) {
+  if (main_query) {
     std::unordered_set<std::string> relations;
     if (sql_event->sql_node().get()->flag == SCF_SELECT) {
       get_relation_from_select(&(sql_event->sql_node().get()->selection), relations); 

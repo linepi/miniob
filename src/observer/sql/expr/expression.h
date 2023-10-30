@@ -94,6 +94,7 @@ public:
   // get all field expressions in a expression, not deep into sub query expression
   bool is_condition() const;
   RC visit_field_expr(std::function<RC (std::unique_ptr<Expression> &)> visitor, bool deepinto);
+  RC visit_arith_expr(std::function<RC (Expression *)> visitor);
   RC get_field_expr(std::vector<FieldExpr *> &field_exprs, bool deepinto);
   RC get_subquery_expr(std::vector<SubQueryExpr *> &result);
   RC get_relations(std::unordered_set<std::string> &relations);

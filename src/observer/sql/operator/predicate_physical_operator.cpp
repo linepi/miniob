@@ -20,7 +20,10 @@ See the Mulan PSL v2 for more details. */
 
 PredicatePhysicalOperator::PredicatePhysicalOperator(std::unique_ptr<Expression> expr) : expression_(std::move(expr))
 {
-  ASSERT(expression_->value_type() == BOOLEANS, "predicate's expression should be BOOLEAN type");
+  if (expression_->value_type() != BOOLEANS) {
+    LOG_WARN("predicate's expression should be BOOLEAN type(but it is %s)", 
+      attr_type_to_string(expression_->value_type()));
+  }
 }
 
 RC PredicatePhysicalOperator::open(Trx *trx)

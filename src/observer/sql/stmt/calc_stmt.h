@@ -45,6 +45,7 @@ public:
     CalcStmt *calc_stmt = new CalcStmt();
     for (Expression * const expr : calc_sql.expressions) {
       calc_stmt->expressions_.emplace_back(expr);
+      calc_stmt->names_.push_back(expr->name());
     }
     calc_sql.expressions.clear();
     stmt = calc_stmt;
@@ -57,6 +58,11 @@ public:
     return expressions_;
   }
 
+  std::vector<std::string> &names() {
+    return names_;
+  }
+
 private:
   std::vector<std::unique_ptr<Expression>> expressions_;
+  std::vector<std::string> names_;
 };

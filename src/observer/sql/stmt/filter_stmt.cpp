@@ -54,6 +54,25 @@ RC FilterStmt::create(Db *db, Table *default_table, std::unordered_map<std::stri
     return rc;
   }
 
+  auto arith_visitor = [](Expression *expr) {
+    ComparisonExpr *comp = static_cast<ComparisonExpr *>(expr);
+    AttrType left, right;
+    left = comp->left()->value_type();
+    right = comp->right()->value_type();
+    if (left == UNDEFINED || right == UNDEFINED) return RC::SUCCESS;
+    Value lv(left);
+    Value rv(right);
+    bool t;
+    return lv.compare_op(rv, comp->comp() ,t);
+  };
+
+  if (condition) {
+    rc = condition->visit_arith_expr(arith_visitor);
+    if (rc != RC::SUCCESS) {
+      return rc;
+    }
+  }
+
   stmt = new FilterStmt();
   stmt->condition_ = condition;
   return rc;

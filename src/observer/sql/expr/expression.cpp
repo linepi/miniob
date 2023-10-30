@@ -118,7 +118,7 @@ RC Expression::visit_field_expr(std::function<RC (std::unique_ptr<Expression> &)
     return rc;
   }
 
-  std::unique_ptr<Expression> *left, *right;
+  std::unique_ptr<Expression> *left = nullptr, *right = nullptr;
   if (type() == ExprType::ARITHMETIC) {
     ArithmeticExpr *expr_ = static_cast<ArithmeticExpr *>(this);
     left = &expr_->left();
@@ -153,32 +153,82 @@ RC Expression::visit_field_expr(std::function<RC (std::unique_ptr<Expression> &)
     assert(0);
   }
 
-  if ((*left)->type() == ExprType::FIELD) {
-    rc = visitor(*left);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("error while visit field_expr: %s", strrc(rc));
-      return rc;
-    }
-  } else {
-    rc = (*left)->visit_field_expr(visitor, deepinto);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("error while visit field_expr: %s", strrc(rc));
-      return rc;
+  if (left->get()) { 
+    if ((*left)->type() == ExprType::FIELD) {
+      rc = visitor(*left);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("error while visit field_expr: %s", strrc(rc));
+        return rc;
+      }
+    } else {
+      rc = (*left)->visit_field_expr(visitor, deepinto);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("error while visit field_expr: %s", strrc(rc));
+        return rc;
+      }
     }
   }
 
-  if ((*right)->type() == ExprType::FIELD) {
-    rc = visitor(*right);
+  if (right->get()) {
+    if ((*right)->type() == ExprType::FIELD) {
+      rc = visitor(*right);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("error while visit field_expr: %s", strrc(rc));
+        return rc;
+      }
+    } else {
+      rc = (*right)->visit_field_expr(visitor, deepinto);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("error while visit field_expr: %s", strrc(rc));
+        return rc;
+      }
+    }
+  }
+
+  return rc;
+}
+
+// not deep into
+RC Expression::visit_arith_expr(std::function<RC (Expression *)> visitor) {
+  RC rc = RC::SUCCESS;
+  if (this->type() == ExprType::VALUE) return rc;
+  if (this->type() == ExprType::STAR) return rc;
+  if (this->type() == ExprType::FIELD) return rc;
+  if (this->type() == ExprType::SUB_QUERY) return rc;  
+
+  Expression *left, *right;
+  if (type() == ExprType::ARITHMETIC) {
+    ArithmeticExpr *expr_ = static_cast<ArithmeticExpr *>(this);
+    left = expr_->left().get();
+    right = expr_->right().get();
+  }
+  else if (type() == ExprType::COMPARISON) {
+    ComparisonExpr *expr_ = static_cast<ComparisonExpr *>(this);
+    rc = visitor(expr_);
     if (rc != RC::SUCCESS) {
-      LOG_WARN("error while visit field_expr: %s", strrc(rc));
+      LOG_WARN("error while visit comparison expr %s", strrc(rc));
       return rc;
     }
-  } else {
-    rc = (*right)->visit_field_expr(visitor, deepinto);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("error while visit field_expr: %s", strrc(rc));
-      return rc;
-    }
+    return rc;
+  }
+  else if (type() == ExprType::CONJUNCTION) {
+    ConjunctionExpr *expr_ = static_cast<ConjunctionExpr *>(this);
+    left = expr_->left().get();
+    right = expr_->right().get();
+  }
+  else {
+    assert(0);
+  }
+
+  rc = left->visit_arith_expr(visitor);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("error while visit arith_expr: %s", strrc(rc));
+    return rc;
+  }
+  rc = right->visit_arith_expr(visitor);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("error while visit arith_expr: %s", strrc(rc));
+    return rc;
   }
 
   return rc;
@@ -195,7 +245,7 @@ RC Expression::get_subquery_expr(std::vector<SubQueryExpr *> &result) {
     return rc;
   }
 
-  Expression *left, *right;
+  Expression *left = nullptr, *right = nullptr;
   if (type() == ExprType::ARITHMETIC) {
     ArithmeticExpr *expr_ = static_cast<ArithmeticExpr *>(this);
     left = expr_->left().get();
@@ -222,16 +272,20 @@ RC Expression::get_subquery_expr(std::vector<SubQueryExpr *> &result) {
     assert(0); 
   } 
 
-  rc = left->get_subquery_expr(result);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("error while visit field_expr: %s", strrc(rc));
-    return rc;
+  if (left) {
+    rc = left->get_subquery_expr(result);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error while visit field_expr: %s", strrc(rc));
+      return rc;
+    }
   }
 
-  rc = right->get_subquery_expr(result);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("error while visit field_expr: %s", strrc(rc));
-    return rc;
+  if (right) {
+    rc = right->get_subquery_expr(result);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error while visit field_expr: %s", strrc(rc));
+      return rc;
+    }
   }
 
   return rc;
@@ -306,13 +360,15 @@ std::string Expression::dump_tree(int indent) {
 
   out += "\n";
 
-  Expression *left, *right;
+  Expression *left = nullptr, *right = nullptr;
   if (type() == ExprType::ARITHMETIC) {
     ArithmeticExpr *expr_ = static_cast<ArithmeticExpr *>(this);
     left = expr_->left().get();
     right = expr_->right().get();
-    out += left->dump_tree(indent + 1);
-    out += right->dump_tree(indent + 1);
+    if (left)
+      out += left->dump_tree(indent + 1);
+    if (right)
+      out += right->dump_tree(indent + 1);
   }
   else if (type() == ExprType::COMPARISON) {
     ComparisonExpr *expr_ = static_cast<ComparisonExpr *>(this);
@@ -437,12 +493,10 @@ RC ComparisonExpr::try_get_value(Value &cell) const
   RC rc = RC::SUCCESS;
   rc = left_->try_get_value(lv);
   if (rc != RC::SUCCESS) {
-    LOG_WARN("try get value failed. rc=%s", strrc(rc));
     return rc;
   }
   rc = right_->try_get_value(rv);
   if (rc != RC::SUCCESS) {
-    LOG_WARN("try get value failed. rc=%s", strrc(rc));
     return rc;
   }
 
@@ -545,12 +599,12 @@ RC ConjunctionExpr::try_get_value(Value &value) const
   Value lv, rv;
   rc = left_->try_get_value(lv);
   if (rc != RC::SUCCESS) {
-    LOG_WARN("try get value failed. rc=%s", strrc(rc));
+    LOG_INFO("try get value failed. rc=%s", strrc(rc));
     return rc;
   }
   rc = right_->try_get_value(rv);
   if (rc != RC::SUCCESS) {
-    LOG_WARN("try get value failed. rc=%s", strrc(rc));
+    LOG_INFO("try get value failed. rc=%s", strrc(rc));
     return rc;
   }
   bool lb = lv.get_boolean(), rb = rv.get_boolean();
@@ -625,15 +679,20 @@ RC ArithmeticExpr::get_value(const Tuple &tuple, Value &value) const
   Value left_value;
   Value right_value;
 
-  rc = left_->get_value(tuple, left_value);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to get value of left expression. rc=%s", strrc(rc));
-    return rc;
+  if (left_.get()) {
+    rc = left_->get_value(tuple, left_value);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to get value of left expression. rc=%s", strrc(rc));
+      return rc;
+    }
   }
-  rc = right_->get_value(tuple, right_value);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to get value of right expression. rc=%s", strrc(rc));
-    return rc;
+
+  if (right_.get()) {
+    rc = right_->get_value(tuple, right_value);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to get value of right expression. rc=%s", strrc(rc));
+      return rc;
+    }
   }
   return calc_value(left_value, right_value, value);
 }
@@ -647,14 +706,14 @@ RC ArithmeticExpr::try_get_value(Value &value) const
 
   rc = left_->try_get_value(left_value);
   if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to get value of left expression. rc=%s", strrc(rc));
+    LOG_INFO("failed to get value of left expression. rc=%s", strrc(rc));
     return rc;
   }
 
   if (right_) {
     rc = right_->try_get_value(right_value);
     if (rc != RC::SUCCESS) {
-      LOG_WARN("failed to get value of right expression. rc=%s", strrc(rc));
+      LOG_INFO("failed to get value of right expression. rc=%s", strrc(rc));
       return rc;
     }
   }

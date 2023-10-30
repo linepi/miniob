@@ -53,8 +53,8 @@ void get_relation_from_update(UpdateSqlNode *update, std::unordered_set<std::str
 
 void get_relation_from_select(SelectSqlNode *select, std::unordered_set<std::string> &relations) {
   for (SelectAttr &attr : select->attributes) {
-    assert(attr.expr_nodes.size() > 0);
-    attr.expr_nodes[0]->get_relations(relations);
+    if (attr.expr_nodes.size() > 0)
+      attr.expr_nodes[0]->get_relations(relations);
   }
   for (std::string &rela : select->relations) {
     add_relation(relations, rela);
@@ -146,6 +146,7 @@ void show_expressions(ParsedSqlNode *node) {
       exprs.push_back(join.condition);
     }
     for (SelectAttr &attr : node->selection.attributes) {
+      if (attr.expr_nodes.size() == 0) continue;
       exprs.push_back(attr.expr_nodes[0]);
     }
   } else if (node->flag == SCF_UPDATE) {
@@ -157,6 +158,7 @@ void show_expressions(ParsedSqlNode *node) {
         exprs.push_back(join.condition);
       }
       for (SelectAttr &attr : node->create_table.select->attributes) {
+        if (attr.expr_nodes.size() == 0) continue;
         exprs.push_back(attr.expr_nodes[0]);
       }
     }

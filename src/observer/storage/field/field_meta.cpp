@@ -100,6 +100,15 @@ bool FieldMeta::nullable() const {
 }
 
 bool FieldMeta::match(Value &value) const {
+  if (value.attr_type() == LIST_TYPE) {
+    if (value.list()->size() > 1) {
+      return false;
+    } else if (value.list()->size() == 1) {
+      value.set_value(value.list()->at(0));
+    } else {
+      assert(0);
+    }
+  }
   if (value.attr_type() == NULL_TYPE && nullable_) {
     return true;
   }
