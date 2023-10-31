@@ -61,9 +61,6 @@ RC CreateTableExecutor::execute(SQLStageEvent *sql_event)
     if (first_expr->type() == ExprType::FIELD) {
       FieldExpr *field_expr = static_cast<FieldExpr *>(first_expr);
       if (field_expr->rel_attr().attribute_name == "*") {
-        if (select->attributes[0].agg_type == AGG_COUNT) {
-          attrs.push_back(AttrInfoSqlNode{INTS, "COUNT(*)", 4, true});
-        } else {
           for (Field &f : field_metas) {
             std::string name;
             if (tables.size() == 1) 
@@ -72,7 +69,6 @@ RC CreateTableExecutor::execute(SQLStageEvent *sql_event)
               name = f.table_name() + std::string(".") + f.field_name();
             attrs.push_back(AttrInfoSqlNode{f.attr_type(), name.c_str(), (uint64_t)f.attr_len(), true});
           }
-        }
       }
     } else {
       for (SelectAttr &select_attr : select->attributes) {
@@ -81,9 +77,6 @@ RC CreateTableExecutor::execute(SQLStageEvent *sql_event)
         AttrInfoSqlNode new_node;
         new_node.nullable = true;
         std::string name = expr->name();
-        if (select_attr.agg_type != AGG_UNDEFINED) {
-          name = AGG_TYPE_NAME[select_attr.agg_type] + std::string("(") + name + ")";
-        }
         new_node.name = name;
 
         new_node.length = 4;

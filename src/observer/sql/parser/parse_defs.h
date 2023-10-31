@@ -50,7 +50,6 @@ struct RelAttrSqlNode
 struct SelectAttr
 {
   std::vector<Expression *> expr_nodes;
-  AggType agg_type = AGG_UNDEFINED;  
 };
 
 /**

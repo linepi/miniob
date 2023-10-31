@@ -17,6 +17,7 @@ See the Mulan PSL v2 for more details. */
 #include <string.h>
 #include <memory>
 #include <string>
+#include <stack>
 
 #include "sql/parser/value.h"
 #include "common/log/log.h"
@@ -82,19 +83,19 @@ public:
   virtual std::string name() const { return name_; }
   virtual void set_name(std::string name) { name_ = name; }
 
-  virtual void set_func_type(FunctionType type) { func_type_ = type; }
-  virtual FunctionType func_type(FunctionType type) const { return func_type_; }
+  void add_func(AggType agg_type);
+  void add_func(FunctionType func_type);
 
-  RC func_length(Value &value) const;
-  RC func_round(Value &value) const;
-  RC func_date_format(Value &value) const;
   RC func_impl(Value &value) const;
+  std::vector<ExprFunc *> &funcs() { return funcs_; }
 
   // tool functions
   // get all field expressions in a expression, not deep into sub query expression
   bool is_condition() const;
+  RC is_aggregate(bool &result) ;
   RC visit_field_expr(std::function<RC (std::unique_ptr<Expression> &)> visitor, bool deepinto);
-  RC visit_arith_expr(std::function<RC (Expression *)> visitor);
+  RC visit_comp_expr(std::function<RC (Expression *)> visitor);
+  RC visit(std::function<RC (Expression *)> visitor);
   RC get_field_expr(std::vector<FieldExpr *> &field_exprs, bool deepinto);
   RC get_subquery_expr(std::vector<SubQueryExpr *> &result);
   RC get_relations(std::unordered_set<std::string> &relations);
@@ -102,7 +103,7 @@ public:
 
 private:
   std::string  name_;
-  FunctionType func_type_ = FUNC_UNDEFINED;
+  std::vector<ExprFunc *> funcs_;
 };
 
 /**
@@ -159,9 +160,9 @@ public:
 
   AttrType value_type() const override { return UNDEFINED; }
 
-  RC get_value(const Tuple &tuple, Value &value) const override {
-    return RC::SUCCESS;
-  }
+  RC get_value(const Tuple &tuple, Value &value) const override;
+
+  RC get_value(int index, const Tuple &tuple, Value &value) const;
 
 private:
   std::vector<Field> fields_;
@@ -307,7 +308,6 @@ class ComparisonExpr : public Expression
 {
 public:
   ComparisonExpr(CompOp comp, Expression *left, Expression *right);
-  ComparisonExpr(CompOp comp, Expression *single);
   ComparisonExpr(CompOp comp, std::unique_ptr<Expression> left, std::unique_ptr<Expression> right);
   virtual ~ComparisonExpr();
 
@@ -321,7 +321,6 @@ public:
 
   std::unique_ptr<Expression> &left()  { return left_;  }
   std::unique_ptr<Expression> &right() { return right_; }
-  std::unique_ptr<Expression> &single() { return single_; }
 
   /**
    * 尝试在没有tuple的情况下获取当前表达式的值
@@ -337,7 +336,6 @@ public:
 
 private:
   CompOp comp_;
-  std::unique_ptr<Expression> single_;
   std::unique_ptr<Expression> left_;
   std::unique_ptr<Expression> right_;
 };

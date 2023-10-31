@@ -406,8 +406,6 @@ RC Value::is_in(CompOp op, const Value &other, bool &result) const {
     return RC::SUCCESS;
   }
 
-  assert(other.list());
-
   if (op == CompOp::IN) {
     for (const Value &v : *other.list()) {
       bool tmp_res;

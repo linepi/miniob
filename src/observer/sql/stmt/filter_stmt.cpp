@@ -56,18 +56,33 @@ RC FilterStmt::create(Db *db, Table *default_table, std::unordered_map<std::stri
 
   auto arith_visitor = [](Expression *expr) {
     ComparisonExpr *comp = static_cast<ComparisonExpr *>(expr);
+    if (!comp->left()) {
+      if (comp->right()->type() != ExprType::SUB_QUERY)
+        return RC::VALUE_COMPERR;
+    }
+
     AttrType left, right;
     left = comp->left()->value_type();
     right = comp->right()->value_type();
-    if (left == UNDEFINED || right == UNDEFINED) return RC::SUCCESS;
-    Value lv(left);
-    Value rv(right);
+    if (left == UNDEFINED || right == UNDEFINED) 
+      return RC::SUCCESS;
+
+    Value lv(UNDEFINED), rv(UNDEFINED);
+    comp->left()->try_get_value(lv);
+    comp->right()->try_get_value(rv);
+
+    if (lv.attr_type() == UNDEFINED) {
+      lv.set_type(left);
+    }
+    if (rv.attr_type() == UNDEFINED) {
+      rv.set_type(right);
+    }
     bool t;
     return lv.compare_op(rv, comp->comp() ,t);
   };
 
   if (condition) {
-    rc = condition->visit_arith_expr(arith_visitor);
+    rc = condition->visit_comp_expr(arith_visitor);
     if (rc != RC::SUCCESS) {
       return rc;
     }

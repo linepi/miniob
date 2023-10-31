@@ -214,13 +214,6 @@ RC expression_sub_query_extract(Expression *expr, SessionStage *ss, SQLStageEven
   }
   else if (expr->type() == ExprType::COMPARISON) {
     ComparisonExpr *expr_ = static_cast<ComparisonExpr *>(expr);
-    if (expr_->single().get()) {
-      rc = expression_sub_query_extract(expr_->single().get(), ss, sql_event, father_tables);
-      if (rc != RC::SUCCESS) {
-        LOG_WARN("expression sub query extract error for %s type", EXPR_NAME[(int)expr_->single()->type()]);
-      }
-      return rc;
-    }
     if (left)
       left = expr_->left().get();
     if (right)

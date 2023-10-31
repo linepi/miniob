@@ -11,6 +11,8 @@
 #include "sql/parser/parse_defs.h"
 #include "sql/parser/yacc_sql.hpp"
 #include "sql/parser/lex_sql.h"
+#include "sql/expr/common_function.h"
+#include "sql/expr/aggregation_func.h"
 #include "sql/expr/expression.h"
 
 using namespace std;
@@ -147,6 +149,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
   std::vector<std::pair<std::string, Expression *>> * set_list;
   SortNode *                        sort_condition;
   std::vector<SortNode> *           sort_condition_list;
+  AggType                           agg;
+  FunctionType                      func;
   char *                            string;
   int                               number;
   float                             floats;
@@ -162,14 +166,12 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 /** type 定义了各种解析后的结果输出的是什么类型。类型对应了 union 中的定义的成员变量名称 **/
 %type <number>              type_meta
 %type <number>              type_note
-%type <number>              function_type
+%type <func>                 function_type
+%type <agg>                aggregation_func
 %type <number>              join_type
-%type <number>              aggregation_func
 %type <sort_condition>      sort_condition
 %type <value>               value
 %type <number>              number
-%type <comp>                comp_op
-%type <comp>                comp_op_single
 %type <sort_type>           sort_type
 
 %type <attr_infos>          attr_def_list
@@ -195,9 +197,6 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 
 %type <expression>          expression
 %type <expression>          expression_elem
-%type <expression>          expression_comp
-%type <expression>          expression_conj
-%type <expression>          expression_full
 %type <expression>          sub_query_expr
 %type <expression_list>     expression_list
 
@@ -230,7 +229,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 %type <sql_node>            commands
 
 %left AND OR
-%left LT EQ GT LE GE NE LIKE NOT_LIKE IS_TOKEN IN_TOKEN IS_NOT_TOKEN NOT_IN_TOKEN EXISTS_TOKEN NOT_EXISTS_TOKEN
+%left LT EQ GT LE GE NE LIKE NOT_LIKE IS_TOKEN IN_TOKEN IS_NOT_TOKEN NOT_IN_TOKEN 
+%left EXISTS_TOKEN NOT_EXISTS_TOKEN
 %left '+' '-'
 %left '*' '/'
 %%
@@ -495,11 +495,11 @@ type_meta:
     ;
 
 aggregation_func:
-    MIN { $$ = AGG_MIN; }
-    | MAX { $$ = AGG_MAX; }
-    | AVG { $$ = AGG_AVG; }
+    MIN { $$ =     AGG_MIN; }
+    | MAX { $$ =   AGG_MAX; }
+    | AVG { $$ =   AGG_AVG; }
     | COUNT { $$ = AGG_COUNT; }
-    | SUM { $$ = AGG_SUM; }
+    | SUM { $$ =   AGG_SUM;}
     ;
 
 insert_stmt:        /*insert   语句的语法解析树*/
@@ -557,7 +557,7 @@ set_list:
   {
     $$ = nullptr;
   }
-  | COMMA ID EQ expression_full set_list
+  | COMMA ID EQ expression set_list
   {
     if ($5 != nullptr) {
       $$ = $5;
@@ -569,7 +569,7 @@ set_list:
   }
 
 update_stmt:      /*  update 语句的语法解析树*/
-    UPDATE ID SET ID EQ expression_full set_list where 
+    UPDATE ID SET ID EQ expression set_list where 
     {
       $$ = new ParsedSqlNode(SCF_UPDATE);
       $$->update.relation_name = $2;
@@ -597,12 +597,12 @@ calc_stmt:
     ;
 
 expression_list:
-    expression_full
+    expression
     {
       $$ = new std::vector<Expression*>;
       $$->emplace_back($1);
     }
-    | expression_full COMMA expression_list
+    | expression COMMA expression_list
     {
       if ($3 != nullptr) {
         $$ = $3;
@@ -613,118 +613,73 @@ expression_list:
     }
     ;
 
-expression_full:
-  expression_conj {
-    $$ = $1;
-  }
-  | LBRACE expression_full RBRACE {
-    $$ = $2;
-    $$->set_name(token_name(sql_string, &@$));
-  }
-  | function_type LBRACE expression_full RBRACE {
-    $$ = $3;
-    $$->set_name(token_name(sql_string, &@$));
-    $$->set_func_type((FunctionType)$1);
-  }
-  ;
-
-expression_conj:
-  expression_comp {
-    $$ = $1;
-  }
-  | expression_conj AND expression_conj {
-    $$ = new ConjunctionExpr((ConjuctType)CONJ_AND, $1, $3);
-    $$->set_name(token_name(sql_string, &@$));
-  }
-  | expression_conj OR expression_conj {
-    $$ = new ConjunctionExpr((ConjuctType)CONJ_OR, $1, $3);
-    $$->set_name(token_name(sql_string, &@$));
-  }
-  | LBRACE expression_conj RBRACE {
-    $$ = $2;
-    $$->set_name(token_name(sql_string, &@$));
-  }
-  | function_type LBRACE expression_conj RBRACE {
-    $$ = $3;
-    $$->set_name(token_name(sql_string, &@$));
-    $$->set_func_type((FunctionType)$1);
-  }
-  ;
-
-expression_comp:
-  expression {
-    $$ = $1;
-  }
-  | expression_comp LT expression_comp { 
-    $$ = new ComparisonExpr(CompOp::LESS_THAN, $1, $3); 
-    $$->set_name(token_name(sql_string, &@$)); 
-  } 
-  | expression_comp EQ expression_comp { 
-    $$ = new ComparisonExpr(CompOp::EQUAL_TO, $1, $3); 
-    $$->set_name(token_name(sql_string, &@$)); 
-  } 
-  | expression_comp GT expression_comp { 
-    $$ = new ComparisonExpr(CompOp::GREAT_THAN, $1, $3); 
-    $$->set_name(token_name(sql_string, &@$)); 
-  } 
-  | expression_comp LE expression_comp { 
-    $$ = new ComparisonExpr(CompOp::LESS_EQUAL, $1, $3); 
-    $$->set_name(token_name(sql_string, &@$)); 
-  } 
-  | expression_comp GE expression_comp { 
-      $$ = new ComparisonExpr(CompOp::GREAT_EQUAL, $1, $3); 
-      $$->set_name(token_name(sql_string, &@$)); 
-  } 
-  | expression_comp NE expression_comp { 
-      $$ = new ComparisonExpr(CompOp::NOT_EQUAL, $1, $3); 
-      $$->set_name(token_name(sql_string, &@$)); 
-  } 
-  | expression_comp LIKE expression_comp { 
-      $$ = new ComparisonExpr(CompOp::LIKE_OP, $1, $3); 
-      $$->set_name(token_name(sql_string, &@$)); 
-  } 
-  | expression_comp NOT_LIKE expression_comp { 
-      $$ = new ComparisonExpr(CompOp::NOT_LIKE_OP, $1, $3); 
-      $$->set_name(token_name(sql_string, &@$)); 
-  } 
-  | expression_comp IS_TOKEN expression_comp { 
-      $$ = new ComparisonExpr(CompOp::IS, $1, $3); 
-      $$->set_name(token_name(sql_string, &@$)); 
-  } 
-  | expression_comp IN_TOKEN expression_comp { 
-      $$ = new ComparisonExpr(CompOp::IN, $1, $3); 
-      $$->set_name(token_name(sql_string, &@$)); 
-  } 
-  | expression_comp IS_NOT_TOKEN expression_comp { 
-      $$ = new ComparisonExpr(CompOp::IS_NOT, $1, $3); 
-      $$->set_name(token_name(sql_string, &@$)); 
-  } 
-  | expression_comp NOT_IN_TOKEN expression_comp { 
-      $$ = new ComparisonExpr(CompOp::NOT_IN, $1, $3); 
-      $$->set_name(token_name(sql_string, &@$)); 
-  } 
-  | expression_comp EXISTS_TOKEN expression_comp { 
-      $$ = new ComparisonExpr(CompOp::EXISTS, $1, $3); 
-      $$->set_name(token_name(sql_string, &@$)); 
-  } 
-  | expression_comp NOT_EXISTS_TOKEN expression_comp { 
-      $$ = new ComparisonExpr(CompOp::NOT_EXISTS, $1, $3); 
-      $$->set_name(token_name(sql_string, &@$)); 
-  }
-  | LBRACE expression_comp RBRACE {
-    $$ = $2;
-    $$->set_name(token_name(sql_string, &@$));
-  }
-  | function_type LBRACE expression_comp RBRACE {
-    $$ = $3;
-    $$->set_name(token_name(sql_string, &@$));
-    $$->set_func_type((FunctionType)$1);
-  }
-  ;
-
 expression:
     expression_elem {
       $$ = $1;
+    }
+    | expression LT expression { 
+      $$ = new ComparisonExpr(CompOp::LESS_THAN, $1, $3); 
+      $$->set_name(token_name(sql_string, &@$)); 
+    } 
+    | expression EQ expression { 
+      $$ = new ComparisonExpr(CompOp::EQUAL_TO, $1, $3); 
+      $$->set_name(token_name(sql_string, &@$)); 
+    } 
+    | expression GT expression { 
+      $$ = new ComparisonExpr(CompOp::GREAT_THAN, $1, $3); 
+      $$->set_name(token_name(sql_string, &@$)); 
+    } 
+    | expression LE expression { 
+      $$ = new ComparisonExpr(CompOp::LESS_EQUAL, $1, $3); 
+      $$->set_name(token_name(sql_string, &@$)); 
+    } 
+    | expression GE expression { 
+        $$ = new ComparisonExpr(CompOp::GREAT_EQUAL, $1, $3); 
+        $$->set_name(token_name(sql_string, &@$)); 
+    } 
+    | expression NE expression { 
+        $$ = new ComparisonExpr(CompOp::NOT_EQUAL, $1, $3); 
+        $$->set_name(token_name(sql_string, &@$)); 
+    } 
+    | expression LIKE expression { 
+        $$ = new ComparisonExpr(CompOp::LIKE_OP, $1, $3); 
+        $$->set_name(token_name(sql_string, &@$)); 
+    } 
+    | expression NOT_LIKE expression { 
+        $$ = new ComparisonExpr(CompOp::NOT_LIKE_OP, $1, $3); 
+        $$->set_name(token_name(sql_string, &@$)); 
+    } 
+    | expression IS_TOKEN expression { 
+        $$ = new ComparisonExpr(CompOp::IS, $1, $3); 
+        $$->set_name(token_name(sql_string, &@$)); 
+    } 
+    | expression IN_TOKEN expression { 
+        $$ = new ComparisonExpr(CompOp::IN, $1, $3); 
+        $$->set_name(token_name(sql_string, &@$)); 
+    } 
+    | expression IS_NOT_TOKEN expression { 
+        $$ = new ComparisonExpr(CompOp::IS_NOT, $1, $3); 
+        $$->set_name(token_name(sql_string, &@$)); 
+    } 
+    | expression NOT_IN_TOKEN expression { 
+        $$ = new ComparisonExpr(CompOp::NOT_IN, $1, $3); 
+        $$->set_name(token_name(sql_string, &@$)); 
+    } 
+    | EXISTS_TOKEN expression { 
+        $$ = new ComparisonExpr(CompOp::EXISTS, nullptr, $2); 
+        $$->set_name(token_name(sql_string, &@$)); 
+    } 
+    | NOT_EXISTS_TOKEN expression { 
+        $$ = new ComparisonExpr(CompOp::NOT_EXISTS, nullptr, $2); 
+        $$->set_name(token_name(sql_string, &@$)); 
+    }
+    | expression AND expression {
+      $$ = new ConjunctionExpr((ConjuctType)CONJ_AND, $1, $3);
+      $$->set_name(token_name(sql_string, &@$));
+    }
+    | expression OR expression {
+      $$ = new ConjunctionExpr((ConjuctType)CONJ_OR, $1, $3);
+      $$->set_name(token_name(sql_string, &@$));
     }
     | expression '+' expression {
       $$ = create_arithmetic_expression(ARITH_ADD, $1, $3, sql_string, &@$);
@@ -748,7 +703,12 @@ expression:
     | function_type LBRACE expression RBRACE {
       $$ = $3;
       $$->set_name(token_name(sql_string, &@$));
-      $$->set_func_type((FunctionType)$1);
+      $$->add_func($1);
+    }
+    | aggregation_func LBRACE expression RBRACE {
+      $$ = $3;
+      $$->set_name(token_name(sql_string, &@$));
+      $$->add_func($1);
     }
     ;
 
@@ -771,14 +731,15 @@ expression_elem:
   | sub_query_expr {
     $$ = $1;
   }
-  | comp_op_single sub_query_expr {
-    $$ = new ComparisonExpr((CompOp)$1, $2);
-    $$->set_name(token_name(sql_string, &@$));
-  }
   | function_type sub_query_expr {
     $$ = $2;
     $$->set_name(token_name(sql_string, &@$));
-    $$->set_func_type((FunctionType)$1);
+    $$->add_func($1);
+  }
+  | aggregation_func sub_query_expr {
+    $$ = $2;
+    $$->set_name(token_name(sql_string, &@$));
+    $$->add_func($1);
   }
   ;
 
@@ -872,7 +833,7 @@ join:
     $$->relation_name = $2;
     free($2);
   }
-  | join_type ID ON expression_full {
+  | join_type ID ON expression {
     $$ = new JoinNode();
     $$->type = (JoinType)$1;
     $$->relation_name = $2;
@@ -887,9 +848,9 @@ join_type:
   ;
 
 function_type:
-  DATE_FORMAT { $$ = (FunctionType)FUNC_DATE_FORMAT; }
-  | ROUND { $$ = (FunctionType)FUNC_ROUND; }
-  | LENGTH { $$ = (FunctionType)FUNC_LENGTH; }
+  DATE_FORMAT { $$ = FUNC_DATE_FORMAT; }
+  | ROUND { $$ = FUNC_ROUND; }
+  | LENGTH { $$ = FUNC_LENGTH; }
   ;
 
 select_stmt:        /*  select 语句的语法解析树*/
@@ -1018,16 +979,14 @@ select_attr_impl_list:
 select_attr_impl:
   aggregation_func LBRACE select_attr_impl_piece RBRACE {
     $$ = new SelectAttr();
-    $$->agg_type = (AggType)$1;
     if ($3 != nullptr) {
       $$->expr_nodes = *$3;
       delete $3;
     }
   }
-  | expression_full {
+  | expression {
     $$ = new SelectAttr();
     $$->expr_nodes.emplace_back($1);
-    $$->agg_type = AGG_UNDEFINED;
   }
   ;
 
@@ -1076,29 +1035,9 @@ where:
   {
     $$ = nullptr;
   }
-  | WHERE expression_full {
+  | WHERE expression {
     $$ = $2;
   }
-  ;
-
-comp_op:
-      EQ { $$ = EQUAL_TO; }
-    | LT { $$ = LESS_THAN; }
-    | GT { $$ = GREAT_THAN; }
-    | LE { $$ = LESS_EQUAL; }
-    | GE { $$ = GREAT_EQUAL; }
-    | NE { $$ = NOT_EQUAL; }
-    | LIKE { $$ = LIKE_OP; }
-    | NOT_LIKE { $$ = NOT_LIKE_OP; }
-    | IS_TOKEN { $$ = IS; }
-    | IS_NOT_TOKEN { $$ = IS_NOT; }
-    | IN_TOKEN { $$ = IN; }
-    | NOT_IN_TOKEN { $$ = NOT_IN; }
-    ;
-
-comp_op_single:
-  NOT_EXISTS_TOKEN { $$ = NOT_EXISTS; }
-  | EXISTS_TOKEN { $$ = EXISTS; }
   ;
 
 sort_type:

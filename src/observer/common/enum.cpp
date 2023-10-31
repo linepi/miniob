@@ -1,5 +1,14 @@
 #include <common/enum.h>
 
+const char *AGG_TYPE_NAME[] = {
+  "UNDEFINED", 
+  "MIN", 
+  "MAX",
+  "AVG",         
+  "SUM",         
+  "COUNT",       
+};
+
 const char *COMPOP_NAME[] = {
   [EQUAL_TO]      = "=",
   [LESS_EQUAL]    = "<=",

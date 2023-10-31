@@ -12,13 +12,44 @@ See the Mulan PSL v2 for more details. */
 // Created by Wangyunlai on 2022/07/05.
 //
 
+#include "sql/expr/common_function.h"
+#include "sql/expr/aggregation_func.h"
 #include "sql/expr/expression.h"
 #include "sql/expr/tuple.h"
 #include "event/sql_event.h"
 #include <unordered_set>
 #include <cmath>
+#include <stack>
 
 using namespace std;
+
+void Expression::add_func(AggType agg_type) { 
+  funcs_.push_back(new AggregationFunc(agg_type)); 
+}
+
+void Expression::add_func(FunctionType func_type) { 
+  funcs_.push_back(new CommonFunction(func_type)); 
+}
+
+RC Expression::is_aggregate(bool &result) {
+  result = false;
+  auto visitor = [&result](Expression *expr) {
+    std::vector<ExprFunc *> &funcs = expr->funcs();
+    for (ExprFunc *func : funcs) {
+      if (func->type() == ExprFunc::AGG) {
+        result = true;
+        break;
+      }
+    }
+    return RC::SUCCESS;
+  };
+  RC rc = this->visit(visitor);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("error while visit aggregate");
+    return rc;
+  }
+  return RC::SUCCESS;
+}
 
 RC Expression::get_relations(std::unordered_set<std::string> &relations) {
   auto visitor = [&relations](std::unique_ptr<Expression> &expr) {
@@ -42,39 +73,18 @@ RC Expression::get_field_expr(std::vector<FieldExpr *> &field_exprs, bool deepin
   return visit_field_expr(visitor, deepinto);
 }
 
-RC Expression::func_length(Value& value) const {
-  if (value.attr_type() == CHARS) {
-    value.set_int(value.get_string().length());
-    return RC::SUCCESS; 
-  }
-  return RC::INVALID_ARGUMENT; 
-}
-
-RC Expression::func_round(Value& value) const {
-  if (value.attr_type() == FLOATS) {
-    value.set_int(static_cast<int>(std::round(value.get_float())));
-    return RC::SUCCESS;
-  }
-  return RC::INVALID_ARGUMENT;
-}
-
-RC Expression::func_date_format(Value& value) const {
-  return RC::SUCCESS;
-}
-
 RC Expression::func_impl(Value &value) const {
-  switch (func_type_) {
-    case FUNC_LENGTH:
-      return func_length(value);
-    case FUNC_ROUND:
-      return func_round(value);
-    case FUNC_DATE_FORMAT:
-      return func_date_format(value);
-    case FUNC_UNDEFINED:
-      return RC::SUCCESS;
-    default:
-      assert(0);
+  Expression *non_const_this = const_cast<Expression *>(this);
+  Value v = value;
+  for (ExprFunc *func : non_const_this->funcs_) {
+    RC rc = func->iterate(v);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error while get function value %s", strrc(rc));
+      return rc;
+    }
   }
+  value = v;
+  return RC::SUCCESS;
 }
 
 // get all field expressions in a expression, not deep into sub query expression
@@ -126,21 +136,6 @@ RC Expression::visit_field_expr(std::function<RC (std::unique_ptr<Expression> &)
   }
   else if (type() == ExprType::COMPARISON) {
     ComparisonExpr *expr_ = static_cast<ComparisonExpr *>(this);
-    if (expr_->single().get()) {
-      if (expr_->single()->type() == ExprType::FIELD) {
-        visitor(expr_->single());
-        if (rc != RC::SUCCESS) {
-          LOG_WARN("error while visit field_expr: %s", strrc(rc));
-          return rc;
-        }
-      } else {
-        rc = expr_->single()->visit_field_expr(visitor, deepinto);
-        if (rc != RC::SUCCESS) {
-          LOG_WARN("error while visit field_expr: %s", strrc(rc));
-        }
-      }
-      return rc;
-    }
     left = &expr_->left();
     right = &expr_->right();
   }
@@ -189,7 +184,7 @@ RC Expression::visit_field_expr(std::function<RC (std::unique_ptr<Expression> &)
 }
 
 // not deep into
-RC Expression::visit_arith_expr(std::function<RC (Expression *)> visitor) {
+RC Expression::visit_comp_expr(std::function<RC (Expression *)> visitor) {
   RC rc = RC::SUCCESS;
   if (this->type() == ExprType::VALUE) return rc;
   if (this->type() == ExprType::STAR) return rc;
@@ -220,12 +215,53 @@ RC Expression::visit_arith_expr(std::function<RC (Expression *)> visitor) {
     assert(0);
   }
 
-  rc = left->visit_arith_expr(visitor);
+  rc = left->visit_comp_expr(visitor);
   if (rc != RC::SUCCESS) {
     LOG_WARN("error while visit arith_expr: %s", strrc(rc));
     return rc;
   }
-  rc = right->visit_arith_expr(visitor);
+  rc = right->visit_comp_expr(visitor);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("error while visit arith_expr: %s", strrc(rc));
+    return rc;
+  }
+
+  return rc;
+}
+
+RC Expression::visit(std::function<RC (Expression *)> visitor) {
+  RC rc = RC::SUCCESS;
+  if (this->type() == ExprType::VALUE) return visitor(this);
+  if (this->type() == ExprType::STAR) return visitor(this);
+  if (this->type() == ExprType::FIELD) return visitor(this);
+  if (this->type() == ExprType::SUB_QUERY) return visitor(this);  
+
+  Expression *left, *right;
+  if (type() == ExprType::ARITHMETIC) {
+    ArithmeticExpr *expr_ = static_cast<ArithmeticExpr *>(this);
+    left = expr_->left().get();
+    right = expr_->right().get();
+  }
+  else if (type() == ExprType::COMPARISON) {
+    ComparisonExpr *expr_ = static_cast<ComparisonExpr *>(this);
+    left = expr_->left().get();
+    right = expr_->right().get();
+  }
+  else if (type() == ExprType::CONJUNCTION) {
+    ConjunctionExpr *expr_ = static_cast<ConjunctionExpr *>(this);
+    left = expr_->left().get();
+    right = expr_->right().get();
+  }
+  else {
+    assert(0);
+  }
+
+  rc = left->visit(visitor);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("error while visit arith_expr: %s", strrc(rc));
+    return rc;
+  }
+  rc = right->visit(visitor);
   if (rc != RC::SUCCESS) {
     LOG_WARN("error while visit arith_expr: %s", strrc(rc));
     return rc;
@@ -253,13 +289,6 @@ RC Expression::get_subquery_expr(std::vector<SubQueryExpr *> &result) {
   }
   else if (type() == ExprType::COMPARISON) {
     ComparisonExpr *expr_ = static_cast<ComparisonExpr *>(this);
-    if (expr_->single().get()) {
-      rc = expr_->single()->get_subquery_expr(result);
-      if (rc != RC::SUCCESS) {
-        LOG_WARN("error while visit field_expr: %s", strrc(rc));
-      }
-      return rc;
-    }
     left = expr_->left().get();
     right = expr_->right().get();
   }
@@ -372,13 +401,11 @@ std::string Expression::dump_tree(int indent) {
   }
   else if (type() == ExprType::COMPARISON) {
     ComparisonExpr *expr_ = static_cast<ComparisonExpr *>(this);
-    if (expr_->single().get()) {
-      out += expr_->single()->dump_tree(indent + 1);
-      return out;
+    if (expr_->left()) {
+      left = expr_->left().get();
+      out += left->dump_tree(indent + 1);
     }
-    left = expr_->left().get();
     right = expr_->right().get();
-    out += left->dump_tree(indent + 1);
     out += right->dump_tree(indent + 1);
   }
   else if (type() == ExprType::CONJUNCTION) {
@@ -407,6 +434,22 @@ RC FieldExpr::get_value(const Tuple &tuple, Value &value) const
 RC ValueExpr::get_value(const Tuple &tuple, Value &value) const
 {
   value = value_;
+  return func_impl(value);
+}
+
+/////////////////////////////////////////////////////////////////////////////////
+RC StarExpr::get_value(int index, const Tuple &tuple, Value &value) const
+{
+  RC rc = tuple.cell_at(index, value);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("starexpr get_value error");
+    return rc;
+  }
+  return func_impl(value);
+}
+
+// 只发生在count(*)有的表达式中
+RC StarExpr::get_value(const Tuple &tuple, Value &value) const {
   return func_impl(value);
 }
 
@@ -466,10 +509,6 @@ RC CastExpr::try_get_value(Value &value) const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-ComparisonExpr::ComparisonExpr(CompOp comp, Expression *single)
-    : comp_(comp), single_(single)
-{}
 
 ComparisonExpr::ComparisonExpr(CompOp comp, Expression *left, Expression *right)
     : comp_(comp), left_(left), right_(right)

@@ -87,6 +87,10 @@ private:
 class Tuple 
 {
 public:
+  enum {
+    OTHER,
+    PROJECT,
+  };
   Tuple() = default;
   virtual ~Tuple() = default;
 
@@ -95,6 +99,7 @@ public:
    * @details 个数应该与tuple_schema一致
    */
   virtual int cell_num() const = 0;
+  virtual int type() { return OTHER; }
 
   virtual Tuple* clone() const = 0; 
 
@@ -261,6 +266,8 @@ public:
   ProjectTuple() = default;
   virtual ~ProjectTuple() = default;
 
+  int type() override { return Tuple::PROJECT; }
+
   void set_tuple(Tuple *tuple)
   {
     this->tuple_ = tuple;
@@ -276,7 +283,9 @@ public:
 
   int cell_num() const override
   {
-    if (exprs_[0]->type() == ExprType::STAR) {
+    bool isagg;
+    exprs_[0]->is_aggregate(isagg);
+    if (exprs_[0]->type() == ExprType::STAR && !isagg) {
       return static_cast<StarExpr *>(exprs_[0])->field().size();
     } else {
       return exprs_.size();
@@ -289,8 +298,10 @@ public:
       return RC::INTERNAL;
     }
     Expression *expr = exprs_[0];
+
     if (expr->type() == ExprType::STAR) {
-      return tuple_->cell_at(index, cell);
+      StarExpr *star_expr = static_cast<StarExpr *>(expr);
+      return star_expr->get_value(index, *tuple_, cell);
     } 
 
     if (index < 0 || index >= static_cast<int>(exprs_.size())) {
@@ -311,10 +322,32 @@ public:
     return RC::EMPTY;
   }
 
+  RC get_aggregate(bool &aggregate) const {
+    return exprs_[0]->is_aggregate(aggregate);
+  }
+
+  RC get_star(bool &star) const {
+    auto visitor = [&star](Expression *expr) {
+      if (expr->type() == ExprType::STAR)
+        star = true;
+      return RC::SUCCESS;
+    };
+    RC rc = exprs_[0]->visit(visitor);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error while visit aggregate");
+      return rc;
+    }
+    return RC::SUCCESS;
+  }
+
 private:
   std::vector<Expression *> exprs_;
   Tuple *tuple_ = nullptr;
 };
+
+// select count(*)
+// select count(*) + 5
+// select count(*) + 5, count(*) * 2;
 
 class ExpressionTuple : public Tuple 
 {

@@ -70,9 +70,10 @@ RC ExecuteStage::handle_request_with_physical_operator(SQLStageEvent *sql_event)
       SelectStmt *select_stmt = static_cast<SelectStmt *>(stmt);
       bool with_table_name = select_stmt->tables().size() > 1;
       
-      schema.aggregation_funcs_ = select_stmt->aggregation_funcs();
       for (Expression *expr : select_stmt->query_exprs()) {
-        if (expr->type() == ExprType::STAR) {
+        if (expr->funcs().size() != 0) {
+          schema.append_cell(expr->name().c_str());
+        } else if (expr->type() == ExprType::STAR) {
           StarExpr *star_expr = static_cast<StarExpr *>(expr);
           for (const Field &field : star_expr->field()) {
             if (with_table_name) {

@@ -1,22 +1,20 @@
 #include <sql/expr/aggregation_func.h>
 #include <cfloat>
 
-const char *AGG_TYPE_NAME[] = {
-  "UNDEFINED", 
-  "MIN", 
-  "MAX",
-  "AVG",         
-  "SUM",         
-  "COUNT",       
-};
-
-AggregationFunc::~AggregationFunc() {}
-
-AggregationFunc::AggregationFunc(AggType agg_type, bool star, Expression *expr, bool multi_table) 
-  : agg_type_(agg_type), star_(star), expr_(expr), multi_table_(multi_table)
+AggregationFunc::AggregationFunc(AggType agg_type) 
+  : agg_type_(agg_type)
 { 
   result_.set_null(); 
   sum_.set_null();
+}
+
+RC AggregationFunc::iterate(Value &value) {
+  RC rc = aggregate(&value);
+  if (rc != RC::SUCCESS) {
+    return rc;
+  }
+  value = result();
+  return RC::SUCCESS;
 }
 
 Value AggregationFunc::result() {

@@ -57,10 +57,6 @@ public:
   {
     return filter_stmt_;
   }
-  std::vector<AggregationFunc *> * aggregation_funcs()
-  {
-    return &aggregation_funcs_;
-  }
 
   bool has_order_by(){
     return order_by_;
@@ -80,7 +76,6 @@ private:
   std::vector<Expression *> query_exprs_;
   std::vector<Table *> tables_;
   FilterStmt *filter_stmt_ = nullptr;
-  std::vector<AggregationFunc *> aggregation_funcs_;
 
   bool order_by_;
   std::vector<Field> order_fields_;

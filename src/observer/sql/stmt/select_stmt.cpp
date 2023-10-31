@@ -53,6 +53,42 @@ RC add_table(
   return RC::SUCCESS;
 }
 
+RC check_agg_func_valid(Expression *expression) {
+  auto visitor = [](Expression *expr) {
+    if (expr->type() == ExprType::STAR) {
+      for (ExprFunc *f : expr->funcs()) {
+        if (f->type() == ExprFunc::AGG) {
+          AggregationFunc *agg_func = static_cast<AggregationFunc *>(f);
+          if (agg_func->agg_type_ == AGG_MIN || 
+              agg_func->agg_type_ == AGG_MAX || 
+              agg_func->agg_type_ == AGG_SUM || 
+              agg_func->agg_type_ == AGG_AVG) {
+            LOG_WARN("no %s(*) in syntax", AGG_TYPE_NAME[agg_func->type()]);
+            return RC::INVALID_ARGUMENT;
+          }
+        }
+      }
+    } 
+    std::vector<ExprFunc *> &funcs = expr->funcs();
+    for (ExprFunc *func : funcs) {
+      if (func->type() == ExprFunc::AGG) {
+        AggregationFunc *agg_func = static_cast<AggregationFunc *>(func);
+        if (expr->value_type() == DATES && (agg_func->agg_type_ == AGG_AVG || agg_func->agg_type_ == AGG_SUM)) {
+          LOG_WARN("avg and sum can not be used on chars and dates");
+          return RC::INVALID_ARGUMENT;
+        }
+      }
+    }
+    return RC::SUCCESS;
+  };
+  RC rc = expression->visit(visitor);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("error while check agg_func %s", strrc(rc));
+    return rc;
+  }
+  return RC::SUCCESS;
+}
+
 RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
 {
   if (nullptr == db) {
@@ -98,23 +134,32 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
     LOG_WARN("select attribute size is zero");
     return RC::INVALID_ARGUMENT;
   }
-
-  int has_agg = 0, has_common = 0;
   for (const SelectAttr &select_attr : select_sql.attributes) {
-    if (select_attr.agg_type != AGG_UNDEFINED) has_agg = 1;
-    if (select_attr.agg_type == AGG_UNDEFINED) has_common = 1;
-    if (has_agg && has_common) {
-      LOG_WARN("invalid argument.");
-      return RC::INVALID_ARGUMENT;
-    }
-    if (select_attr.expr_nodes.size() != 1) {
-      LOG_WARN("invalid argument.");
+    if (select_attr.expr_nodes.size() == 0) {
+      LOG_WARN("select attribute expr is empty");
       return RC::INVALID_ARGUMENT;
     }
   }
-  // select id, name
-  // select min(id), max(*)
-  std::vector<AggregationFunc *> aggregation_funcs;
+
+  int has_agg = 0, has_common = 0;
+  for (const SelectAttr &select_attr : select_sql.attributes) {
+    bool aggregate;
+    rc = select_attr.expr_nodes[0]->is_aggregate(aggregate);
+    if (rc != RC::SUCCESS) {
+      return rc;
+    }
+    if (aggregate) has_agg = 1;
+    else has_common = 1;
+    if (has_agg && has_common) {
+      LOG_WARN("either all agg, or all common");
+      return RC::INVALID_ARGUMENT;
+    }
+    if (select_attr.expr_nodes.size() != 1) {
+      LOG_WARN("multiple column in a aggregation function");
+      return RC::INVALID_ARGUMENT;
+    }
+  }
+
   // collect query fields in `select` statement
   std::vector<Expression *> query_exprs;
 
@@ -124,16 +169,6 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
     
     if (select_expr->type() == ExprType::STAR) {
       StarExpr *star_expr = static_cast<StarExpr *>(select_expr);
-
-      if (select_attr.agg_type == AGG_MIN || 
-        select_attr.agg_type == AGG_MAX || 
-        select_attr.agg_type == AGG_SUM || 
-        select_attr.agg_type == AGG_AVG) {
-        LOG_WARN("no %s(*) in syntax", AGG_TYPE_NAME[select_attr.agg_type]);
-        return RC::INVALID_ARGUMENT;
-      } else if (select_attr.agg_type != AGG_UNDEFINED)
-        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, true, select_expr, tables.size() > 1));
-
       for (Table *table : tables) {
         const TableMeta &table_meta = table->table_meta();
         const int field_num = table_meta.field_num();
@@ -144,7 +179,7 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
       break;
     }
 
-    auto visitor = [&select_attr, &aggregation_funcs, &tables, &table_map, &db, &select_expr](std::unique_ptr<Expression> &expr) {
+    auto visitor = [&select_attr, &tables, &table_map, &db, &select_expr](std::unique_ptr<Expression> &expr) {
       assert(expr->type() == ExprType::FIELD);
       FieldExpr *field_expr = static_cast<FieldExpr *>(expr.get());
       RelAttrSqlNode relation_attr = field_expr->rel_attr();
@@ -171,20 +206,16 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
         LOG_WARN("no such field. field=%s.%s.%s", db->name(), table->name(), field_name);
         return RC::SCHEMA_FIELD_MISSING;
       }
-      if (select_attr.agg_type != AGG_UNDEFINED) {
-        if ((field_meta->type() == DATES) &&
-            (select_attr.agg_type == AGG_AVG || select_attr.agg_type == AGG_SUM)) 
-        {
-          LOG_WARN("avg and sum can not be used on chars and dates");
-          return RC::INVALID_ARGUMENT;
-        }
-        aggregation_funcs.push_back(new AggregationFunc(select_attr.agg_type, false, select_expr, tables.size() > 1));
-      }
       field_expr->set_field(Field(table, field_meta));
       return RC::SUCCESS;
     };
     rc = select_expr->visit_field_expr(visitor, false);
-    if (rc != RC::SUCCESS) return rc;
+    if (rc != RC::SUCCESS) 
+      return rc;
+    
+    rc = check_agg_func_valid(select_expr);
+    if (rc != RC::SUCCESS) 
+      return rc;
   }
 
   Table *default_table = nullptr;
@@ -244,7 +275,6 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
   select_stmt->tables_.swap(tables);
   select_stmt->query_exprs_.swap(query_exprs);
   select_stmt->filter_stmt_ = filter_stmt;
-  select_stmt->aggregation_funcs_.swap(aggregation_funcs);
   select_stmt->order_fields_ = order_fields_;
   select_stmt->order_info = order_info_;
   select_stmt->order_by_ = !(select_sql.sort.size() == 0);

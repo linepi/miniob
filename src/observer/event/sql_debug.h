@@ -35,7 +35,7 @@ public:
 
   const std::list<std::string> &get_debug_infos() const;
 
-  int trace_depth = 10;
+  int trace_depth = 3;
 
 private:
   std::list<std::string> debug_infos_;

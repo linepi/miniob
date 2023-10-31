@@ -73,7 +73,6 @@ RC stdout_of_relation(const std::string &relation, SessionStage *ss, SQLStageEve
   SelectSqlNode *select = new SelectSqlNode();
 
   SelectAttr attr;
-  attr.agg_type = AGG_UNDEFINED;
   attr.expr_nodes.push_back(new StarExpr());
   attr.expr_nodes[0]->set_name("*");
 

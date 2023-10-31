@@ -2,6 +2,28 @@
 
 extern const char *COMPOP_NAME[];
 extern const char *EXPR_NAME[];
+extern const char *AGG_TYPE_NAME[];
+
+enum FunctionType
+{
+  FUNC_LENGTH,
+  FUNC_ROUND,
+  FUNC_DATE_FORMAT,
+  FUNC_UNDEFINED
+};
+
+/**
+ * @brief 聚合函数类型
+ */
+enum AggType {
+  AGG_UNDEFINED,
+  AGG_MIN,         
+  AGG_MAX,         
+  AGG_AVG,         
+  AGG_SUM,         
+  AGG_COUNT,       
+};
+
 /**
  * @brief 描述比较运算符
  * @ingroup SQLParser
@@ -90,10 +112,3 @@ enum class ExprType
   ARITHMETIC,   ///< 算术运算
 };
 
-enum FunctionType
-{
-  FUNC_LENGTH,
-  FUNC_ROUND,
-  FUNC_DATE_FORMAT,
-  FUNC_UNDEFINED
-};

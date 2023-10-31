@@ -175,94 +175,52 @@ RC PlainCommunicator::write_result(SessionEvent *event, bool &need_disconnect)
   return rc;
 }
 
-static RC with_aggregation_func(Tuple *tuple, std::vector<AggregationFunc *> * aggregation_funcs) {
-  RC rc = RC::SUCCESS;
-  assert(tuple != nullptr);
-  for (AggregationFunc *aggregation_func : *aggregation_funcs) {
-    if (aggregation_func->star_) {
-      Value value;
-      rc = tuple->cell_at(0, value);
-      if (rc != RC::SUCCESS) {
-        return rc;
-      }
-      aggregation_func->aggregate(&value);
-    } else {
-      ProjectTuple *pt = static_cast<ProjectTuple *>(tuple);
-      Value value;
-      rc = pt->cell_at_expr(aggregation_func->expr_, value);
-      if (rc != RC::SUCCESS) {
-        return rc;
-      }
-      aggregation_func->aggregate(&value);
-    }
-  }
-  return rc;
-}
-
-static RC not_with_aggregation_func(Writer *writer_, Tuple *tuple) {
-  RC rc = RC::SUCCESS;
-  assert(tuple != nullptr);
-
-  int cell_num = tuple->cell_num();
-  for (int i = 0; i < cell_num; i++) {
-    if (i != 0) {
-      const char *delim = " | ";
-      rc = writer_->writen(delim, strlen(delim));
-      if (OB_FAIL(rc)) {
-        LOG_WARN("failed to send data to client. err=%s", strerror(errno));
-        return rc;
-      }
-    }
-
-    Value value;
-    rc = tuple->cell_at(i, value);
-    if (rc != RC::SUCCESS) {
-      return rc;
-    }
-    rc = writer_->writen(value.to_string().c_str(), value.to_string().size());
-    if (OB_FAIL(rc)) {
-      LOG_WARN("failed to send data to client. err=%s", strerror(errno));
-      return rc;
-    }
-  }
-
-  char newline = '\n';
-  rc = writer_->writen(&newline, 1);
-  if (OB_FAIL(rc)) {
-    LOG_WARN("failed to send data to client. err=%s", strerror(errno));
-    return rc;
-  }
-  return rc;
-}
-
 RC PlainCommunicator::write_tuple(SqlResult *sql_result) {
   RC rc = RC::SUCCESS;
-  TupleSchema &schema = const_cast<TupleSchema &>(sql_result->tuple_schema());
 
   Tuple *tuple = nullptr;
+  bool aggregate = false;
 
   while (RC::SUCCESS == (rc = sql_result->next_tuple(tuple))) {
-    if (schema.aggregation_funcs_ && schema.aggregation_funcs_->size() != 0) {
-      rc = with_aggregation_func(tuple, schema.aggregation_funcs_);
-    } else {
-      rc = not_with_aggregation_func(writer_, tuple);
-    }
-    if (rc != RC::SUCCESS) break;
-  }
-  if (schema.aggregation_funcs_ && schema.aggregation_funcs_->size() != 0) {
-    int i = 0;
-    for (AggregationFunc *aggregation_func : *schema.aggregation_funcs_) {
-      if (i != 0) {
-        const char *delim = " | ";
-        writer_->writen(delim, 3);
+    int cell_num = tuple->cell_num();
+    if (tuple->type() == Tuple::PROJECT) {
+      ProjectTuple *pj = static_cast<ProjectTuple *>(tuple);
+      rc = pj->get_aggregate(aggregate);
+      if (rc != RC::SUCCESS) {
+        return rc;
       }
-      writer_->writen(
-        aggregation_func->result().to_string().c_str(), 
-        aggregation_func->result().to_string().size());
-      i++;
     }
-    char newline = '\n';
-    writer_->writen(&newline, 1);
+
+    for (int i = 0; i < cell_num; i++) {
+      if (i != 0 && !aggregate) {
+        const char *delim = " | ";
+        writer_->writen(delim, strlen(delim));
+      }
+
+      Value value;
+      rc = tuple->cell_at(i, value);
+      if (rc != RC::SUCCESS)
+        return rc;
+      
+      if (!aggregate)
+        writer_->writen(value.to_string().c_str(), value.to_string().size());
+    }
+    if (!aggregate)
+      writer_->writen("\n", 1);
+  }
+  if (aggregate) {
+    int cell_num = tuple->cell_num();
+    for (int i = 0; i < cell_num; i++) {
+      if (i != 0) {
+        writer_->writen(" | ", 3);
+      }
+      Value value;
+      RC subrc = tuple->cell_at(i, value);
+      if (subrc != RC::SUCCESS)
+        return subrc;
+      writer_->writen(value.to_string().c_str(), value.to_string().size());
+    }
+    writer_->writen("\n", 1);
   }
   return rc;
 }
