@@ -16,10 +16,13 @@ See the Mulan PSL v2 for more details. */
 #include "net/buffered_writer.h"
 #include "sql/expr/tuple.h"
 #include "sql/expr/aggregation_func.h"
+#include "sql/operator/project_physical_operator.h"
 #include "event/session_event.h"
 #include "session/session.h"
 #include "common/io/io.h"
 #include "common/log/log.h"
+#include "session/alias.h"
+#include <memory>
 
 PlainCommunicator::PlainCommunicator()
 {
@@ -180,6 +183,13 @@ RC PlainCommunicator::write_tuple(SqlResult *sql_result) {
 
   Tuple *tuple = nullptr;
   bool aggregate = false;
+  std::vector<Value> last_values;
+  std::unique_ptr<PhysicalOperator> &oper = sql_result->get_operator();
+  ProjectTuple *pj = nullptr;
+  if (oper->type() == PhysicalOperatorType::PROJECT) {
+    pj = &static_cast<ProjectPhysicalOperator *>(oper.get())->project_tuple();
+    pj->get_aggregate(aggregate);
+  }
 
   while (RC::SUCCESS == (rc = sql_result->next_tuple(tuple))) {
     int cell_num = tuple->cell_num();
@@ -204,21 +214,34 @@ RC PlainCommunicator::write_tuple(SqlResult *sql_result) {
       
       if (!aggregate)
         writer_->writen(value.to_string().c_str(), value.to_string().size());
+      if (last_values.size() == (size_t)cell_num)
+        last_values[i] = value;
+      else
+        last_values.push_back(value);
     }
+    writer_->accept(last_values);
     if (!aggregate)
       writer_->writen("\n", 1);
   }
   if (aggregate) {
-    int cell_num = tuple->cell_num();
-    for (int i = 0; i < cell_num; i++) {
-      if (i != 0) {
-        writer_->writen(" | ", 3);
+    if (last_values.size() == 0 && pj) {
+      std::vector<Expression *> &exprs = pj->exprs();
+      for (Expression *expr : exprs) {
+        AggType type;
+        expr->get_aggregate(type);
+        if (type == AGG_COUNT) {
+          last_values.push_back(Value(0));
+        } else {
+          last_values.push_back(Value(NULL_TYPE));
+        }
       }
-      Value value;
-      RC subrc = tuple->cell_at(i, value);
-      if (subrc != RC::SUCCESS)
-        return subrc;
-      writer_->writen(value.to_string().c_str(), value.to_string().size());
+    }
+    for (Value &v : last_values) {
+      if (&v != &last_values.front()) {
+        const char *delim = " | ";
+        writer_->writen(delim, strlen(delim));
+      }
+      writer_->writen(v.to_string().c_str(), v.to_string().size());
     }
     writer_->writen("\n", 1);
   }
@@ -303,6 +326,12 @@ RC PlainCommunicator::write_result_internal(SessionEvent *event, bool &need_disc
   if (OB_SUCC(rc)) {
     rc = rc_close;
   }
+
+  field2alias_mp.clear();
+  field_exis.clear();
+
+  table2alias_mp.clear(); ///< alias-->table_name
+  alias_exis.clear();   
 
   return rc;
 }

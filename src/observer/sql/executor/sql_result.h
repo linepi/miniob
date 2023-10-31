@@ -52,6 +52,10 @@ public:
   {
     return operator_ != nullptr;
   }
+  std::unique_ptr<PhysicalOperator> &get_operator() 
+  {
+    return operator_;
+  }
   const TupleSchema &tuple_schema() const
   {
     return tuple_schema_;

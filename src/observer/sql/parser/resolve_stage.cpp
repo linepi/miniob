@@ -16,6 +16,7 @@ See the Mulan PSL v2 for more details. */
 #include <string>
 #include <algorithm>
 #include <unordered_set>
+#include <regex>
 
 #include "resolve_stage.h"
 #include "storage/db/db.h"
@@ -40,7 +41,7 @@ See the Mulan PSL v2 for more details. */
 using namespace common;
 
 RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query);
-RC sub_query_extract(SelectSqlNode *select, SessionStage *ss, SQLStageEvent *sql_event, std::string &std_out);
+RC sub_query_extract(SelectSqlNode *select, SessionStage *ss, SQLStageEvent *sql_event, std::string &std_out, std::vector<AttrInfoSqlNode> *attr_infos = nullptr);
 RC check_correlated_query(SubQueryExpr *expr, std::vector<std::string> *father_tables, bool &result); 
 
 void get_relation_from_select(SelectSqlNode *select, std::unordered_set<std::string> &relations);
@@ -83,6 +84,22 @@ RC value_from_sql_stdout(std::string &std_out, Value &value)
   return RC::SUCCESS;
 }
 
+// for string delimiter
+std::vector<std::string> split_str(std::string s, std::string delimiter) {
+  size_t pos_start = 0, pos_end, delim_len = delimiter.length();
+  std::string token;
+  std::vector<std::string> res;
+
+  while ((pos_end = s.find(delimiter, pos_start)) != std::string::npos) {
+      token = s.substr (pos_start, pos_end - pos_start);
+      pos_start = pos_end + delim_len;
+      res.push_back (token);
+  }
+
+  res.push_back (s.substr (pos_start));
+  return res;
+}
+
 RC create_select_extract(
     CreateTableSqlNode &cts, SessionStage *ss, SQLStageEvent *sql_event)
 {
@@ -91,8 +108,15 @@ RC create_select_extract(
   RC rc = RC::SUCCESS;
 
   std::string std_out;
-  sub_query_extract(cts.select, ss, sql_event, std_out);
+  cts.select_attr_infos = new std::vector<AttrInfoSqlNode>;
+  rc = sub_query_extract(cts.select, ss, sql_event, std_out, cts.select_attr_infos);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("error in create select extract's sub query extrace");
+    delete cts.select_attr_infos;
+    return rc;
+  }
   cts.values_list     = new std::vector<std::vector<Value>>;
+  cts.names = new std::vector<std::string>;
 
   while (std_out.back() == '\0') {
     std_out = std_out.substr(0, std_out.size() - 1);
@@ -105,10 +129,10 @@ RC create_select_extract(
     if (i == 0 && line.find("FALIURE", 0) != std::string::npos) {
       return RC::SUB_QUERY_FAILURE;
     }
+    if (line.empty()) continue;
+    std::vector<std::string> tokens = split_str(line, " | ");
     if (i != 0) {
       std::vector<Value> values;
-      std::vector<std::string> tokens;
-      common::split_string(line, " | ", tokens);
       for (std::string &token : tokens) {
         Value v;
         int rc = v.from_string(token);
@@ -117,14 +141,36 @@ RC create_select_extract(
       }
       if (tokens.size() > 0)
         cts.values_list->push_back(std::move(values));
+    } else {
+      for (std::string &token : tokens) {
+        std::regex rx("^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$"); 
+
+        std::ptrdiff_t number_of_matches = std::distance(  // Count the number of matches inside the iterator
+        std::sregex_iterator(token.begin(), token.end(), rx),
+        std::sregex_iterator());
+
+        std::string to_add;
+        if (number_of_matches == 0) {
+          to_add = token;
+        } else {
+          size_t dotindex = token.find('.', 0);
+          to_add = token.substr(dotindex + 1);
+        }
+        if (std::find(cts.names->begin(), cts.names->end(), to_add) != cts.names->end()) {
+          return RC::INVALID_ARGUMENT;
+        } else {
+          cts.names->push_back(to_add);
+        }
+      }
     }
   }
   return rc;
 }
 
-RC sub_query_extract(SelectSqlNode *select, SessionStage *ss, SQLStageEvent *sql_event, std::string &std_out)
+RC sub_query_extract(SelectSqlNode *select, SessionStage *ss, SQLStageEvent *sql_event, std::string &std_out, 
+  std::vector<AttrInfoSqlNode> *attr_infos)
 {
-  if (select == nullptr)
+  if (select == nullptr) 
     return RC::SUCCESS;
   RC rc = RC::SUCCESS;
 
@@ -141,6 +187,9 @@ RC sub_query_extract(SelectSqlNode *select, SessionStage *ss, SQLStageEvent *sql
   }
 
   Writer       *thesw        = new SilentWriter();
+  if (attr_infos) {
+    static_cast<SilentWriter *>(thesw)->create_table_ = true;
+  }
   Communicator *communicator = stack_sql_event.session_event()->get_communicator();
   Writer       *writer_bak   = communicator->writer();
   communicator->set_writer(thesw);
@@ -162,6 +211,8 @@ RC sub_query_extract(SelectSqlNode *select, SessionStage *ss, SQLStageEvent *sql
     return rc;
   }
   std_out = sw->content();
+  if (attr_infos)
+    *attr_infos = sw->attr_infos();
   delete sw;
   return rc;
 }
@@ -214,9 +265,9 @@ RC expression_sub_query_extract(Expression *expr, SessionStage *ss, SQLStageEven
   }
   else if (expr->type() == ExprType::COMPARISON) {
     ComparisonExpr *expr_ = static_cast<ComparisonExpr *>(expr);
-    if (left)
+    if (expr_->left())
       left = expr_->left().get();
-    if (right)
+    if (expr_->right())
       right = expr_->right().get();
   }
   else if (expr->type() == ExprType::CONJUNCTION) {
@@ -384,7 +435,7 @@ RC ResolveStage::handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool
       if (sql_event->sql_node().get()->create_table.select)
         get_relation_from_select(sql_event->sql_node().get()->create_table.select, relations);
     }
-    show_relations(relations, ss, sql_event);
+    // show_relations(relations, ss, sql_event);
   }
   void test_main();
   // test_main();
@@ -410,8 +461,8 @@ RC ResolveStage::handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool
     return rc;
   }
 
-  if (main_query)
-    show_expressions(sql_event->sql_node().get());
+  // if (main_query)
+  //   show_expressions(sql_event->sql_node().get());
 
   Stmt *stmt = nullptr;
   rc         = Stmt::create_stmt(db, *(sql_event->sql_node().get()), stmt);

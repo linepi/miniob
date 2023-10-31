@@ -12,6 +12,7 @@ See the Mulan PSL v2 for more details. */
 // Created by Wangyunlai on 2022/6/6.
 //
 #include <map>
+#include <set>
 #include "sql/stmt/select_stmt.h"
 #include "sql/stmt/filter_stmt.h"
 #include "common/log/log.h"
@@ -63,7 +64,7 @@ RC check_agg_func_valid(Expression *expression) {
               agg_func->agg_type_ == AGG_MAX || 
               agg_func->agg_type_ == AGG_SUM || 
               agg_func->agg_type_ == AGG_AVG) {
-            LOG_WARN("no %s(*) in syntax", AGG_TYPE_NAME[agg_func->type()]);
+            LOG_WARN("no %s(*) in syntax", AGG_TYPE_NAME[agg_func->agg_type_]);
             return RC::INVALID_ARGUMENT;
           }
         }
@@ -89,7 +90,7 @@ RC check_agg_func_valid(Expression *expression) {
   return RC::SUCCESS;
 }
 
-RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
+RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
 {
   if (nullptr == db) {
     LOG_WARN("invalid argument. db is null");
@@ -170,13 +171,14 @@ RC SelectStmt::create(Db *db, const SelectSqlNode &select_sql, Stmt *&stmt)
     if (select_expr->type() == ExprType::STAR) {
       StarExpr *star_expr = static_cast<StarExpr *>(select_expr);
       for (Table *table : tables) {
+        if (!star_expr->relation().empty() && star_expr->relation() != table->name())
+          continue;
         const TableMeta &table_meta = table->table_meta();
         const int field_num = table_meta.field_num();
         for (int i = table_meta.sys_field_num(); i < field_num; i++) {
           star_expr->add_field(Field(table, table_meta.field(i)));
         }
       }
-      break;
     }
 
     auto visitor = [&select_attr, &tables, &table_map, &db, &select_expr](std::unique_ptr<Expression> &expr) {

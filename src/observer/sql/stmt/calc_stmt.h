@@ -24,6 +24,16 @@ See the Mulan PSL v2 for more details. */
 class Db;
 class Table;
 
+static std::string giveout(const std::string &str) {
+  std::string result;
+  if (str[0] == '\'' || str[0] == '\"') {
+    result = str.substr(1, str.size() - 2);
+  } else {
+    result = str;
+  }
+  return result;
+}
+
 /**
  * @brief 描述算术运算语句
  * @ingroup Statement
@@ -45,7 +55,13 @@ public:
     CalcStmt *calc_stmt = new CalcStmt();
     for (Expression * const expr : calc_sql.expressions) {
       calc_stmt->expressions_.emplace_back(expr);
-      calc_stmt->names_.push_back(expr->name());
+      if (!expr->alias().empty()) {
+        std::string name = giveout(name);
+        calc_stmt->names_.push_back(expr->alias());
+      } else {
+        std::string name = giveout(expr->name());
+        calc_stmt->names_.push_back(name);
+      }
     }
     calc_sql.expressions.clear();
     stmt = calc_stmt;

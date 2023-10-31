@@ -17,6 +17,7 @@ See the Mulan PSL v2 for more details. */
 
 #include "sql/executor/execute_stage.h"
 
+#include "session/alias.h"
 #include "common/log/log.h"
 #include "session/session.h"
 #include "event/storage_event.h"
@@ -53,6 +54,15 @@ RC ExecuteStage::handle_request(SQLStageEvent *sql_event, bool main_query)
   return rc;
 }
 
+std::string findKeyByValue(const std::map<std::string, std::string>& myMap, const std::string& targetValue) {
+    for (const auto& pair : myMap) {
+        if (pair.second == targetValue) {
+            return pair.first;
+        }
+    }
+    return "";
+}
+
 RC ExecuteStage::handle_request_with_physical_operator(SQLStageEvent *sql_event)
 {
   RC rc = RC::SUCCESS;
@@ -63,6 +73,7 @@ RC ExecuteStage::handle_request_with_physical_operator(SQLStageEvent *sql_event)
   unique_ptr<PhysicalOperator> &physical_operator = sql_event->physical_operator();
   ASSERT(physical_operator != nullptr, "physical operator should not be null");
 
+
   // TODO 这里也可以优化一下，是否可以让physical operator自己设置tuple schema
   TupleSchema schema;
   switch (stmt->type()) {
@@ -71,6 +82,11 @@ RC ExecuteStage::handle_request_with_physical_operator(SQLStageEvent *sql_event)
       bool with_table_name = select_stmt->tables().size() > 1;
       
       for (Expression *expr : select_stmt->query_exprs()) {
+        if (!expr->alias().empty()) {
+          schema.append_cell(expr->alias().c_str());
+          continue;
+        }
+
         if (expr->funcs().size() != 0) {
           schema.append_cell(expr->name().c_str());
         } else if (expr->type() == ExprType::STAR) {

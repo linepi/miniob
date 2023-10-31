@@ -16,6 +16,7 @@ See the Mulan PSL v2 for more details. */
 
 #include <cstdint>
 #include <string>
+#include "sql/parser/parse_defs.h"
 #include "net/writer.h"
 #include <common/rc.h>
 
@@ -37,10 +38,15 @@ public:
 
   RC writen(const char *data, int32_t size) override;
 
+  RC accept(std::vector<Value> &vs) override;
+
   RC flush() override { return RC::SUCCESS; }
 
   std::string &content() { return content_; }
+  std::vector<AttrInfoSqlNode> attr_infos() { return attr_infos_; }
 
+  bool create_table_;
 private:
   std::string content_;
+  std::vector<AttrInfoSqlNode> attr_infos_;
 };

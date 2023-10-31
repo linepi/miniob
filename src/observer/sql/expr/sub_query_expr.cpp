@@ -2,7 +2,7 @@
 #include "sql/expr/tuple.h"
 #include "event/sql_event.h"
 
-RC sub_query_extract(SelectSqlNode *select, SessionStage *ss, SQLStageEvent *sql_event, std::string &std_out);
+RC sub_query_extract(SelectSqlNode *select, SessionStage *ss, SQLStageEvent *sql_event, std::string &std_out, std::vector<AttrInfoSqlNode> *attr_infos = nullptr);
 RC value_from_sql_stdout(std::string &std_out, Value &value);
 
 RC check_correlated_query(SubQueryExpr *expr, std::vector<std::string> *father_tables, bool &result) {

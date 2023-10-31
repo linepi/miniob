@@ -86,7 +86,8 @@ See the Mulan PSL v2 for more details. */
   DEFINE_RC(SUB_QUERY_OP_IN)                \
   DEFINE_RC(SUB_QUERY_MULTI_VALUE)                \
   DEFINE_RC(OPERAND_COLUMNS)                \
-  DEFINE_RC(UNIQUE_INDEX)                 
+  DEFINE_RC(UNIQUE_INDEX)                 \
+  DEFINE_RC(SAME_ALIAS) 
 
 enum class RC
 {

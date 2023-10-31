@@ -434,8 +434,8 @@ RC Value::is_in(CompOp op, const Value &other, bool &result) const {
 RC Value::compare_op(const Value &other, CompOp op, bool &result) const {
   RC rc = RC::SUCCESS;
   if (op == EXISTS || op == NOT_EXISTS) {
-    result = (op == NOT_EXISTS && attr_type_ == EMPTY_TYPE) ||
-      (op == EXISTS && attr_type_ != EMPTY_TYPE);
+    result = (op == NOT_EXISTS && other.attr_type_ == EMPTY_TYPE) ||
+      (op == EXISTS && other.attr_type_ != EMPTY_TYPE);
     return rc;
   }
 

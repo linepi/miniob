@@ -38,6 +38,9 @@ public:
   RC open(Trx *trx) override;
   RC next() override;
   RC close() override;
+  ProjectTuple &project_tuple() {
+    return tuple_;
+  }
 
   int cell_num() const
   {

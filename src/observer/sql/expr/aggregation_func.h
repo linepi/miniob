@@ -13,6 +13,10 @@ public:
 	Value result();
   int type() override { return ExprFunc::AGG; }
 
+	std::string get_agg_alias(){
+		return agg_alias;
+	}
+
 private:
 	void min(Value *value) ;
 
@@ -29,4 +33,5 @@ public:
 	Value result_;
 	Value sum_;
 	int cnt_ = 0;
+	std::string agg_alias;
 };

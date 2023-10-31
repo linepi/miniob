@@ -20,6 +20,9 @@ See the Mulan PSL v2 for more details. */
 #include <unordered_set>
 #include <cmath>
 #include <stack>
+#include <unordered_map>
+#include <algorithm>
+#include <string>
 
 using namespace std;
 
@@ -29,6 +32,10 @@ void Expression::add_func(AggType agg_type) {
 
 void Expression::add_func(FunctionType func_type) { 
   funcs_.push_back(new CommonFunction(func_type)); 
+}
+
+void Expression::add_func(FunctionType func_type, std::string param) { 
+  funcs_.push_back(new CommonFunction(func_type, param)); 
 }
 
 RC Expression::is_aggregate(bool &result) {
@@ -51,7 +58,27 @@ RC Expression::is_aggregate(bool &result) {
   return RC::SUCCESS;
 }
 
-RC Expression::get_relations(std::unordered_set<std::string> &relations) {
+RC Expression::get_aggregate(AggType &result) {
+  result = AGG_UNDEFINED;
+  auto visitor = [&result](Expression *expr) {
+    std::vector<ExprFunc *> &funcs = expr->funcs();
+    for (ExprFunc *func : funcs) {
+      if (func->type() == ExprFunc::AGG) {
+        result = static_cast<AggregationFunc *>(func)->agg_type_;
+        break;
+      }
+    }
+    return RC::SUCCESS;
+  };
+  RC rc = this->visit(visitor);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("error while visit aggregate");
+    return rc;
+  }
+  return RC::SUCCESS;
+}
+
+RC Expression::get_field_relations(std::unordered_set<std::string> &relations) {
   auto visitor = [&relations](std::unique_ptr<Expression> &expr) {
     assert(expr->type() == ExprType::FIELD);
     FieldExpr *field_expr = static_cast<FieldExpr *>(expr.get());
@@ -256,15 +283,19 @@ RC Expression::visit(std::function<RC (Expression *)> visitor) {
     assert(0);
   }
 
-  rc = left->visit(visitor);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("error while visit arith_expr: %s", strrc(rc));
-    return rc;
+  if (left) {
+    rc = left->visit(visitor);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error while visit arith_expr: %s", strrc(rc));
+      return rc;
+    }
   }
-  rc = right->visit(visitor);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("error while visit arith_expr: %s", strrc(rc));
-    return rc;
+  if (right) {
+    rc = right->visit(visitor);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("error while visit arith_expr: %s", strrc(rc));
+      return rc;
+    }
   }
 
   return rc;
@@ -337,7 +368,7 @@ std::string Expression::dump_tree(int indent) {
   switch (type()) {
     case ExprType::FIELD: {
       FieldExpr *field_expr = static_cast<FieldExpr*>(this);
-      out += "FieldExpr(" + field_expr->name() + "): ";
+      out += "FieldExpr(" + field_expr->name() + " : " + field_expr->alias() + "): ";
       if (field_expr->rel_attr().relation_name.empty()) {
         out += field_expr->rel_attr().attribute_name;
       } else {
@@ -351,13 +382,13 @@ std::string Expression::dump_tree(int indent) {
     }
     case ExprType::VALUE: {
       ValueExpr *value_expr = static_cast<ValueExpr*>(this);
-      out += "ValueExpr(" + value_expr->name() + "): ";
+      out += "ValueExpr(" + value_expr->name() + " : " + this->alias() + "): ";
       Value v = value_expr->get_value();
       out += v.beauty_string();
       break;
     }
     case ExprType::SUB_QUERY: {
-      out += "SubQuery(" + this->name() + ")";
+      out += "SubQuery(" + this->name() + " : " + this->alias() + ")";
       SubQueryExpr *sub_query_expr = static_cast<SubQueryExpr *>(this);
       Value v;
       sub_query_expr->try_get_value(v);
@@ -366,20 +397,20 @@ std::string Expression::dump_tree(int indent) {
     }
     case ExprType::COMPARISON: {
       int comp = static_cast<int>(static_cast<ComparisonExpr*>(this)->comp());
-      out += "ComparisonExpr(" + this->name() + "): ";
+      out += "ComparisonExpr(" + this->name() + " : " + this->alias() + "): ";
       out += COMPOP_NAME[comp];
       break;
     }
     case ExprType::CONJUNCTION: {
       ConjuctType conj = static_cast<ConjunctionExpr*>(this)->conjunction_type();
-      out += "ConjunctionExpr(" + this->name() + "): ";
+      out += "ConjunctionExpr(" + this->name() + " : " + this->alias() + "): ";
       if (conj == CONJ_AND) out += "AND";
       if (conj == CONJ_OR) out += "OR";
       break;
     }
     case ExprType::ARITHMETIC: {
       int type = static_cast<int>(static_cast<ArithmeticExpr*>(this)->arithmetic_type());
-      out += "ArithmeticExpr(" + this->name() + "): ";
+      out += "ArithmeticExpr(" + this->name() + " : " + this->alias() + "): ";
       out += ARITHMATIC_NAME[type];
       break;
     }
@@ -440,7 +471,8 @@ RC ValueExpr::get_value(const Tuple &tuple, Value &value) const
 /////////////////////////////////////////////////////////////////////////////////
 RC StarExpr::get_value(int index, const Tuple &tuple, Value &value) const
 {
-  RC rc = tuple.cell_at(index, value);
+  TupleCellSpec cellspec(fields_[index].table_name(), fields_[index].field_name());
+  RC rc = tuple.find_cell(cellspec, value);
   if (rc != RC::SUCCESS) {
     LOG_WARN("starexpr get_value error");
     return rc;

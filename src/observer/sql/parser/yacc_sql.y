@@ -8,6 +8,7 @@
 
 #include "common/log/log.h"
 #include "common/lang/string.h"
+#include "event/sql_debug.h"
 #include "sql/parser/parse_defs.h"
 #include "sql/parser/yacc_sql.hpp"
 #include "sql/parser/lex_sql.h"
@@ -139,6 +140,9 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
   Expression *                      expression;
   std::vector<Expression *> *       expression_list;
   std::vector<std::vector<Expression *>> *expressions_list;
+  RelAttrSqlNode *                  alias_attr;  
+  std::pair<std::string, std::string> *   alias_id;
+  std::vector<std::pair<std::string, std::string>> *  alias_id_list;
   RelAttrSqlNode *                  sort_attr;
   RelAttrSqlNode *                  rel_attr;
   SelectAttr *                      select_attr;
@@ -166,14 +170,13 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 /** type 定义了各种解析后的结果输出的是什么类型。类型对应了 union 中的定义的成员变量名称 **/
 %type <number>              type_meta
 %type <number>              type_note
-%type <func>                 function_type
+%type <func>                 function_1
 %type <agg>                aggregation_func
 %type <number>              join_type
 %type <sort_condition>      sort_condition
 %type <value>               value
 %type <number>              number
 %type <sort_type>           sort_type
-
 %type <attr_infos>          attr_def_list
 %type <attr_infos>          attr_def_list_for_create
 %type <attr_info>           attr_def
@@ -184,8 +187,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 %type <sort_condition_list> sort_condition_list
 %type <expression>          where
 
+%type <alias_id>            alias_id
 %type <sort_attr>           sort_attr
-%type <rel_attr>            rel_attr
 %type <select_attr>         select_attr_impl
 %type <select_attr_list>    select_attr
 %type <select_attr_list>    select_attr_impl_list
@@ -193,9 +196,11 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 %type <join_list>           joins
 %type <join_node>           join 
 
+%type <alias_id_list>       alias_id_list
 %type <relation_list>       id_list
 
 %type <expression>          expression
+%type <expression>          expression_alias
 %type <expression>          expression_elem
 %type <expression>          sub_query_expr
 %type <expression_list>     expression_list
@@ -204,6 +209,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 
 %type <sql_node>            calc_stmt
 %type <sql_node>            select_stmt
+%type <sql_node>            select_part
 %type <sql_node>            as_select_wrapper
 %type <sql_node>            insert_stmt
 %type <sql_node>            update_stmt
@@ -569,10 +575,12 @@ set_list:
   }
 
 update_stmt:      /*  update 语句的语法解析树*/
-    UPDATE ID SET ID EQ expression set_list where 
+    UPDATE alias_id SET ID EQ expression set_list where 
     {
       $$ = new ParsedSqlNode(SCF_UPDATE);
-      $$->update.relation_name = $2;
+      $$->update.relation_name = $2->first;
+      $$->update.table_alias = $2->second;
+      $$->update.attribute_name = $4;
 
       if ($7 != nullptr) {
         $$->update.av.swap(*$7);
@@ -586,6 +594,7 @@ update_stmt:      /*  update 语句的语法解析树*/
       free($4);
     }
     ;
+
 calc_stmt:
     CALC expression_list
     {
@@ -597,12 +606,12 @@ calc_stmt:
     ;
 
 expression_list:
-    expression
+    expression_alias
     {
       $$ = new std::vector<Expression*>;
       $$->emplace_back($1);
     }
-    | expression COMMA expression_list
+    | expression_alias COMMA expression_list
     {
       if ($3 != nullptr) {
         $$ = $3;
@@ -612,6 +621,42 @@ expression_list:
       $$->emplace_back($1);
     }
     ;
+
+expression_alias:
+  expression {
+    $$ = $1;
+  }
+  | expression ID {
+    if ($1->type() == ExprType::FIELD) {
+      FieldExpr *f = static_cast<FieldExpr *>($1);
+      f->rel_attr().alias = $2;
+    }
+    $$ = $1;
+    $$->set_alias($2);
+  } 
+  | expression AS ID {
+    if ($1->type() == ExprType::FIELD) {
+      FieldExpr *f = static_cast<FieldExpr *>($1);
+      f->rel_attr().alias = $3;
+    }
+    $$->set_alias($3);
+  } 
+  | expression aggregation_func {
+    if ($1->type() == ExprType::FIELD) {
+      FieldExpr *f = static_cast<FieldExpr *>($1);
+      f->rel_attr().alias = AGG_TYPE_NAME[$2];
+    }
+    $$ = $1;
+    $$->set_alias(AGG_TYPE_NAME[$2]);
+  } 
+  | expression AS aggregation_func {
+    if ($1->type() == ExprType::FIELD) {
+      FieldExpr *f = static_cast<FieldExpr *>($1);
+      f->rel_attr().alias = AGG_TYPE_NAME[$3];
+    }
+    $$->set_alias(AGG_TYPE_NAME[$3]);
+  }
+  ;
 
 expression:
     expression_elem {
@@ -666,11 +711,13 @@ expression:
         $$->set_name(token_name(sql_string, &@$)); 
     } 
     | EXISTS_TOKEN expression { 
-        $$ = new ComparisonExpr(CompOp::EXISTS, nullptr, $2); 
+        Value v(NULL_TYPE);
+        $$ = new ComparisonExpr(CompOp::EXISTS, new ValueExpr(v), $2); 
         $$->set_name(token_name(sql_string, &@$)); 
     } 
     | NOT_EXISTS_TOKEN expression { 
-        $$ = new ComparisonExpr(CompOp::NOT_EXISTS, nullptr, $2); 
+        Value v(NULL_TYPE);
+        $$ = new ComparisonExpr(CompOp::NOT_EXISTS, new ValueExpr(v), $2); 
         $$->set_name(token_name(sql_string, &@$)); 
     }
     | expression AND expression {
@@ -700,10 +747,26 @@ expression:
       $$ = $2;
       $$->set_name(token_name(sql_string, &@$));
     }
-    | function_type LBRACE expression RBRACE {
+    | function_1 LBRACE expression RBRACE {
       $$ = $3;
       $$->set_name(token_name(sql_string, &@$));
       $$->add_func($1);
+    }
+    | DATE_FORMAT LBRACE expression COMMA SSS RBRACE {
+      $$ = $3;
+      $$->set_name(token_name(sql_string, &@$));
+      $$->add_func(FUNC_DATE_FORMAT, $5);
+      free($5);
+    }
+    | ROUND LBRACE expression COMMA NUMBER RBRACE {
+      $$ = $3;
+      $$->set_name(token_name(sql_string, &@$));
+      $$->add_func(FUNC_ROUND, std::to_string($5));
+    }
+    | ROUND LBRACE expression RBRACE {
+      $$ = $3;
+      $$->set_name(token_name(sql_string, &@$));
+      $$->add_func(FUNC_ROUND, std::to_string(0));
     }
     | aggregation_func LBRACE expression RBRACE {
       $$ = $3;
@@ -718,23 +781,64 @@ expression_elem:
     $$ = new StarExpr();
     $$->set_name(token_name(sql_string, &@$));
   }
+  | ID DOT '*' {
+    $$ = new StarExpr($1);
+    $$->set_name(token_name(sql_string, &@$));
+    free($1);
+  }
+  | ID {
+    RelAttrSqlNode rel_attr("", $1, "");
+    $$ = new FieldExpr(rel_attr);
+    $$->set_name(token_name(sql_string, &@$));
+    free($1);
+  }
+  | ID DOT ID {
+    RelAttrSqlNode rel_attr($1, $3, "");
+    $$ = new FieldExpr(rel_attr);
+    $$->set_name(token_name(sql_string, &@$));
+    free($1);
+    free($3);
+  }
   | value {
     $$ = new ValueExpr(*$1);
-    $$->set_name(token_name(sql_string, &@$));
-    delete $1;
-  }
-  | rel_attr {
-    $$ = new FieldExpr(*$1);
     $$->set_name(token_name(sql_string, &@$));
     delete $1;
   }
   | sub_query_expr {
     $$ = $1;
   }
-  | function_type sub_query_expr {
+  | function_1 sub_query_expr {
     $$ = $2;
     $$->set_name(token_name(sql_string, &@$));
     $$->add_func($1);
+  }
+  | DATE_FORMAT LBRACE select_stmt COMMA SSS RBRACE {
+    SelectSqlNode *select = new SelectSqlNode; 
+    (*select) = $3->selection;
+    $$ = new SubQueryExpr(select);
+    delete $3;
+
+    $$->set_name(token_name(sql_string, &@$));
+    $$->add_func(FUNC_DATE_FORMAT, $5);
+    free($5);
+  }
+  | ROUND LBRACE select_stmt COMMA NUMBER RBRACE {
+    SelectSqlNode *select = new SelectSqlNode; 
+    (*select) = $3->selection;
+    $$ = new SubQueryExpr(select);
+    delete $3;
+
+    $$->set_name(token_name(sql_string, &@$));
+    $$->add_func(FUNC_ROUND, std::to_string($5));
+  }
+  | ROUND LBRACE select_stmt RBRACE {
+    SelectSqlNode *select = new SelectSqlNode; 
+    (*select) = $3->selection;
+    $$ = new SubQueryExpr(select);
+    delete $3;
+
+    $$->set_name(token_name(sql_string, &@$));
+    $$->add_func(FUNC_ROUND, std::to_string(0));
   }
   | aggregation_func sub_query_expr {
     $$ = $2;
@@ -826,62 +930,85 @@ joins:
   }
   ;
 
-join: 
-  join_type ID {
+join:
+  join_type alias_id {
     $$ = new JoinNode();
     $$->type = (JoinType)$1;
-    $$->relation_name = $2;
+    $$->relation_name = $2->first;
+    $$->table_alias = $2->second;
     free($2);
   }
-  | join_type ID ON expression {
+  | join_type alias_id ON expression_alias {
     $$ = new JoinNode();
     $$->type = (JoinType)$1;
-    $$->relation_name = $2;
+    $$->relation_name = $2->first;
+    $$->table_alias = $2->second;
     $$->condition = $4;
     free($2);
   }
   ;
-
 join_type:
     JOIN { $$ = (JoinType)JOIN_INNER; }
   | INNER JOIN { $$ = (JoinType)JOIN_INNER; }
   ;
 
-function_type:
-  DATE_FORMAT { $$ = FUNC_DATE_FORMAT; }
-  | ROUND { $$ = FUNC_ROUND; }
-  | LENGTH { $$ = FUNC_LENGTH; }
+function_1:
+  LENGTH { $$ = FUNC_LENGTH; }
   ;
 
+select_part:
+  {
+    $$ = nullptr;
+  }
+  | FROM alias_id alias_id_list joins where order_by {
+    $$ = new ParsedSqlNode(SCF_SELECT);
+    if ($3) {
+      for (auto p : *$3) {
+        $$->selection.relations.emplace_back(p.first);
+        $$->selection.table_alias.emplace_back(p.second);
+      }
+    }
+    $$->selection.relations.emplace_back($2->first);
+    $$->selection.table_alias.emplace_back($2->second);
+    
+    std::reverse($$->selection.relations.begin(), $$->selection.relations.end());
+    std::reverse($$->selection.table_alias.begin(), $$->selection.table_alias.end());
+    delete $2;
+    delete $3;
+
+    $$->selection.condition = $5;
+
+    if ($6 != nullptr) {
+      $$->selection.sort.swap(*$6);
+      std::reverse($$->selection.sort.begin(),$$->selection.sort.end());
+      delete $6;
+    }
+    if ($4 != nullptr) {
+      $$->selection.joins.swap(*$4);
+      std::reverse($$->selection.joins.begin(), $$->selection.joins.end());
+      delete $4;
+    }
+    
+  }
+
 select_stmt:        /*  select 语句的语法解析树*/
-    SELECT select_attr FROM ID id_list joins where order_by
+    SELECT select_attr select_part
     {
-      $$ = new ParsedSqlNode(SCF_SELECT);
-      if ($2 != nullptr) {
+      if ($3) {
+        $$ = $3;
+        if ($2 != nullptr) {
+          std::reverse($2->begin(), $2->end());
+          $$->selection.attributes.swap(*$2);
+          delete $2;
+        }
+      } else {
+        $$ = new ParsedSqlNode(SCF_CALC);
         std::reverse($2->begin(), $2->end());
-        $$->selection.attributes.swap(*$2);
+        for (auto sel_attr : *$2) {
+          $$->calc.expressions.push_back(sel_attr.expr_nodes[0]);
+        }
         delete $2;
       }
-      if ($5 != nullptr) {
-        $$->selection.relations.swap(*$5);
-        delete $5;
-      }
-      $$->selection.relations.push_back($4);
-      std::reverse($$->selection.relations.begin(), $$->selection.relations.end());
-
-      $$->selection.condition = $7;
-
-      if ($8 != nullptr) {
-        $$->selection.sort.swap(*$8);
-        std::reverse($$->selection.sort.begin(),$$->selection.sort.end());
-        delete $8;
-      }
-      if ($6 != nullptr) {
-        $$->selection.joins.swap(*$6);
-        std::reverse($$->selection.joins.begin(), $$->selection.joins.end());
-        delete $6;
-      }
-      free($4);
     }
     ;
 
@@ -914,6 +1041,38 @@ sort_attr:
       $$->attribute_name = $3;
       free($1);
       free($3);
+    }
+    | ID AS ID {
+      $$ = new RelAttrSqlNode;
+      $$->attribute_name = $1;
+      $$->alias = $3;
+      free($1);
+      free($3);      
+    }
+    | ID ID {
+      $$ = new RelAttrSqlNode;
+      $$->attribute_name = $1;
+      $$->alias = $2;
+      free($1);
+      free($2);      
+    }
+    | ID DOT ID AS ID {
+      $$ = new RelAttrSqlNode;
+      $$->relation_name  = $1;
+      $$->attribute_name = $3;
+      $$->alias = $5;
+      free($1);
+      free($3);
+      free($5);
+    }
+    | ID DOT ID ID {
+      $$ = new RelAttrSqlNode;
+      $$->relation_name  = $1;
+      $$->attribute_name = $3;
+      $$->alias = $4;
+      free($1);
+      free($3);
+      free($4);
     }
     ;
 
@@ -977,16 +1136,16 @@ select_attr_impl_list:
   ;
 
 select_attr_impl:
-  aggregation_func LBRACE select_attr_impl_piece RBRACE {
+  expression_alias {
+    $$ = new SelectAttr();
+    $$->expr_nodes.emplace_back($1);
+  }
+  | aggregation_func LBRACE select_attr_impl_piece RBRACE {
     $$ = new SelectAttr();
     if ($3 != nullptr) {
       $$->expr_nodes = *$3;
       delete $3;
     }
-  }
-  | expression {
-    $$ = new SelectAttr();
-    $$->expr_nodes.emplace_back($1);
   }
   ;
 
@@ -999,20 +1158,43 @@ select_attr_impl_piece:
     }
     ;
 
-rel_attr:
+alias_id:
     ID {
-      $$ = new RelAttrSqlNode;
-      $$->attribute_name = $1;
+      $$ = new std::pair<std::string, std::string>;
+      $$->first = $1;
       free($1);
     }
-    | ID DOT ID {
-      $$ = new RelAttrSqlNode;
-      $$->relation_name  = $1;
-      $$->attribute_name = $3;
+    | ID AS ID {
+      $$ = new std::pair<std::string, std::string>;
+      $$->first = $1;
+      $$->second = $3;
       free($1);
-      free($3);
+      free($3);      
+    }
+    | ID ID {
+      $$ = new std::pair<std::string, std::string>;
+      $$->first = $1;
+      $$->second = $2;
+      free($1);
+      free($2);      
     }
     ;
+
+alias_id_list:
+    /* empty */
+    {
+      $$ = nullptr;
+    }
+    | COMMA alias_id alias_id_list {
+      if ($3 != nullptr) {
+        $$ = $3;
+      } else {
+        $$ = new std::vector<std::pair<std::string, std::string>>;
+      }
+      $$->emplace_back(*$2);
+      delete $2;
+    }
+    ;  
 
 id_list:
     /* empty */
@@ -1025,7 +1207,6 @@ id_list:
       } else {
         $$ = new std::vector<std::string>;
       }
-
       $$->push_back($2);
       free($2);
     }

@@ -26,7 +26,7 @@
 #include "storage/index/index.h"
 
 RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query);
-RC sub_query_extract(SelectSqlNode *select, SessionStage *ss, SQLStageEvent *sql_event, std::string &std_out);
+RC sub_query_extract(SelectSqlNode *select, SessionStage *ss, SQLStageEvent *sql_event, std::string &std_out, std::vector<AttrInfoSqlNode> *attr_infos = nullptr);
 
 std::string rel_attr_to_string(RelAttrSqlNode &rel) {
   if (rel.relation_name.empty()) {
@@ -45,26 +45,40 @@ static void add_relation(std::unordered_set<std::string> &relations, std::string
 void get_relation_from_update(UpdateSqlNode *update, std::unordered_set<std::string> &relations) {
   relations.insert(update->relation_name);
   for (auto av : update->av) {
-    av.second->get_relations(relations);
+    av.second->get_field_relations(relations);
   }
   if (update->condition)
-    update->condition->get_relations(relations);
+    update->condition->get_field_relations(relations);
 }
 
 void get_relation_from_select(SelectSqlNode *select, std::unordered_set<std::string> &relations) {
+  std::vector<SubQueryExpr *> sub_querys;
+
+  std::vector<Expression *> exprs;
   for (SelectAttr &attr : select->attributes) {
     if (attr.expr_nodes.size() > 0)
-      attr.expr_nodes[0]->get_relations(relations);
-  }
-  for (std::string &rela : select->relations) {
-    add_relation(relations, rela);
+      exprs.push_back(attr.expr_nodes[0]);
   }
   for (JoinNode &jn : select->joins) {
     if (jn.condition)
-      jn.condition->get_relations(relations);
+      exprs.push_back(jn.condition);
   }
   if (select->condition)
-    select->condition->get_relations(relations);
+    exprs.push_back(select->condition);
+  
+  for (std::string &rel : select->relations) {
+    add_relation(relations, rel);
+  }
+  for (Expression *expr : exprs) {
+    expr->get_subquery_expr(sub_querys);
+  }
+
+  for (SubQueryExpr *sub_query : sub_querys) {
+    SelectSqlNode *sel = sub_query->select();
+    for (std::string &rel : sel->relations) {
+      add_relation(relations, rel);
+    }
+  }
 }
 
 RC stdout_of_relation(const std::string &relation, SessionStage *ss, SQLStageEvent *sql_event, std::string &content)

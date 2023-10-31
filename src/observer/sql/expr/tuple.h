@@ -285,29 +285,49 @@ public:
   {
     bool isagg;
     exprs_[0]->is_aggregate(isagg);
-    if (exprs_[0]->type() == ExprType::STAR && !isagg) {
-      return static_cast<StarExpr *>(exprs_[0])->field().size();
-    } else {
+    if (isagg) {
       return exprs_.size();
+    } else {
+      int cnt = 0;
+      for (Expression *expr : exprs_) {
+        if (expr->type() == ExprType::STAR) 
+          cnt += static_cast<StarExpr *>(expr)->field().size();
+        else
+          cnt += 1;
+      }
+      return cnt;
     }
   }
 
   RC cell_at(int index, Value &cell) const override
   {
-    if (tuple_ == nullptr) {
+    if (tuple_ == nullptr || exprs_.size() == 0 || !exprs_[0]) {
       return RC::INTERNAL;
     }
-    Expression *expr = exprs_[0];
 
+    bool isagg;
+    exprs_[0]->is_aggregate(isagg);
+
+    int field_num = 0;
+    int last_field_num;
+    size_t expr_index;
+    for (expr_index = 0; expr_index < exprs_.size(); expr_index++) {
+      Expression *expr = exprs_[expr_index];
+      last_field_num = field_num;
+      if (expr->type() == ExprType::STAR && !isagg) 
+        field_num += static_cast<StarExpr *>(expr)->field().size();
+      else 
+        field_num += 1;
+      if (field_num > index) 
+        break;
+    }
+
+    Expression *expr = exprs_[expr_index];
     if (expr->type() == ExprType::STAR) {
       StarExpr *star_expr = static_cast<StarExpr *>(expr);
-      return star_expr->get_value(index, *tuple_, cell);
+      return star_expr->get_value(index - last_field_num, *tuple_, cell);
     } 
-
-    if (index < 0 || index >= static_cast<int>(exprs_.size())) {
-      return RC::INTERNAL;
-    }
-    return exprs_[index]->get_value(*tuple_, cell);
+    return exprs_[expr_index]->get_value(*tuple_, cell);
   }
 
   RC find_cell(const TupleCellSpec &spec, Value &cell) const override
@@ -338,6 +358,10 @@ public:
       return rc;
     }
     return RC::SUCCESS;
+  }
+
+  std::vector<Expression *> &exprs() {
+    return exprs_;
   }
 
 private:

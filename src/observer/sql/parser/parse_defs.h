@@ -42,9 +42,10 @@ class Expression;
 struct RelAttrSqlNode
 {
   RelAttrSqlNode() = default;
-  RelAttrSqlNode(std::string r, std::string a) : relation_name(r), attribute_name(a) {}
+  RelAttrSqlNode(std::string rel, std::string attr, std::string a) : relation_name(rel), attribute_name(attr), alias(a) {}
   std::string relation_name;   ///< relation name (may be NULL) 表名
   std::string attribute_name;  ///< attribute name              属性名
+  std::string alias;  ///< relation name (may be NULL) 表名别名
 };
 
 struct SelectAttr
@@ -81,6 +82,7 @@ struct JoinNode
 {
   JoinType type;
   std::string relation_name;
+  std::string table_alias;
   Expression *condition = nullptr;
 };
 
@@ -105,6 +107,8 @@ struct SelectSqlNode
   std::vector<SelectAttr>         attributes;    ///< attributes in select clause
   std::vector<std::string>        relations;     ///< 查询的表
   Expression                     *condition = nullptr;
+  std::vector<std::string>        table_alias;
+  std::vector<ConditionSqlNode>   conditions;    ///< 查询条件，使用AND串联起来多个条件
   std::vector<JoinNode>           joins;
   std::vector<SortNode>           sort;
 };
@@ -148,7 +152,9 @@ struct DeleteSqlNode
  */
 struct UpdateSqlNode
 {
-  std::string                   relation_name;         ///< Relation to update
+  std::string   relation_name;         ///< Relation to update
+  std::string   table_alias;         
+  std::string   attribute_name;       
   std::vector<std::pair<std::string, Expression *>> av;
   Expression                   *condition = nullptr;
 };
@@ -164,7 +170,7 @@ struct AttrInfoSqlNode
 {
   AttrType    type;       ///< Type of attribute
   std::string name;       ///< Attribute name
-  size_t      length;     ///< Length of attribute
+  size_t      length = 0;     ///< Length of attribute
   bool        nullable;
 };
 
@@ -179,6 +185,8 @@ struct CreateTableSqlNode
   std::vector<AttrInfoSqlNode> attr_infos;            ///< attributes
   SelectSqlNode                *select = nullptr;
   std::vector<std::vector<Value>> *values_list = nullptr;
+  std::vector<std::string> *names = nullptr;
+  std::vector<AttrInfoSqlNode> *select_attr_infos = nullptr;
 };
 
 /**

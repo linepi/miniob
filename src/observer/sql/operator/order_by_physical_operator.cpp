@@ -7,7 +7,7 @@
 
 
 RC OrderByPhysicalOperator::open(Trx* trx) {
-    // 首先，打开子操作符
+
     RC rc = children_[0]->open(trx);
     if (rc != RC::SUCCESS) {
         return rc;
@@ -44,47 +44,40 @@ if(!is_mult_table){
             Record *r_d = new Record(tuple->record());
             r_d->set_data(data);
 
-
             RowTuple *new_tuple(tuple);
             new_tuple->set_record(r_d);
 
             buffer_.push_back(*new_tuple);
         };
-        // 使用lambda函数定义排序规则
         auto comparator = [&](const RowTuple& lhs, const RowTuple& rhs) -> bool {
         for (size_t i = 0; i < orderByColumns.size(); ++i) {
             const Field& field = orderByColumns[i];
             Value lhsValue, rhsValue;
 
-            // 使用TupleCellSpec查找指定字段的值
-            TupleCellSpec spec(field.table_name(), field.field_name()); // 假设FieldMeta有table_name和name方法
+            TupleCellSpec spec(field.table_name(), field.field_name()); 
             lhs.find_cell(spec, lhsValue);
             rhs.find_cell(spec, rhsValue);
 
-            // 假设值可以进行比较，且返回值为-1、0或1，分别表示小于、等于或大于
             int compareResult;
-            lhsValue.compare(rhsValue,compareResult); // 假设Value类有一个compare方法
+            lhsValue.compare(rhsValue,compareResult); 
 
             if (compareResult < 0) {
-                return sort_info[i]; // 如果为true，则按升序，否则按降序
+                return sort_info[i]; 
             } else if (compareResult > 0) {
-                return !sort_info[i]; // 反向排序
+                return !sort_info[i]; 
             }
-            // 如果比较结果是0，将继续使用下一个排序字段
             }
-            return false; // 所有字段都相等
+            return false; 
         };
         std::sort(buffer_.begin(), buffer_.end(), comparator);
         child->close();
         inited_ =true;
     }
 
-
     if (current_position_ >= buffer_.size()) {
         return RC::RECORD_EOF;  
     }
 
-    // 获取当前位置的元组并保存
     current_tuple_ = buffer_[current_position_];
     current_position_++;
     } 
@@ -100,54 +93,39 @@ if(!is_mult_table){
             }
 
             JoinedTuple* copiedTuple = new JoinedTuple(*tuple);
-            // size_t record_len = tuple->table()->table_meta().record_size();
-            // char *data = (char *)malloc(record_len);
-            // memcpy(data, tuple->record().data(), record_len);
-
-            // Record *r_d = new Record(tuple->record());
-            // r_d->set_data(data);
-
-
-            // RowTuple *new_tuple(tuple);
-            // new_tuple->set_record(r_d);
-
             buffer_join_.push_back(*copiedTuple);
         };
-        // 使用lambda函数定义排序规则
+
         auto comparator = [&](const JoinedTuple& lhs, const JoinedTuple& rhs) -> bool {
         for (size_t i = 0; i < orderByColumns.size(); ++i) {
             const Field& field = orderByColumns[i];
             Value lhsValue, rhsValue;
 
-            // 使用TupleCellSpec查找指定字段的值
-            TupleCellSpec spec(field.table_name(), field.field_name()); // 假设FieldMeta有table_name和name方法
+
+            TupleCellSpec spec(field.table_name(), field.field_name()); 
             lhs.find_cell(spec, lhsValue);
             rhs.find_cell(spec, rhsValue);
 
-            // 假设值可以进行比较，且返回值为-1、0或1，分别表示小于、等于或大于
             int compareResult;
-            lhsValue.compare(rhsValue,compareResult); // 假设Value类有一个compare方法
+            lhsValue.compare(rhsValue,compareResult); 
 
             if (compareResult < 0) {
-                return sort_info[i]; // 如果为true，则按升序，否则按降序
+                return sort_info[i]; 
             } else if (compareResult > 0) {
-                return !sort_info[i]; // 反向排序
+                return !sort_info[i]; 
             }
-            // 如果比较结果是0，将继续使用下一个排序字段
             }
-            return false; // 所有字段都相等
+            return false; 
         };
         std::sort(buffer_join_.begin(), buffer_join_.end(), comparator);
         child->close();
         inited_ =true;
     }
 
-
     if (current_position_ >= buffer_join_.size()) {
         return RC::RECORD_EOF;  
     }
 
-    // 获取当前位置的元组并保存
     current_tuple_join_ = buffer_join_[current_position_];
     current_position_++;
 }

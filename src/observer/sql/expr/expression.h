@@ -82,9 +82,12 @@ public:
    */
   virtual std::string name() const { return name_; }
   virtual void set_name(std::string name) { name_ = name; }
+  virtual std::string alias() const { return alias_; }
+  virtual void set_alias(std::string alias) { alias_ = alias; }
 
   void add_func(AggType agg_type);
   void add_func(FunctionType func_type);
+  void add_func(FunctionType func_type, std::string param);
 
   RC func_impl(Value &value) const;
   std::vector<ExprFunc *> &funcs() { return funcs_; }
@@ -92,17 +95,19 @@ public:
   // tool functions
   // get all field expressions in a expression, not deep into sub query expression
   bool is_condition() const;
-  RC is_aggregate(bool &result) ;
+  RC is_aggregate(bool &result);
+  RC get_aggregate(AggType &result);
   RC visit_field_expr(std::function<RC (std::unique_ptr<Expression> &)> visitor, bool deepinto);
   RC visit_comp_expr(std::function<RC (Expression *)> visitor);
   RC visit(std::function<RC (Expression *)> visitor);
   RC get_field_expr(std::vector<FieldExpr *> &field_exprs, bool deepinto);
   RC get_subquery_expr(std::vector<SubQueryExpr *> &result);
-  RC get_relations(std::unordered_set<std::string> &relations);
+  RC get_field_relations(std::unordered_set<std::string> &relations);
   std::string dump_tree(int indent = 0);
 
 private:
-  std::string  name_;
+  std::string name_;
+  std::string alias_;
   std::vector<ExprFunc *> funcs_;
 };
 
@@ -130,7 +135,7 @@ public:
   void set_field(const Field &field) { field_ = field; }
 
   const Field &field() const { return field_; }
-  const RelAttrSqlNode &rel_attr() const { return rel_attr_; }
+  RelAttrSqlNode &rel_attr() { return rel_attr_; }
 
   const char *table_name() const { return field_.table_name(); }
 
@@ -151,20 +156,23 @@ class StarExpr : public Expression
 {
 public:
   StarExpr() = default;
+  StarExpr(std::string relation) : relation_(relation) {}
   virtual ~StarExpr() = default;
 
   ExprType type() const override { return ExprType::STAR; }
 
   std::vector<Field> &field() { return fields_; }
+  std::string &relation() { return relation_; }
   void add_field(Field field) { fields_.push_back(field); }
 
   AttrType value_type() const override { return UNDEFINED; }
-
+  virtual void set_relation(std::string re) { relation_ = re; }
+  
   RC get_value(const Tuple &tuple, Value &value) const override;
-
   RC get_value(int index, const Tuple &tuple, Value &value) const;
 
 private:
+  std::string relation_;
   std::vector<Field> fields_;
 };
 

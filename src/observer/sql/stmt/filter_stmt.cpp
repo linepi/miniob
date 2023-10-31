@@ -56,9 +56,23 @@ RC FilterStmt::create(Db *db, Table *default_table, std::unordered_map<std::stri
 
   auto arith_visitor = [](Expression *expr) {
     ComparisonExpr *comp = static_cast<ComparisonExpr *>(expr);
-    if (!comp->left()) {
+    if (comp->comp() == EXISTS || comp->comp() == NOT_EXISTS) {
       if (comp->right()->type() != ExprType::SUB_QUERY)
         return RC::VALUE_COMPERR;
+    }
+
+    if (comp->comp() == CompOp::IN || comp->comp() == CompOp::NOT_IN) {
+      // 进化成list
+      Value v;
+      if (comp->right()->name()[0] == '(' && comp->right()->name().back() == ')' 
+          && comp->right()->try_get_value(v) == RC::SUCCESS) {
+        if (static_cast<ValueExpr *>(comp->right().get())->value_type() != LIST_TYPE) {
+          std::vector<Value> *vs = new std::vector<Value>;
+          vs->push_back(v);
+          v.set_list(vs);
+          comp->right().reset(new ValueExpr(v));
+        }
+      }
     }
 
     AttrType left, right;

@@ -16,6 +16,8 @@ See the Mulan PSL v2 for more details. */
 
 #include <common/rc.h>
 #include <cstdint>
+#include <vector>
+#include <sql/parser/value.h>
 
 class Writer
 {
@@ -27,4 +29,5 @@ public:
   virtual RC write(const char *data, int32_t size, int32_t &write_size) = 0;
   virtual RC writen(const char *data, int32_t size) = 0;
   virtual RC flush() = 0;
+  virtual RC accept(std::vector<Value> &vs) = 0;
 };
