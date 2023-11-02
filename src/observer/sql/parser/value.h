@@ -81,6 +81,10 @@ public:
     return attr_type_;
   }
 
+  std::string text_data() {
+    return str_value_;
+  }
+
 public:
   /**
    * 获取对应的值

@@ -70,6 +70,10 @@ public:
    */
 
   RC make_record(int value_num, const Value *values, Record &record);
+  
+  RC make_text_value(Value &value);
+
+  RC delete_text_rid(RID *rid);
 
   /**
    * 删除磁盘中的表记录

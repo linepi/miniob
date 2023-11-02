@@ -249,7 +249,14 @@ RC Table::update_record_impl(std::vector<const FieldMeta *> &field_metas, std::v
   for (size_t  i = 0; i < field_metas.size(); i++) {
     Value *value = &values[i];
     const FieldMeta *field_meta = field_metas[i];
-    if (value->attr_type() != NULL_TYPE) {
+
+    if (value->attr_type() == TEXTS) {
+      int len = min(value->length() + 1, field_meta->len());
+      delete_text_rid(reinterpret_cast<RID *>(record.data() + field_meta->offset()));
+      make_text_value(*value);
+      memcpy(record.data() + field_meta->offset(), value->data(), len);
+    }
+    else if (value->attr_type() != NULL_TYPE) {
       int len;
       if (value->attr_type() == CHARS) {
         len = min(value->length() + 1, field_meta->len());
@@ -257,7 +264,8 @@ RC Table::update_record_impl(std::vector<const FieldMeta *> &field_metas, std::v
         len = min(value->length(), field_meta->len());
       }
       memcpy(record.data() + field_meta->offset(), value->data(), len);
-    } else {
+    } 
+    else {
       int column_idx = -1;
       for (size_t i = 0; i < table_meta_.field_metas()->size(); i++) {
         if (strcmp(field_meta->name(), (*table_meta_.field_metas())[i].name()) == 0) column_idx = i; 
@@ -371,6 +379,44 @@ const char * Table::table_dir()
   return base_dir_.c_str();
 }
 
+RC Table::make_text_value(Value &value) 
+{
+  RC rc = RC::SUCCESS;
+  RID *rid = nullptr;
+  size_t MAX_SIZE = 8000;
+  std::string ss = value.text_data();
+
+  while (ss.size() > MAX_SIZE) {
+    size_t len = ss.size();
+    std::string chunk = ss.substr(len - MAX_SIZE); 
+    ss = ss.substr(0, len - MAX_SIZE); 
+
+    RID *new_rid = nullptr;
+    rc = record_handler_->insert_record(chunk.data(), chunk.size(), new_rid);
+
+    if (rc != RC::SUCCESS) {
+      LOG_ERROR("Insert text chunk failed. table name=%s, rc=%s", table_meta_.name(), strrc(rc));
+      return rc;
+    }
+
+    if (rid) {
+      new_rid->next_RID = rid;
+    }
+    rid = new_rid;
+  }
+
+  RID *new_rid = nullptr;
+  rc = record_handler_->insert_record(ss.data(), ss.size(), new_rid);
+  if (rid == nullptr) {
+    printf("insert text error!\n");
+  }
+  if (rid) {
+    new_rid->next_RID = rid;
+  }
+  rid = new_rid;
+  value.set_data(reinterpret_cast<char *>(rid),sizeof(rid));
+}
+
 RC Table::make_record(int value_num, const Value *values, Record &record)
 {
   // 检查字段类型是否一致
@@ -382,7 +428,13 @@ RC Table::make_record(int value_num, const Value *values, Record &record)
   const int normal_field_start_index = table_meta_.sys_field_num();
   for (int i = 0; i < value_num; i++) {
     const FieldMeta *field = table_meta_.field(i + normal_field_start_index);
-    const Value &value = values[i];
+    Value value = values[i];
+
+    if (value.attr_type() == TEXTS) {
+      make_text_value(value);
+      record.add_offset_text(field->offset());
+    }
+
     if (!field->match(value)) {
       LOG_ERROR("Invalid value type. table name=%s, field name=%s, type=%d, but given=%d",
                 table_meta_.name(), field->name(), field->type(), value.attr_type());
@@ -404,7 +456,7 @@ RC Table::make_record(int value_num, const Value *values, Record &record)
     const Value &value = values[i];
     // 如果是字符串类型，则拷贝字符串的len + 1字节。
     size_t copy_len = field->len();
-    if (field->type() == CHARS || field->type() == DATES) {
+    if (field->type() == CHARS || field->type() == DATES || field->type() == TEXTS) {
       const size_t data_len = value.length();
       if (copy_len > data_len) {
         copy_len = data_len + 1;
@@ -547,6 +599,20 @@ RC Table::create_index(Trx *trx, const std::vector<FieldMeta> field_meta, const 
   return rc;
 }
 
+RC Table::delete_text_rid(RID *rid)
+{
+  RC rc = RC::SUCCESS;
+  if (rid == nullptr) {
+    return RC::SUCCESS;
+  }
+  if (rid->next_RID == nullptr) {
+    rc = record_handler_->delete_record(rid);
+    return rc;
+  }
+  return delete_text_rid(rid->next_RID);
+}
+
+
 RC Table::delete_record(const Record &record)
 {
   RC rc = RC::SUCCESS;
@@ -555,6 +621,14 @@ RC Table::delete_record(const Record &record)
     ASSERT(RC::SUCCESS == rc, 
            "failed to delete entry from index. table name=%s, index name=%s, rid=%s, rc=%s",
            name(), index->index_meta().name(), record.rid().to_string().c_str(), strrc(rc));
+  }
+  if (record.get_if_text()) {
+    char *data = const_cast<char*>(record.data());
+    std::vector<size_t>off = record.get_offset_text();
+    for (size_t index : off) {
+      RID *rid = reinterpret_cast<RID *>(data + index);
+      rc = delete_text_rid(rid);
+    }
   }
   rc = record_handler_->delete_record(&record.rid());
   return rc;

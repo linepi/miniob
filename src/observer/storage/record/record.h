@@ -38,6 +38,8 @@ struct RID
   PageNum page_num;  // record's page number
   SlotNum slot_num;  // record's slot number
 
+  RID    *next_RID = nullptr;
+
   RID() = default;
   RID(const PageNum _page_num, const SlotNum _slot_num) : page_num(_page_num), slot_num(_slot_num) {}
 
@@ -60,6 +62,18 @@ struct RID
     } else {
       return rid1->slot_num - rid2->slot_num;
     }
+  }
+
+  bool set_overflow_rid(RID *rid) {
+    if (rid == nullptr) {
+      return false;
+    }
+    next_RID = rid;
+    return true;
+  }
+
+  RID *get_overflow_rid() {
+    return next_RID;
   }
 
   /**
@@ -146,11 +160,23 @@ public:
   char       *data() { return this->data_; }
   const char *data() const { return this->data_; }
   int         len() const { return this->len_; }
-  void set_owner(){
+  void set_owner() {
     owner_ = true;
   }
-  void reset_owner(){
+  void reset_owner() {
     owner_ = false;
+  }
+  void set_if_text() {
+    if_text_ =true;
+  }
+  bool get_if_text() const{
+    return if_text_;
+  }
+  void add_offset_text(int v) {
+    offset_text.push_back(v);
+  }
+  std::vector<size_t> get_offset_text() const {
+    return offset_text;
   }
 
   void set_rid(const RID &rid) { this->rid_ = rid; }
@@ -168,4 +194,6 @@ private:
   char *data_  = nullptr;
   int   len_   = 0;       /// 如果不是record自己来管理内存，这个字段可能是无效的
   bool  owner_ = false;   /// 表示当前是否由record来管理内存
+  bool  if_text_ =false;
+  std::vector<size_t> offset_text;
 };
