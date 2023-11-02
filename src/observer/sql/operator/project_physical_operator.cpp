@@ -57,7 +57,5 @@ Tuple *ProjectPhysicalOperator::current_tuple()
 
 void ProjectPhysicalOperator::add_projection(Expression *expr)
 {
-  // 对单表来说，展示的(alias) 字段总是字段名称，
-  // 对多表查询来说，展示的alias 需要带表名字
   tuple_.add_expr(expr);
 }

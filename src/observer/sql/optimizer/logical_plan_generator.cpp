@@ -147,6 +147,16 @@ RC LogicalPlanGenerator::create_plan(
 
   unique_ptr<LogicalOperator> group_by_oper;
   if (select_stmt->has_group_by()) {
+    std::vector<Field> orderByColumns;
+    for (Expression * expr : select_stmt->groupby()) {
+      orderByColumns.push_back(static_cast<FieldExpr *>(expr)->field());
+    }
+
+    std::vector<bool> sort_info(select_stmt->groupby().size(), true);
+
+    order_by_oper.reset(new OrderByLogicalOperator(orderByColumns, sort_info, !(tables.size() == 1)));
+    order_by_oper->add_child(std::move(table_oper));
+
     group_by_oper.reset(new GroupByLogicalOperator(select_stmt->groupby(), select_stmt->having()));
   }
 
@@ -166,11 +176,7 @@ RC LogicalPlanGenerator::create_plan(
     }
   } else {
     if (group_by_oper) {
-      if (order_by_oper) {
-        group_by_oper->add_child(std::move(order_by_oper));
-      } else if (table_oper) {
-        group_by_oper->add_child(std::move(table_oper));
-      }
+      group_by_oper->add_child(std::move(order_by_oper));
       project_oper->add_child(std::move(group_by_oper));
     } else {
       if (order_by_oper) {

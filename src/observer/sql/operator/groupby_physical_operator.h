@@ -8,13 +8,12 @@
 #include <fstream>
 
 class PhysicalOperator;
+class Expression;
 
 class GroupByPhysicalOperator : public PhysicalOperator
 {
 public:
-  GroupByPhysicalOperator(std::vector<Expression *> groupby, Expression *having) 
-	: groupby_(groupby), having_(having)
-	{}
+  GroupByPhysicalOperator(std::vector<Expression *> groupby, Expression *having);
 
   virtual ~GroupByPhysicalOperator() = default;
 
@@ -26,6 +25,8 @@ public:
 
   Tuple *current_tuple() override;
 
+	std::vector<std::vector<RowTuple>> groups;
+	std::vector<Field> fields_;
 	std::vector<Expression *> groupby_;
 	Expression *having_ = nullptr;
 };
