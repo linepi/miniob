@@ -111,6 +111,8 @@ struct SelectSqlNode
   std::vector<ConditionSqlNode>   conditions;    ///< 查询条件，使用AND串联起来多个条件
   std::vector<JoinNode>           joins;
   std::vector<SortNode>           sort;
+  std::vector<Expression *>       groupby;
+  Expression                     *having = nullptr;
 };
 
 

@@ -23,7 +23,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/expr/expression.h"
 #include <regex>
 
-const char *ATTR_TYPE_NAME[] = {"undefined", "chars", "ints", "floats", "dates", "booleans", "null_type", "empty_type"};
+const char *ATTR_TYPE_NAME[] = {"undefined", "chars", "ints", "floats", "dates", "booleans", "null_type", "texts", "empty_type"};
 
 const char *attr_type_to_string(AttrType type)
 {
@@ -212,6 +212,8 @@ void Value::set_value(const Value &value)
     } break;
     case LIST_TYPE: {
       *this = value;
+    } break;
+    case TEXTS: {
     } break;
     case UNDEFINED: {
       ASSERT(false, "got an invalid value type");
@@ -449,9 +451,11 @@ RC Value::compare_op(const Value &other, CompOp op, bool &result) const {
   }
 
   if (list_ && list_->size() > 1 && op != IS && op != IS_NOT) {
+    LOG_WARN("list size not valid: %d", list_->size());
     return RC::INVALID_ARGUMENT;
   }
   if (other.list() && other.list()->size() > 1) {
+    LOG_WARN("list size not valid: %d", other.list()->size());
     return RC::INVALID_ARGUMENT;
   }
 

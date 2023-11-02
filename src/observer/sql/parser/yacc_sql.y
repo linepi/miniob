@@ -80,6 +80,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
         STRING_T
         FLOAT_T
         DATE_T
+        TEXT_T
         HELP
         EXIT
         DOT //QUOTE
@@ -127,6 +128,8 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
         ROUND
         LENGTH
         DATE_FORMAT
+        GROUP 
+        HAVING
 
 /** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
 %union {
@@ -145,6 +148,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
   std::vector<std::pair<std::string, std::string>> *  alias_id_list;
   RelAttrSqlNode *                  sort_attr;
   RelAttrSqlNode *                  rel_attr;
+  std::vector<RelAttrSqlNode> *     rel_attr_list;
   SelectAttr *                      select_attr;
   std::vector<SelectAttr> *         select_attr_list;
   std::vector<std::string> *        relation_list;
@@ -170,7 +174,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 /** type 定义了各种解析后的结果输出的是什么类型。类型对应了 union 中的定义的成员变量名称 **/
 %type <number>              type_meta
 %type <number>              type_note
-%type <func>                 function_1
+%type <func>                function_1
 %type <agg>                aggregation_func
 %type <number>              join_type
 %type <sort_condition>      sort_condition
@@ -186,6 +190,9 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 %type <sort_condition_list> order_by  
 %type <sort_condition_list> sort_condition_list
 %type <expression>          where
+
+%type <expression_list>     groupby
+%type <expression>          having
 
 %type <alias_id>            alias_id
 %type <sort_attr>           sort_attr
@@ -478,6 +485,7 @@ attr_def:
       $$->name = $1;
       $$->length = 4;
       if ($$->type == DATES) $$->length = 10;
+      if ($$->type == TEXTS) $$->length = 65535;
       $$->nullable = $3;
       free($1);
     }
@@ -498,6 +506,7 @@ type_meta:
     | STRING_T { $$=CHARS; }
     | FLOAT_T  { $$=FLOATS; }
     | DATE_T   { $$=DATES; }
+    | TEXT_T   { $$=TEXTS; }
     ;
 
 aggregation_func:
@@ -956,11 +965,27 @@ function_1:
   LENGTH { $$ = FUNC_LENGTH; }
   ;
 
+groupby:
+  {
+    $$ = nullptr;
+  }
+  | GROUP BY expression_list {
+    $$ = $3;
+  }
+
+having:
+  {
+    $$ = nullptr;
+  }
+  | HAVING expression {
+    $$ = $2;
+  }
+
 select_part:
   {
     $$ = nullptr;
   }
-  | FROM alias_id alias_id_list joins where order_by {
+  | FROM alias_id alias_id_list joins where order_by groupby having {
     $$ = new ParsedSqlNode(SCF_SELECT);
     if ($3) {
       for (auto p : *$3) {
@@ -988,7 +1013,14 @@ select_part:
       std::reverse($$->selection.joins.begin(), $$->selection.joins.end());
       delete $4;
     }
-    
+
+    if ($7 != nullptr) {
+      $$->selection.groupby.swap(*$7);
+      delete $7;
+    }
+    if ($8 != nullptr) {
+      $$->selection.having = $8;
+    }
   }
 
 select_stmt:        /*  select 语句的语法解析树*/

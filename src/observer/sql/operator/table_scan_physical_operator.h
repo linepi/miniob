@@ -31,7 +31,9 @@ public:
       : table_(table), readonly_(readonly)
   {}
 
-  virtual ~TableScanPhysicalOperator() = default;
+  ~TableScanPhysicalOperator() {
+    tuple_.clean();
+  }
 
   std::string param() const override;
 

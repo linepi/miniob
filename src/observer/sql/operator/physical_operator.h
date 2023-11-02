@@ -44,6 +44,7 @@ enum class PhysicalOperatorType
   PREDICATE,
   PROJECT,
   CALC,
+  GROUPBY,
   STRING_LIST,
   DELETE,
   INSERT,

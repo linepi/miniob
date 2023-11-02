@@ -33,6 +33,7 @@ class Value
 {
 public:
   Value() = default;
+  ~Value() = default;
 
   Value(AttrType attr_type, char *data, int length = 4) : attr_type_(attr_type)
   {

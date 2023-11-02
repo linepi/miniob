@@ -36,6 +36,8 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/calc_physical_operator.h"
 #include "sql/operator/order_by_logical_operator.h"
 #include "sql/operator/order_by_physical_operator.h"
+#include "sql/operator/groupby_logical_operator.h"
+#include "sql/operator/groupby_physical_operator.h"
 #include "sql/expr/expression.h"
 #include "common/log/log.h"
 
@@ -222,6 +224,13 @@ RC PhysicalPlanGenerator::create_plan(InsertLogicalOperator &insert_oper, unique
   vector<vector<Value>> *values = insert_oper.values_list();
   InsertPhysicalOperator *insert_phy_oper = new InsertPhysicalOperator(table, values);
   oper.reset(insert_phy_oper);
+  return RC::SUCCESS;
+}
+
+RC PhysicalPlanGenerator::create_plan(GroupByLogicalOperator &groupby_oper, unique_ptr<PhysicalOperator> &oper)
+{
+  GroupByPhysicalOperator *groupby_phy_oper = new GroupByPhysicalOperator(groupby_oper.groupby_, groupby_oper.having_);
+  oper.reset(groupby_phy_oper);
   return RC::SUCCESS;
 }
 

@@ -435,10 +435,8 @@ RC ResolveStage::handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool
       if (sql_event->sql_node().get()->create_table.select)
         get_relation_from_select(sql_event->sql_node().get()->create_table.select, relations);
     }
-    // show_relations(relations, ss, sql_event);
+    show_relations(relations, ss, sql_event);
   }
-  void test_main();
-  // test_main();
   // end for debug
 
   RC            rc            = RC::SUCCESS;
@@ -460,9 +458,6 @@ RC ResolveStage::handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool
     sql_result->set_return_code(rc);
     return rc;
   }
-
-  // if (main_query)
-  //   show_expressions(sql_event->sql_node().get());
 
   Stmt *stmt = nullptr;
   rc         = Stmt::create_stmt(db, *(sql_event->sql_node().get()), stmt);

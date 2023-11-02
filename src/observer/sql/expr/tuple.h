@@ -160,15 +160,24 @@ public:
     //   speces_.clear();
     // }
   }
+
+  void clean() {
+    if(!speces_.empty()){
+      for (FieldExpr *spec : speces_) {
+        if(spec != nullptr && spec->field().field_name() !=nullptr){
+          delete spec;
+        }
+        spec = nullptr;
+      }
+      speces_.clear();
+    }
+  }
+
   RowTuple(const RowTuple& other)
   {
-    record_ = new Record(*(other.record_)); // Assuming Record has a copy constructor
-    table_ = other.table_; // Assuming table_ does not need deep copying
-    
-    speces_.reserve(other.speces_.size());
-    for(const FieldExpr* spec : other.speces_) {
-        speces_.push_back(new FieldExpr(*spec)); // Assuming FieldExpr has a copy constructor
-    }
+    record_ = new Record(*(other.record_));
+    table_ = other.table_; 
+    speces_ = other.speces_;
   }
 
   RowTuple* clone() const override {
@@ -246,6 +255,10 @@ public:
   }
 
   const Table *table() const { return table_; }
+  void set_table(const Table *table) {  table_ = table; }
+
+  std::vector<FieldExpr *> &speces() { return speces_; }
+  void set_speces(std::vector<FieldExpr *> &speces) {  speces_ = speces; };
 
 private:
   Record *record_ = nullptr;

@@ -9,34 +9,31 @@
 
 class PhysicalOperator;
 
-
-class OrderByPhysicalOperator : public PhysicalOperator {
+class OrderByPhysicalOperator : public PhysicalOperator
+{
 public:
-  OrderByPhysicalOperator(const std::vector<Field>& orderByColumns,std::vector<bool>sort_info, bool is_mult_table)
-  :orderByColumns(orderByColumns),sort_info(sort_info),is_mult_table(is_mult_table){};
+  OrderByPhysicalOperator(const std::vector<Field> &orderByColumns, std::vector<bool> sort_info, bool is_mult_table)
+      : orderByColumns(orderByColumns), sort_info(sort_info), is_mult_table(is_mult_table){};
 
   virtual ~OrderByPhysicalOperator() = default;
 
-  PhysicalOperatorType type() const override
-  {
-    return PhysicalOperatorType::ORDER_BY;
-  }
+  PhysicalOperatorType type() const override { return PhysicalOperatorType::ORDER_BY; }
 
-  RC open(Trx* trx) override;
+  RC open(Trx *trx) override;
   RC next() override;
   RC close() override;
 
-  Tuple* current_tuple() override;
+  Tuple *current_tuple() override;
 
 private:
-  size_t current_position_ = 0; 
-  std::vector<RowTuple> buffer_;
+  size_t                   current_position_ = 0;
+  std::vector<RowTuple>    buffer_;
   std::vector<JoinedTuple> buffer_join_;
-  RowTuple current_tuple_;
-  JoinedTuple current_tuple_join_;
-  std::vector<Field> orderByColumns;
-  std::vector<bool>sort_info;
-  bool is_mult_table;
+  RowTuple                 current_tuple_;
+  JoinedTuple              current_tuple_join_;
+  std::vector<Field>       orderByColumns;
+  std::vector<bool>        sort_info;
+  bool                     is_mult_table;
   // 可能还需要其他成员变量，例如orderByColumns等
   bool inited_ = false;
 };

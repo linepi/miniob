@@ -66,6 +66,7 @@ enum AttrType
   BOOLEANS,       ///< boolean类型，当前不是由parser解析出来的，是程序内部使用的
   NULL_TYPE,
   LIST_TYPE,
+  TEXTS,
   EMPTY_TYPE,
 };
 

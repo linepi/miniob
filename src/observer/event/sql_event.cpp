@@ -24,8 +24,20 @@ See the Mulan PSL v2 for more details. */
 SQLStageEvent::SQLStageEvent(SessionEvent *event, const std::string &sql) : session_event_(event), sql_(sql)
 {}
 
+std::stack<PhysicalOperator *> physical_baks;
+std::stack<bool> main_query_baks;
+
 SQLStageEvent::SQLStageEvent(SQLStageEvent &other, bool main_query) {
-  session_event_ = new SessionEvent(other.session_event()->get_communicator());
+  if (!main_query) {
+    physical_baks.push(other.session_event()->sql_result()->get_operator().get());
+    other.session_event()->sql_result()->get_operator().release();
+  }
+
+  main_query_baks.push(other.session_event()->main_query_);
+
+  session_event_ = other.session_event();
+  other.session_event()->main_query_ = main_query;
+
   main_query_ = main_query;
   correlated_query_ = other.correlated_query_;
   session_event_->sql_result()->correlated_query_ = other.correlated_query_;
@@ -40,5 +52,13 @@ SQLStageEvent::~SQLStageEvent() noexcept
   if (stmt_ != nullptr) {
     delete stmt_;
     stmt_ = nullptr;
+  }
+
+  if (!main_query_) {
+    session_event_->sql_result()->get_operator().release();
+    session_event_->sql_result()->get_operator().reset(physical_baks.top());
+    physical_baks.pop();
+    session_event_->main_query_ = main_query_baks.top();
+    main_query_baks.pop();
   }
 }

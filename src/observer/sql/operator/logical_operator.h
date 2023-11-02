@@ -37,6 +37,7 @@ enum class LogicalOperatorType
   PREDICATE,  ///< 过滤，就是谓词
   PROJECTION, ///< 投影，就是select
   JOIN,       ///< 连接
+  GROUPBY,    
   INSERT,     ///< 插入
   UPDATE,     ///< 更新
   DELETE,     ///< 删除，删除可能会有子查询

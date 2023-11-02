@@ -89,59 +89,6 @@ void SessionStage::handle_event(StageEvent *event)
   return;
 }
 
-RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query);
-
-void SessionStage::handle_request(StageEvent *event)
-{
-  SessionEvent *sev = dynamic_cast<SessionEvent *>(event);
-  if (nullptr == sev) {
-    LOG_ERROR("Cannot cat event to sessionEvent");
-    return;
-  }
-
-  std::string query_str = sev->query();
-  if (common::is_blank(query_str.c_str())) {
-    return;
-  }
-
-  Session::set_current_session(sev->session());
-  sev->session()->set_current_request(sev);
-
-  std::vector<std::string> sqls;
-  common::split_string(query_str, ";", sqls);
-
-  for (std::string &sql : sqls) {
-    SQLStageEvent sql_event(sev, sql);
-    
-    (void)handle_sql(this, &sql_event, true);
-    Communicator *communicator = sev->get_communicator();
-    communicator->session()->set_sql_debug(true);
-
-    bool need_disconnect = false;
-    RC rc = communicator->write_result(sev, need_disconnect);
-    LOG_INFO("write result return %s", strrc(rc));
-    if (need_disconnect) {
-      Server::close_connection(communicator);
-    }
-
-    if (sev->sql_result()->return_code() != RC::SUCCESS) 
-      break;
-  }
-  sev->session()->set_current_request(nullptr);
-  Session::set_current_session(nullptr);
-}
-
-
-/**
- * 处理一个SQL语句经历这几个阶段。
- * 虽然看起来流程比较多，但是对于大多数SQL来说，更多的可以关注parse和executor阶段。
- * 通常只有select、delete等带有查询条件的语句才需要进入optimize。
- * 对于DDL语句，比如create table、create index等，没有对应的查询计划，可以直接搜索
- * create_table_executor、create_index_executor来看具体的执行代码。
- * select、delete等DML语句，会产生一些执行计划，如果感觉繁琐，可以跳过optimize直接看
- * execute_stage中的执行，通过explain语句看需要哪些operator，然后找对应的operator来
- * 调试或者看代码执行过程即可。
- */
 
 std::map<std::string, std::string> field2alias_mp;
 std::map<std::string, int> field_exis;
@@ -370,6 +317,104 @@ RC select_pre_process(SelectSqlNode *select_sql)
   return RC::SUCCESS;
 }
 
+RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query);
+
+static void clean_garbage(ParsedSqlNode *node) {
+  if (!node) return;
+  std::vector<Expression *> all_expr;
+
+  switch (node->flag) {
+    case SCF_INSERT: {
+      for (std::vector<Expression *> &exprs : *(node->insertion.values_list)) {
+        for (Expression *expr : exprs) {
+          all_expr.push_back(expr);
+        }
+      }
+      break;
+    }
+    case SCF_UPDATE: {
+      for (std::pair<std::string, Expression *> &av_ : node->update.av) {
+        all_expr.push_back(av_.second);
+      }
+      break;
+    }
+    case SCF_SELECT: {
+      for (SelectAttr &attr : node->selection.attributes) {
+        if (attr.expr_nodes.size() == 0) continue;
+        all_expr.push_back(attr.expr_nodes[0]);
+      }
+      break;
+    }
+    case SCF_CALC: {
+      for (Expression *expr : node->calc.expressions) {
+        all_expr.push_back(expr);
+      }
+    } 
+    default: {
+      break;
+    }
+  }
+
+  for (Expression *expr : all_expr) {
+    if (!expr) continue;
+    delete expr;
+    expr = nullptr;
+  }
+}
+
+void SessionStage::handle_request(StageEvent *event)
+{
+  SessionEvent *sev = dynamic_cast<SessionEvent *>(event);
+  if (nullptr == sev) {
+    LOG_ERROR("Cannot cat event to sessionEvent");
+    return;
+  }
+
+  std::string query_str = sev->query();
+  if (common::is_blank(query_str.c_str())) {
+    return;
+  }
+
+  Session::set_current_session(sev->session());
+  sev->session()->set_current_request(sev);
+
+  std::vector<std::string> sqls;
+  common::split_string(query_str, ";", sqls);
+
+  for (std::string &sql : sqls) {
+    SQLStageEvent sql_event(sev, sql);
+    
+    (void)handle_sql(this, &sql_event, true);
+    Communicator *communicator = sev->get_communicator();
+    communicator->session()->set_sql_debug(true);
+
+    bool need_disconnect = false;
+    RC rc = communicator->write_result(sev, need_disconnect);
+    LOG_INFO("write result return %s", strrc(rc));
+    if (need_disconnect) {
+      Server::close_connection(communicator);
+    }
+    clean_garbage(sql_event.sql_node().get());
+
+    if (sev->sql_result()->return_code() != RC::SUCCESS) 
+      break;
+  }
+  sev->session()->set_current_request(nullptr);
+  Session::set_current_session(nullptr);
+}
+
+
+/**
+ * 处理一个SQL语句经历这几个阶段。
+ * 虽然看起来流程比较多，但是对于大多数SQL来说，更多的可以关注parse和executor阶段。
+ * 通常只有select、delete等带有查询条件的语句才需要进入optimize。
+ * 对于DDL语句，比如create table、create index等，没有对应的查询计划，可以直接搜索
+ * create_table_executor、create_index_executor来看具体的执行代码。
+ * select、delete等DML语句，会产生一些执行计划，如果感觉繁琐，可以跳过optimize直接看
+ * execute_stage中的执行，通过explain语句看需要哪些operator，然后找对应的operator来
+ * 调试或者看代码执行过程即可。
+ */
+
 
 RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
 {
@@ -387,15 +432,15 @@ RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
   }
 
   //判断sql_event是否为selectsqlnode，若是的话，调用RC select_pre_process(SelectSqlNode *select_sql)对其select_sql进行预处理
-  if (sql_event->getSqlNodeRawPointer() && main_query) { 
+  if (sql_event->sql_node() && main_query) { 
     SessionEvent *session_event = sql_event->session_event();
     SqlResult    *sql_result    = session_event->sql_result();
     SelectSqlNode* select_sql = nullptr;
     
-    if (sql_event->getSqlNodeRawPointer()->flag == SqlCommandFlag::SCF_SELECT)
-      select_sql = &sql_event->getSqlNodeRawPointer()->selection;
-    else if (sql_event->getSqlNodeRawPointer()->flag == SqlCommandFlag::SCF_CREATE_TABLE)
-      select_sql = sql_event->getSqlNodeRawPointer()->create_table.select;
+    if (sql_event->sql_node()->flag == SqlCommandFlag::SCF_SELECT)
+      select_sql = &sql_event->sql_node()->selection;
+    else if (sql_event->sql_node()->flag == SqlCommandFlag::SCF_CREATE_TABLE)
+      select_sql = sql_event->sql_node()->create_table.select;
 
     rc = select_pre_process(select_sql);
     if (OB_FAIL(rc)) {

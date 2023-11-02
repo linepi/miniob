@@ -45,6 +45,7 @@ public:
 
   SqlDebug &sql_debug() { return sql_debug_; }
 
+  bool main_query_ = true;
 private:
   Communicator *communicator_ = nullptr;  ///< 与客户端通讯的对象
   SqlResult     sql_result_;              ///< SQL执行结果

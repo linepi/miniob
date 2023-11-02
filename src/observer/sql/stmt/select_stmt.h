@@ -61,6 +61,9 @@ public:
   bool has_order_by(){
     return order_by_;
   }
+  bool has_group_by(){
+    return groupby_.size() != 0;
+  }
 
   const std::vector<Field> &order_fields() const
   {
@@ -72,6 +75,14 @@ public:
     return order_info;
   }
 
+  const std::vector<Expression *> &groupby() const {
+    return groupby_;
+  }
+
+  Expression *having() const {
+    return having_;
+  }
+
 private:
   std::vector<Expression *> query_exprs_;
   std::vector<Table *> tables_;
@@ -80,4 +91,7 @@ private:
   bool order_by_;
   std::vector<Field> order_fields_;
   std::vector<bool> order_info;
+
+  std::vector<Expression *> groupby_;
+  Expression *having_ = nullptr;
 };

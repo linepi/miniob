@@ -125,7 +125,7 @@ RC PlainCommunicator::write_state(SessionEvent *event, bool &need_disconnect)
 
 RC PlainCommunicator::write_debug(SessionEvent *request, bool &need_disconnect)
 {
-  if (!session_->sql_debug_on()) {
+  if (!session_->sql_debug_on() || !request->main_query_) {
     return RC::SUCCESS;
   }
 

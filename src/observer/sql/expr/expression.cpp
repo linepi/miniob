@@ -26,6 +26,13 @@ See the Mulan PSL v2 for more details. */
 
 using namespace std;
 
+Expression::~Expression() {
+  for (ExprFunc *func : funcs_) {
+    delete func;
+    func = nullptr;
+  }
+}
+
 void Expression::add_func(AggType agg_type) { 
   funcs_.push_back(new AggregationFunc(agg_type)); 
 }

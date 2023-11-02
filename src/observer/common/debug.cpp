@@ -75,9 +75,7 @@ void get_relation_from_select(SelectSqlNode *select, std::unordered_set<std::str
 
   for (SubQueryExpr *sub_query : sub_querys) {
     SelectSqlNode *sel = sub_query->select();
-    for (std::string &rel : sel->relations) {
-      add_relation(relations, rel);
-    }
+    get_relation_from_select(sel, relations);
   }
 }
 

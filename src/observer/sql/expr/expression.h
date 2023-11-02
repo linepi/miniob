@@ -49,7 +49,7 @@ class Expression
 {
 public:
   Expression() = default;
-  virtual ~Expression() = default;
+  virtual ~Expression();
 
   /**
    * @brief 根据具体的tuple，来计算当前表达式的值。tuple有可能是一个具体某个表的行数据
@@ -224,7 +224,7 @@ class SubQueryExpr : public Expression
 public:
   SubQueryExpr() { value_.set_type(UNDEFINED); }
   explicit SubQueryExpr(SelectSqlNode *select) { select_ = select; value_.set_type(UNDEFINED); }
-  virtual ~SubQueryExpr() = default;
+  ~SubQueryExpr();
 
   RC get_value(const Tuple &tuple, Value &value) const override;
   void set_value(const Value &value) { value_ = value; }

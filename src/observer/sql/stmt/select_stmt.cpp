@@ -141,25 +141,109 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
       return RC::INVALID_ARGUMENT;
     }
   }
+  if (select_sql.groupby.size() == 0 && select_sql.having != nullptr) {
+    return RC::INVALID_ARGUMENT;
+  }
 
-  int has_agg = 0, has_common = 0;
-  for (const SelectAttr &select_attr : select_sql.attributes) {
-    bool aggregate;
-    rc = select_attr.expr_nodes[0]->is_aggregate(aggregate);
-    if (rc != RC::SUCCESS) {
-      return rc;
+  auto field_visitor = [&db, &table_map, &tables](std::unique_ptr<Expression> &expr) {
+    assert(expr->type() == ExprType::FIELD);
+    FieldExpr *field_expr = static_cast<FieldExpr *>(expr.get());
+    RelAttrSqlNode relation_attr = field_expr->rel_attr();
+    const char *table_name = relation_attr.relation_name.c_str();
+    const char *field_name = relation_attr.attribute_name.c_str();
+
+    Table *table = nullptr; 
+    if (!common::is_blank(relation_attr.relation_name.c_str())) {
+      auto iter = table_map.find(table_name);
+      if (iter == table_map.end()) {
+        LOG_WARN("no such table in from list: %s", table_name);
+        return RC::SCHEMA_FIELD_MISSING;
+      }
+      table = iter->second;
+    } else {
+      if (tables.size() != 1) {
+        LOG_WARN("invalid. I do not know the attr's table. attr=%s", relation_attr.attribute_name.c_str());
+        return RC::SCHEMA_FIELD_MISSING;
+      }
+      table = tables[0];
     }
-    if (aggregate) has_agg = 1;
-    else has_common = 1;
-    if (has_agg && has_common) {
-      LOG_WARN("either all agg, or all common");
-      return RC::INVALID_ARGUMENT;
+    const FieldMeta *field_meta = table->table_meta().field(field_name);
+    if (nullptr == field_meta) {
+      LOG_WARN("no such field. field=%s.%s.%s", db->name(), table->name(), field_name);
+      return RC::SCHEMA_FIELD_MISSING;
     }
-    if (select_attr.expr_nodes.size() != 1) {
-      LOG_WARN("multiple column in a aggregation function");
-      return RC::INVALID_ARGUMENT;
+    field_expr->set_field(Field(table, field_meta));
+    return RC::SUCCESS;
+  };
+
+
+  if (select_sql.groupby.size() != 0) {
+    for (Expression *attr : select_sql.groupby) {
+      if (attr->type() != ExprType::FIELD) {
+        return RC::INVALID_ARGUMENT;
+      }
+      attr->visit_field_expr(field_visitor, false);
+      if (rc != RC::SUCCESS) 
+        return rc;
+      bool agg;
+      attr->is_aggregate(agg);
+      if (agg) {
+        LOG_WARN("groupby check should not have agg");
+        return RC::INVALID_ARGUMENT;
+      }
+    }
+
+
+    if (select_sql.having) {
+      select_sql.having->visit_field_expr(field_visitor, false);
+      if (rc != RC::SUCCESS) 
+        return rc;
+      // all field in having is agg
+      auto arith_visitor = [](Expression *expr) {
+        ComparisonExpr *comp = static_cast<ComparisonExpr *>(expr);
+        bool agg;
+        comp->left()->is_aggregate(agg);
+        if (comp->left()->type() == ExprType::FIELD && !agg) {
+          return RC::INVALID_ARGUMENT;
+        }
+        comp->right()->is_aggregate(agg);
+        if (comp->right()->type() == ExprType::FIELD && !agg) {
+          return RC::INVALID_ARGUMENT;
+        }
+        return RC::SUCCESS;
+      };
+      rc = select_sql.having->visit_comp_expr(arith_visitor);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("error in having check %s", strrc(rc));
+        return rc;
+      }
+      rc = check_agg_func_valid(select_sql.having);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("agg func not valid in having check %s", strrc(rc));
+        return rc;
+      }
+    }
+  } else {
+    int has_agg = 0, has_common = 0;
+    for (const SelectAttr &select_attr : select_sql.attributes) {
+      bool aggregate;
+      rc = select_attr.expr_nodes[0]->is_aggregate(aggregate);
+      if (rc != RC::SUCCESS) {
+        return rc;
+      }
+      if (aggregate) has_agg = 1;
+      else has_common = 1;
+      if (has_agg && has_common) {
+        LOG_WARN("either all agg, or all common");
+        return RC::INVALID_ARGUMENT;
+      }
+      if (select_attr.expr_nodes.size() != 1) {
+        LOG_WARN("multiple column in a aggregation function");
+        return RC::INVALID_ARGUMENT;
+      }
     }
   }
+  
 
   // collect query fields in `select` statement
   std::vector<Expression *> query_exprs;
@@ -180,41 +264,9 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
         }
       }
     }
-
-    auto visitor = [&select_attr, &tables, &table_map, &db, &select_expr](std::unique_ptr<Expression> &expr) {
-      assert(expr->type() == ExprType::FIELD);
-      FieldExpr *field_expr = static_cast<FieldExpr *>(expr.get());
-      RelAttrSqlNode relation_attr = field_expr->rel_attr();
-      const char *table_name = relation_attr.relation_name.c_str();
-      const char *field_name = relation_attr.attribute_name.c_str();
-
-      Table *table = nullptr; 
-      if (!common::is_blank(relation_attr.relation_name.c_str())) {
-        auto iter = table_map.find(table_name);
-        if (iter == table_map.end()) {
-          LOG_WARN("no such table in from list: %s", table_name);
-          return RC::SCHEMA_FIELD_MISSING;
-        }
-        table = iter->second;
-      } else {
-        if (tables.size() != 1) {
-          LOG_WARN("invalid. I do not know the attr's table. attr=%s", relation_attr.attribute_name.c_str());
-          return RC::SCHEMA_FIELD_MISSING;
-        }
-        table = tables[0];
-      }
-      const FieldMeta *field_meta = table->table_meta().field(field_name);
-      if (nullptr == field_meta) {
-        LOG_WARN("no such field. field=%s.%s.%s", db->name(), table->name(), field_name);
-        return RC::SCHEMA_FIELD_MISSING;
-      }
-      field_expr->set_field(Field(table, field_meta));
-      return RC::SUCCESS;
-    };
-    rc = select_expr->visit_field_expr(visitor, false);
+    rc = select_expr->visit_field_expr(field_visitor, false);
     if (rc != RC::SUCCESS) 
       return rc;
-    
     rc = check_agg_func_valid(select_expr);
     if (rc != RC::SUCCESS) 
       return rc;
@@ -271,6 +323,7 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
     order_fields_.push_back(Field(table,table->table_meta().field(s_node.field.attribute_name.c_str())));
   }
 
+
   // everything alright
   SelectStmt *select_stmt = new SelectStmt();
   // TODO add expression copy
@@ -280,6 +333,8 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
   select_stmt->order_fields_ = order_fields_;
   select_stmt->order_info = order_info_;
   select_stmt->order_by_ = !(select_sql.sort.size() == 0);
+  select_stmt->groupby_ = select_sql.groupby;
+  select_stmt->having_ = select_sql.having;
   stmt = select_stmt;
   return RC::SUCCESS;
 }

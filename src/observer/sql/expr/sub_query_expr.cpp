@@ -151,6 +151,22 @@ static RC fill_value_for_correlated_query(
   return rc;
 }
 
+SubQueryExpr::~SubQueryExpr() {
+  if (select_) {
+    for (SelectAttr &attr : select_->attributes) {
+      if (attr.expr_nodes.size() == 0) continue;
+      if (attr.expr_nodes[0])
+        delete attr.expr_nodes[0];
+    }
+    delete select_;
+    select_ = nullptr;
+  }
+
+  if (value_.list()) {
+    delete value_.list();
+  }
+}
+
 RC SubQueryExpr::get_value(const Tuple &tuple, Value &value) const {
   RC rc = RC::SUCCESS;
   if (!correlated_) {

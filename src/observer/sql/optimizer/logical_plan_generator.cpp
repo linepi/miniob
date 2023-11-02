@@ -19,6 +19,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/project_logical_operator.h"
 #include "sql/operator/predicate_logical_operator.h"
 #include "sql/operator/table_get_logical_operator.h"
+#include "sql/operator/groupby_logical_operator.h"
 #include "sql/operator/insert_logical_operator.h"
 #include "sql/operator/delete_logical_operator.h"
 #include "sql/operator/join_logical_operator.h"
@@ -128,37 +129,6 @@ RC LogicalPlanGenerator::create_plan(
     }
   }
 
-
-  if (select_stmt->has_order_by()) {
-    // 创建临时表操作符
-    std::vector<Field> orderByColumns = select_stmt->order_fields();
-    std::vector<bool> sort_info = select_stmt->order_infos();
-    unique_ptr<LogicalOperator> order_by_oper(new OrderByLogicalOperator(orderByColumns,sort_info,!(tables.size()==1)));
-
-    order_by_oper->add_child(std::move(table_oper));
-
-    unique_ptr<LogicalOperator> predicate_oper;
-    RC rc = create_plan(select_stmt->filter_stmt(), predicate_oper);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("failed to create predicate logical plan. rc=%s", strrc(rc));
-      return rc;
-    }
-
-    unique_ptr<LogicalOperator> project_oper(new ProjectLogicalOperator(all_exprs));
-    if (predicate_oper) {
-      if (order_by_oper) {
-        predicate_oper->add_child(std::move(order_by_oper));
-      }
-      project_oper->add_child(std::move(predicate_oper));
-    } else {
-      if (order_by_oper) {
-        project_oper->add_child(std::move(order_by_oper));
-      }
-    }
-    logical_operator.swap(project_oper);
-    return RC::SUCCESS;
-  }
-
   unique_ptr<LogicalOperator> predicate_oper;
   RC rc = create_plan(select_stmt->filter_stmt(), predicate_oper);
   if (rc != RC::SUCCESS) {
@@ -166,16 +136,48 @@ RC LogicalPlanGenerator::create_plan(
     return rc;
   }
 
+  unique_ptr<LogicalOperator> order_by_oper;
+  if (select_stmt->has_order_by()) {
+    // 创建临时表操作符
+    std::vector<Field> orderByColumns = select_stmt->order_fields();
+    std::vector<bool> sort_info = select_stmt->order_infos();
+    order_by_oper.reset(new OrderByLogicalOperator(orderByColumns,sort_info,!(tables.size()==1)));
+    order_by_oper->add_child(std::move(table_oper));
+  }
+
+  unique_ptr<LogicalOperator> group_by_oper;
+  if (select_stmt->has_group_by()) {
+    group_by_oper.reset(new GroupByLogicalOperator(select_stmt->groupby(), select_stmt->having()));
+  }
 
   unique_ptr<LogicalOperator> project_oper(new ProjectLogicalOperator(all_exprs));
   if (predicate_oper) {
-    if (table_oper) {
+    if (order_by_oper) {
+      predicate_oper->add_child(std::move(order_by_oper));
+    } else if (table_oper) {
       predicate_oper->add_child(std::move(table_oper));
     }
-    project_oper->add_child(std::move(predicate_oper));
+
+    if (group_by_oper) {
+      group_by_oper->add_child(std::move(predicate_oper));
+      project_oper->add_child(std::move(group_by_oper));
+    } else {
+      project_oper->add_child(std::move(predicate_oper));
+    }
   } else {
-    if (table_oper) {
-      project_oper->add_child(std::move(table_oper));
+    if (group_by_oper) {
+      if (order_by_oper) {
+        group_by_oper->add_child(std::move(order_by_oper));
+      } else if (table_oper) {
+        group_by_oper->add_child(std::move(table_oper));
+      }
+      project_oper->add_child(std::move(group_by_oper));
+    } else {
+      if (order_by_oper) {
+        project_oper->add_child(std::move(order_by_oper));
+      } else if (table_oper) {
+        project_oper->add_child(std::move(table_oper));
+      }
     }
   }
 
