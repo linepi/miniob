@@ -95,6 +95,7 @@ public:
   // TODO refactor
   RC create_index(Trx *trx, const std::vector<FieldMeta> field_meta, const char *index_name, bool unique);
   bool ignore_index(Index *index, const Record &record);
+  bool update_need_unique_check(Index *index, const char *olddata, const char *newdata);
 
   RC get_record_scanner(RecordFileScanner &scanner, Trx *trx, bool readonly);
 

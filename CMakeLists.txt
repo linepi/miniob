@@ -106,7 +106,7 @@ MESSAGE(STATUS "${Yellow}CMAKE_CXX_FLAGS: ${ColourReset}" ${CMAKE_CXX_FLAGS})
 
 # ADD_SUBDIRECTORY(src bin)  bin 为目标目录， 可以省略
 ADD_SUBDIRECTORY(deps)
-# ADD_SUBDIRECTORY(src/obclient)
+ADD_SUBDIRECTORY(src/obclient)
 ADD_SUBDIRECTORY(src/observer)
 # ADD_SUBDIRECTORY(test/perf)
 # ADD_SUBDIRECTORY(benchmark)

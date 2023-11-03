@@ -269,6 +269,25 @@ bool Table::ignore_index(Index *index, const Record &record) {
   return false;
 }
 
+bool Table::update_need_unique_check(Index *index, const char *olddata, const char *newdata) {
+  if (index->get_index_meta_unique()) {
+    bool all_the_same = true;
+    for (const FieldMeta &fm : index->field_meta()) {
+      if (memcmp(olddata + fm.offset(), newdata + fm.offset(), fm.len()) != 0) {
+        all_the_same = false;
+        break;
+      }
+    }
+    if (all_the_same) {
+      return false;
+    } else {
+      return true;
+    }
+  } else {
+    return false;
+  }
+}
+
 RC Table::update_record(Record &record)
 {
   RC rc = RC::SUCCESS;
@@ -289,9 +308,11 @@ RC Table::update_record(Record &record)
   for (Index *index : indexes_) {
     if (ignore_index(index, record))
       continue;
-    rc = index->unique_check(record.data(), &record.rid());
-    if (rc != RC::SUCCESS) {
-      return rc;
+    if (update_need_unique_check(index, data_bak, record.data())) {
+      rc = index->unique_check(record.data(), &record.rid());
+      if (rc != RC::SUCCESS) {
+        return rc;
+      }
     }
     rc = index->delete_entry(data_bak, &record.rid());
     if (RC::SUCCESS != rc) {
