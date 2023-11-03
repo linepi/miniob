@@ -97,6 +97,8 @@ public:
   bool is_condition() const;
   RC is_aggregate(bool &result);
   RC get_aggregate(AggType &result);
+  void toggle_aggregate(bool on);
+  void reset_aggregate();
   RC visit_field_expr(std::function<RC (std::unique_ptr<Expression> &)> visitor, bool deepinto);
   RC visit_comp_expr(std::function<RC (Expression *)> visitor);
   RC visit(std::function<RC (Expression *)> visitor);
@@ -109,6 +111,7 @@ private:
   std::string name_;
   std::string alias_;
   std::vector<ExprFunc *> funcs_;
+  bool        agg_on_ = true;
 };
 
 /**
@@ -269,6 +272,7 @@ public:
     sql_event_ = sql_event;
   }
 
+  RC reset_aggregate() const;
 
 private:
   bool correlated_ = false;

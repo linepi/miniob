@@ -160,6 +160,16 @@ RC MvccTrx::insert_record(Table *table, Record &record)
   return rc;
 }
 
+/*
+operation	trx state	  begin_xid	     end_xid
+inserted	committed	   Tc	             +∞
+updated   committed    Tc              +∞
+deleted	  committed	   some trx_id	   Tc
+insert	  uncommit	   -Ta	           +∞
+updated   uncommit     -Ta             +∞
+delete	  uncommit	   some trx_id	   -Ta
+*/
+
 RC MvccTrx::delete_record(Table * table, Record &record)
 {
   Field begin_field;
@@ -185,6 +195,34 @@ RC MvccTrx::delete_record(Table * table, Record &record)
   return RC::SUCCESS;
 }
 
+RC MvccTrx::update_record(Table *table, Record &record) {
+  Field begin_field;
+  Field end_field;
+  trx_fields(table, begin_field, end_field);
+
+  begin_field.set_int(record, -trx_id_);
+  end_field.set_int(record, trx_kit_.max_trx_id());
+
+  RC rc = RC::SUCCESS;
+  rc = table->update_record(record);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("failed to insert record into table. rc=%s", strrc(rc));
+    return rc;
+  }
+
+  rc = log_manager_->append_log(CLogType::UPDATE, trx_id_, table->table_id(), record.rid(), record.len(), 0/*offset*/, record.data());
+  ASSERT(rc == RC::SUCCESS, "failed to append insert record log. trx id=%d, table id=%d, rid=%s, record len=%d, rc=%s",
+      trx_id_, table->table_id(), record.rid().to_string().c_str(), record.len(), strrc(rc));
+
+  pair<OperationSet::iterator, bool> ret = 
+        operations_.insert(Operation(Operation::Type::UPDATE, table, record.rid()));
+  if (!ret.second) {
+    rc = RC::INTERNAL;
+    LOG_WARN("failed to insert operation(insertion) into operation set: duplicate");
+  }
+  return rc;
+}
+
 RC MvccTrx::visit_record(Table *table, Record &record, bool readonly)
 {
   Field begin_field;
@@ -202,7 +240,7 @@ RC MvccTrx::visit_record(Table *table, Record &record, bool readonly)
       rc = RC::RECORD_INVISIBLE;
     }
   } else if (begin_xid < 0) {
-    // begin xid 小于0说明是刚插入而且没有提交的数据
+    // begin xid 小于0说明是刚插入或更新而且没有提交的数据
     rc = (-begin_xid == trx_id_) ? RC::SUCCESS : RC::RECORD_INVISIBLE;
   } else if (end_xid < 0) {
     // end xid 小于0 说明是正在删除但是还没有提交的数据
@@ -307,6 +345,22 @@ RC MvccTrx::commit_with_trx_id(int32_t commit_xid)
                rid.to_string().c_str(), strrc(rc));
       } break;
 
+      case Operation::Type::UPDATE: {
+        RID rid(operation.page_num(), operation.slot_num());
+        Table *table = operation.table();
+        Field begin_xid_field, end_xid_field;
+        trx_fields(table, begin_xid_field, end_xid_field);
+
+        auto record_updater = [ this, &begin_xid_field, commit_xid](Record &record) {
+          ASSERT(begin_xid_field.get_int(record) == -this->trx_id_, "update trx id unexpected");
+          begin_xid_field.set_int(record, commit_xid);
+        };
+
+        rc = operation.table()->visit_record(rid, false/*readonly*/, record_updater);
+        ASSERT(rc == RC::SUCCESS, "failed to get record while committing. rid=%s, rc=%s",
+               rid.to_string().c_str(), strrc(rc));
+      } break;
+
       default: {
         ASSERT(false, "unsupported operation. type=%d", static_cast<int>(operation.type()));
       }
@@ -367,6 +421,22 @@ RC MvccTrx::rollback()
                rid.to_string().c_str(), strrc(rc));
       } break;
 
+      case Operation::Type::UPDATE: {
+        RID rid(operation.page_num(), operation.slot_num());
+        Table *table = operation.table();
+        Field begin_xid_field, end_xid_field;
+        trx_fields(table, begin_xid_field, end_xid_field);
+
+        auto record_updater = [this, &begin_xid_field](Record &record) {
+          ASSERT(begin_xid_field.get_int(record) == -this->trx_id_, "update trx id unexpected error");
+          begin_xid_field.set_int(record, this->trx_id_);
+        };
+
+        rc = operation.table()->visit_record(rid, false/*readonly*/, record_updater);
+        ASSERT(rc == RC::SUCCESS, "failed to get record while committing. rid=%s, rc=%s",
+               rid.to_string().c_str(), strrc(rc));
+      } break;
+
       default: {
         ASSERT(false, "unsupported operation. type=%d", static_cast<int>(operation.type()));
       }
@@ -404,6 +474,8 @@ RC find_table(Db *db, const CLogRecord &log_record, Table *&table)
 
 RC MvccTrx::redo(Db *db, const CLogRecord &log_record)
 {
+  return RC::SUCCESS;
+
   Table *table = nullptr;
   RC rc = find_table(db, log_record, table);
   if (OB_FAIL(rc)) {
@@ -445,6 +517,9 @@ RC MvccTrx::redo(Db *db, const CLogRecord &log_record)
              data_record.rid_.to_string().c_str(), strrc(rc));
       
       operations_.insert(Operation(Operation::Type::DELETE, table, data_record.rid_));
+    } break;
+
+    case CLogType::UPDATE: {
     } break;
 
     case CLogType::MTR_COMMIT: {

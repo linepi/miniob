@@ -3,10 +3,10 @@ create table t_group_by (id int, score float, name char);
 create table t_group_by_2 (id int, age int);
 
 -- echo 2. insert records
-insert into t_group_by values(3, 1.0, 'a');
-insert into t_group_by values(1, 2.0, 'b');
-insert into t_group_by values(4, 3.0, 'c');
-insert into t_group_by values(3, 2.0, 'c');
+insert into t_group_wu values(3, 1.0, 'a');
+insert into t_group_wu values(1, 2.0, 'b');
+insert into t_group_wu values(4, 3.0, 'c');
+insert into t_group_wu values(3, 2.0, 'c');
 insert into t_group_by values(3, 4.0, 'c');
 insert into t_group_by values(3, 3.0, 'd');
 insert into t_group_by values(3, 2.0, 'f');

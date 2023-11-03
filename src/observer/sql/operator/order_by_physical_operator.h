@@ -29,8 +29,8 @@ private:
   size_t                   current_position_ = 0;
   std::vector<RowTuple>    buffer_;
   std::vector<JoinedTuple> buffer_join_;
-  RowTuple                 current_tuple_;
-  JoinedTuple              current_tuple_join_;
+  RowTuple                *current_tuple_;
+  JoinedTuple             *current_tuple_join_;
   std::vector<Field>       orderByColumns;
   std::vector<bool>        sort_info;
   bool                     is_mult_table;

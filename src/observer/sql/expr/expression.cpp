@@ -65,6 +65,28 @@ RC Expression::is_aggregate(bool &result) {
   return RC::SUCCESS;
 }
 
+void Expression::toggle_aggregate(bool on) {
+  auto visitor = [&](Expression *e) {
+    e->agg_on_ = on;
+    return RC::SUCCESS;
+  };
+  this->visit(visitor);
+}
+
+void Expression::reset_aggregate() {
+  auto visitor = [&](Expression *expr) {
+    std::vector<ExprFunc *> &funcs = expr->funcs();
+    for (ExprFunc *func : funcs) {
+      if (func->type() == ExprFunc::AGG) {
+        static_cast<AggregationFunc *>(func)->reset();
+      }
+    }
+    return RC::SUCCESS;
+  };
+  this->visit(visitor);
+}
+
+// TODO: only get the first type
 RC Expression::get_aggregate(AggType &result) {
   result = AGG_UNDEFINED;
   auto visitor = [&result](Expression *expr) {
@@ -111,7 +133,7 @@ RC Expression::func_impl(Value &value) const {
   Expression *non_const_this = const_cast<Expression *>(this);
   Value v = value;
   for (ExprFunc *func : non_const_this->funcs_) {
-    RC rc = func->iterate(v);
+    RC rc = func->iterate(v, agg_on_);
     if (rc != RC::SUCCESS) {
       LOG_WARN("error while get function value %s", strrc(rc));
       return rc;

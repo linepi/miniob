@@ -8,8 +8,8 @@
 class GroupByLogicalOperator : public LogicalOperator
 {
 public:
-  GroupByLogicalOperator(std::vector<Expression *> groupby, Expression *having) 
-		: groupby_(groupby), having_(having)
+  GroupByLogicalOperator(std::vector<Expression *> groupby, Expression *having, const std::vector<Expression *> &exprs) 
+		: groupby_(groupby), having_(having), select_exprs_(exprs)
 	{}
 
   virtual ~GroupByLogicalOperator() = default;
@@ -18,4 +18,5 @@ public:
 
 	std::vector<Expression *> groupby_;
 	Expression *having_ = nullptr;
+	std::vector<Expression *> select_exprs_;
 };

@@ -18,7 +18,7 @@ CommonFunction::CommonFunction(FunctionType func_type, std::string param)
   : func_type_(func_type), param_(param)
 {}
 
-RC CommonFunction::iterate(Value &value) {
+RC CommonFunction::iterate(Value &value, bool agg_on) {
   switch (func_type_) {
     case FUNC_LENGTH:
       return func_length(value);

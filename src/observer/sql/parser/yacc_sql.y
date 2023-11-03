@@ -970,6 +970,7 @@ groupby:
     $$ = nullptr;
   }
   | GROUP BY expression_list {
+    std::reverse($3->begin(), $3->end());
     $$ = $3;
   }
 

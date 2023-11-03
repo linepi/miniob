@@ -48,6 +48,7 @@ D | 3 | 3
 F | 3 | 2
 NAME | MIN(ID) | MAX(SCORE)
 
+# error
 select id, name, avg(score) from t_group_by group by id, name;
 1 | B | 2
 3 | A | 1
@@ -70,6 +71,7 @@ D | 1 | 3
 F | 1 | 2
 NAME | COUNT(ID) | MAX(SCORE)
 
+# error
 5. MULTI TABLE
 select t_group_by.id, t_group_by.name, avg(t_group_by.score), avg(t_group_by_2.age) from t_group_by, t_group_by_2 where t_group_by.id=t_group_by_2.id group by t_group_by.id, t_group_by.name;
 1 | B | 2 | 10

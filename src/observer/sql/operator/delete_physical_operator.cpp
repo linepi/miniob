@@ -54,6 +54,14 @@ RC DeletePhysicalOperator::next()
 
     RowTuple *row_tuple = static_cast<RowTuple *>(tuple);
     Record &record = row_tuple->record();
+
+    rc = trx_->visit_record(table_, record, false);
+    if (rc == RC::RECORD_INVISIBLE) {
+      continue;
+    } else if (rc == RC::LOCKED_CONCURRENCY_CONFLICT) {
+      LOG_WARN("update conflict: %s", strrc(rc));
+      return rc;
+    }
     rc = trx_->delete_record(table_, record);
     if (rc != RC::SUCCESS) {
       LOG_WARN("failed to delete record: %s", strrc(rc));

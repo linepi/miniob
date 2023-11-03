@@ -12,6 +12,6 @@ public:
 	ExprFunc() = default;
 	virtual ~ExprFunc() = default;
 	
-	virtual RC iterate(Value &value) = 0;
+	virtual RC iterate(Value &value, bool agg_on) = 0;
 	virtual int type() = 0;
 };

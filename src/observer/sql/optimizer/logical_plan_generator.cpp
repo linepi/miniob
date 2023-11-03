@@ -145,8 +145,10 @@ RC LogicalPlanGenerator::create_plan(
     order_by_oper->add_child(std::move(table_oper));
   }
 
-  unique_ptr<LogicalOperator> group_by_oper;
+  
   if (select_stmt->has_group_by()) {
+    unique_ptr<LogicalOperator> group_by_oper;
+
     std::vector<Field> orderByColumns;
     for (Expression * expr : select_stmt->groupby()) {
       orderByColumns.push_back(static_cast<FieldExpr *>(expr)->field());
@@ -157,27 +159,24 @@ RC LogicalPlanGenerator::create_plan(
     order_by_oper.reset(new OrderByLogicalOperator(orderByColumns, sort_info, !(tables.size() == 1)));
     order_by_oper->add_child(std::move(table_oper));
 
-    group_by_oper.reset(new GroupByLogicalOperator(select_stmt->groupby(), select_stmt->having()));
-  }
-
-  unique_ptr<LogicalOperator> project_oper(new ProjectLogicalOperator(all_exprs));
-  if (predicate_oper) {
-    if (order_by_oper) {
+    group_by_oper.reset(new GroupByLogicalOperator(select_stmt->groupby(), select_stmt->having(), all_exprs));
+    if (predicate_oper) {
       predicate_oper->add_child(std::move(order_by_oper));
-    } else if (table_oper) {
-      predicate_oper->add_child(std::move(table_oper));
-    }
-
-    if (group_by_oper) {
       group_by_oper->add_child(std::move(predicate_oper));
-      project_oper->add_child(std::move(group_by_oper));
     } else {
-      project_oper->add_child(std::move(predicate_oper));
-    }
-  } else {
-    if (group_by_oper) {
       group_by_oper->add_child(std::move(order_by_oper));
-      project_oper->add_child(std::move(group_by_oper));
+    }
+    logical_operator.swap(group_by_oper);
+  } else {
+    unique_ptr<LogicalOperator> project_oper(new ProjectLogicalOperator(all_exprs));
+    if (predicate_oper) {
+      if (order_by_oper) {
+        predicate_oper->add_child(std::move(order_by_oper));
+      } else if (table_oper) {
+        predicate_oper->add_child(std::move(table_oper));
+      }
+
+      project_oper->add_child(std::move(predicate_oper));
     } else {
       if (order_by_oper) {
         project_oper->add_child(std::move(order_by_oper));
@@ -185,9 +184,9 @@ RC LogicalPlanGenerator::create_plan(
         project_oper->add_child(std::move(table_oper));
       }
     }
+    logical_operator.swap(project_oper);
   }
 
-  logical_operator.swap(project_oper);
   return RC::SUCCESS;
 }
 

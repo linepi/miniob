@@ -52,6 +52,7 @@ public:
 
   Value(const Value &other) = default;
   Value &operator=(const Value &other);
+  bool operator==(const Value &other);
   Value operator+(const Value &other) const;
   Value operator-(const Value &other) const;
   Value operator*(const Value &other) const;

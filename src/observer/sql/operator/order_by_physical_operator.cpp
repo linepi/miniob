@@ -15,9 +15,9 @@ RC OrderByPhysicalOperator::open(Trx *trx)
 Tuple *OrderByPhysicalOperator::current_tuple()
 {
   if (is_mult_table) {
-    return &current_tuple_join_;
+    return current_tuple_join_;
   } else {
-    return &current_tuple_;
+    return current_tuple_;
   }
 }
 
@@ -72,7 +72,7 @@ RC OrderByPhysicalOperator::next()
       return RC::RECORD_EOF;
     }
 
-    current_tuple_ = buffer_[current_position_];
+    current_tuple_ = &buffer_[current_position_];
     current_position_++;
   } else {
     if (inited_ == false) {
@@ -117,7 +117,7 @@ RC OrderByPhysicalOperator::next()
       return RC::RECORD_EOF;
     }
 
-    current_tuple_join_ = buffer_join_[current_position_];
+    current_tuple_join_ = &buffer_join_[current_position_];
     current_position_++;
   }
 

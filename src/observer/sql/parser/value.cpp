@@ -184,6 +184,12 @@ Value& Value::operator=(const Value &other) {
   return *this;
 }
 
+bool Value::operator==(const Value &other) {
+  if (this == &other) return true;
+  bool res = false;
+  compare_op(other, CompOp::EQUAL_TO, res);
+  return res;
+}
 
 void Value::set_value(const Value &value)
 {

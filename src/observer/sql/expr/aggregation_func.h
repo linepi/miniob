@@ -8,10 +8,11 @@ public:
 	AggregationFunc(AggType agg_type); 
 	~AggregationFunc() = default; 
 
-	RC iterate(Value &value) override;
+	RC iterate(Value &value, bool agg_on) override;
 	RC aggregate(Value *value);
 	Value result();
   int type() override { return ExprFunc::AGG; }
+	void reset();
 
 	std::string get_agg_alias(){
 		return agg_alias;

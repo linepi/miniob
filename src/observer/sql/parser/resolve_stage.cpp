@@ -435,7 +435,7 @@ RC ResolveStage::handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool
       if (sql_event->sql_node().get()->create_table.select)
         get_relation_from_select(sql_event->sql_node().get()->create_table.select, relations);
     }
-    show_relations(relations, ss, sql_event);
+    // show_relations(relations, ss, sql_event);
   }
   // end for debug
 

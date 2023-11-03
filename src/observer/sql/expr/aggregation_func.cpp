@@ -8,10 +8,18 @@ AggregationFunc::AggregationFunc(AggType agg_type)
   sum_.set_null();
 }
 
-RC AggregationFunc::iterate(Value &value) {
-  RC rc = aggregate(&value);
-  if (rc != RC::SUCCESS) {
-    return rc;
+void AggregationFunc::reset() {
+  result_.set_null(); 
+  sum_.set_null();
+	cnt_ = 0;
+}
+
+RC AggregationFunc::iterate(Value &value, bool agg_on) {
+  if (agg_on) {
+    RC rc = aggregate(&value);
+    if (rc != RC::SUCCESS) {
+      return rc;
+    }
   }
   value = result();
   return RC::SUCCESS;

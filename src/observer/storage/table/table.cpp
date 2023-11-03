@@ -269,58 +269,36 @@ bool Table::ignore_index(Index *index, const Record &record) {
   return false;
 }
 
-RC Table::update_record(std::vector<const FieldMeta *> &field_metas, std::vector<Value> &values, Record &record)
+RC Table::update_record(Record &record)
 {
   RC rc = RC::SUCCESS;
-  
-  char *data_bak = (char *)malloc(table_meta_.record_size());
-  memcpy(data_bak, record.data(), table_meta_.record_size());
 
-  // check valid
-  std::vector<Value> values_impls;
-  for (size_t i = 0; i < values.size(); i++) {
-    const FieldMeta *field_meta = field_metas[i];
-    Value &value_impl = values[i];
-    if (!field_meta->match(value_impl)) {
-      LOG_WARN("field does not match value(%s and %s)", 
-          attr_type_to_string(field_meta->type()), 
-          attr_type_to_string(value_impl.attr_type()));
-      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
-    }
+  const int record_size = table_meta_.record_size();
+  char *data_bak = (char *)malloc(record_size);
 
-    values_impls.push_back(value_impl);
+  auto copier = [&](Record &record_src) {
+    memcpy(data_bak, record_src.data(), record_size);
+  };
+  rc = record_handler_->visit_record(record.rid(), false/*readonly*/, copier);
+  if (rc != RC::SUCCESS) {
+    free(data_bak);
+    LOG_WARN("failed to visit record");
+    return rc;
   }
-  update_record_impl(field_metas, values_impls, record);
 
   for (Index *index : indexes_) {
     if (ignore_index(index, record))
       continue;
     rc = index->unique_check(record.data(), &record.rid());
     if (rc != RC::SUCCESS) {
-      free(data_bak);
       return rc;
     }
-  }
-
-  rc = record_handler_->update_record(record.data(), table_meta_.record_size(), &record.rid());
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("update record error %s, undo change...", strrc(rc));
-    rc = record_handler_->delete_record(&record.rid());
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("undo change error %s", strrc(rc));
-    }
-    return rc;
-  }
-
-  for (Index *index : indexes_) {
     rc = index->delete_entry(data_bak, &record.rid());
     if (RC::SUCCESS != rc) {
       LOG_WARN("failed to delete entry from index. table name=%s, index name=%s, rid=%s, rc=%s",
            name(), index->index_meta().name(), record.rid().to_string().c_str(), strrc(rc));
       return rc;
     }
-    if (ignore_index(index, record))
-      continue;
     rc = index->insert_entry(record.data(), &record.rid());
     if (RC::SUCCESS != rc) {
       LOG_WARN("failed to delete entry from index. table name=%s, index name=%s, rid=%s, rc=%s",
@@ -329,10 +307,14 @@ RC Table::update_record(std::vector<const FieldMeta *> &field_metas, std::vector
     }
   }
 
-  free(data_bak);
+  rc = record_handler_->update_record(record.data(), table_meta_.record_size(), &record.rid());
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("update record error %s", strrc(rc));
+    return rc;
+  }
+
   return rc;
 }
-
 
 RC Table::visit_record(const RID &rid, bool readonly, std::function<void(Record &)> visitor)
 {

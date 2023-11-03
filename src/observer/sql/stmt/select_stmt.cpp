@@ -223,27 +223,26 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
         return rc;
       }
     }
-  } else {
-    int has_agg = 0, has_common = 0;
-    for (const SelectAttr &select_attr : select_sql.attributes) {
-      bool aggregate;
-      rc = select_attr.expr_nodes[0]->is_aggregate(aggregate);
-      if (rc != RC::SUCCESS) {
-        return rc;
-      }
-      if (aggregate) has_agg = 1;
-      else has_common = 1;
-      if (has_agg && has_common) {
-        LOG_WARN("either all agg, or all common");
-        return RC::INVALID_ARGUMENT;
-      }
-      if (select_attr.expr_nodes.size() != 1) {
-        LOG_WARN("multiple column in a aggregation function");
-        return RC::INVALID_ARGUMENT;
-      }
+  } 
+
+  int has_agg = 0, has_common = 0;
+  for (const SelectAttr &select_attr : select_sql.attributes) {
+    bool aggregate;
+    rc = select_attr.expr_nodes[0]->is_aggregate(aggregate);
+    if (rc != RC::SUCCESS) {
+      return rc;
+    }
+    if (aggregate) has_agg = 1;
+    else has_common = 1;
+    if (has_agg && has_common && select_sql.groupby.size() == 0) {
+      LOG_WARN("either all agg, or all common");
+      return RC::INVALID_ARGUMENT;
+    }
+    if (select_attr.expr_nodes.size() != 1) {
+      LOG_WARN("multiple column in a aggregation function");
+      return RC::INVALID_ARGUMENT;
     }
   }
-  
 
   // collect query fields in `select` statement
   std::vector<Expression *> query_exprs;
@@ -270,6 +269,29 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
     rc = check_agg_func_valid(select_expr);
     if (rc != RC::SUCCESS) 
       return rc;
+
+    // 不能出现groupby中没有的非agg字段, 例如select a, b from t group by a; 这里b是禁止的
+    if (select_sql.groupby.size() != 0) {
+      bool agg;
+      select_expr->is_aggregate(agg);
+      if (!agg) {
+        auto func = [&](std::unique_ptr<Expression> &expr) {
+          FieldExpr *field_expr = static_cast<FieldExpr *>(expr.get());
+          for (Expression *e : select_sql.groupby) {
+            FieldExpr *groupelem = static_cast<FieldExpr *>(e);
+            if (groupelem->field().table() == field_expr->field().table() &&
+                groupelem->field().meta() == field_expr->field().meta()) 
+              return RC::SUCCESS;
+          }
+          return RC::INVALID_ARGUMENT;
+        };
+        rc = select_expr->visit_field_expr(func, false);
+        if (rc != RC::SUCCESS)  {
+          LOG_WARN("error: none agg field which is not in group by appears in select attr");
+          return rc;
+        }
+      }
+    }
   }
 
   Table *default_table = nullptr;

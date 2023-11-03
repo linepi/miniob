@@ -10,7 +10,7 @@ public:
   CommonFunction(FunctionType func_type, std::string param);
   ~CommonFunction() = default;
 
-  RC iterate(Value &value) override;
+  RC iterate(Value &value, bool agg_on) override;
   RC func_length(Value &value) const;
   RC func_round(Value &value) const;
   RC func_date_format(Value &value) const;

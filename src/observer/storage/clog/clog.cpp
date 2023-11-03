@@ -248,7 +248,7 @@ RC CLogBuffer::flush_buffer(CLogFile &log_file)
     count++;
   }
 
-  LOG_WARN("flush log buffer done. write log record number=%d", count);
+  LOG_INFO("flush log buffer done. write log record number=%d", count);
   return log_file.sync();
 }
 

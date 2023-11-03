@@ -322,7 +322,7 @@ public:
     exprs_[0]->is_aggregate(isagg);
 
     int field_num = 0;
-    int last_field_num;
+    int last_field_num = 0;
     size_t expr_index;
     for (expr_index = 0; expr_index < exprs_.size(); expr_index++) {
       Expression *expr = exprs_[expr_index];
@@ -541,4 +541,41 @@ public:
 private:
   Tuple *left_ = nullptr;
   Tuple *right_ = nullptr;
+};
+
+/**
+ * @brief 一些常量值组成的Tuple
+ * @ingroup Tuple
+ */
+class GroupTuple : public Tuple 
+{
+public:
+  GroupTuple() = default;
+  virtual ~GroupTuple() = default;
+
+  GroupTuple* clone() const override {
+    return nullptr;
+  }
+
+  int cell_num() const override
+  {
+    return static_cast<int>(cells_.size());
+  }
+
+  RC cell_at(int index, Value &cell) const override
+  {
+    if (index < 0 || index >= cell_num()) {
+      return RC::NOTFOUND;
+    }
+
+    cell = cells_[index];
+    return RC::SUCCESS;
+  }
+
+  RC find_cell(const TupleCellSpec &spec, Value &cell) const override
+  {
+    return RC::INTERNAL;
+  }
+
+  std::vector<Value> cells_;
 };

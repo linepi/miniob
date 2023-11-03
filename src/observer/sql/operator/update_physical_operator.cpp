@@ -38,9 +38,36 @@ RC UpdatePhysicalOperator::next()
       return rc;
     }
 
+    for (size_t i = 0; i < values_.size(); i++) {
+      FieldMeta *field_meta = const_cast<FieldMeta *>(field_metas_[i]);
+      Value &v = values_[i];
+      if (!field_meta->match(v)) {
+        LOG_WARN("field does not match value(%s and %s)", 
+            attr_type_to_string(field_meta->type()), 
+            attr_type_to_string(v.attr_type()));
+        return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+      }
+    }
+
     RowTuple *row_tuple = static_cast<RowTuple *>(tuple);
     Record &record = row_tuple->record();
-    rc = table_->update_record(field_metas_, values_, record);
+
+    rc = trx_->visit_record(table_, record, false);
+    if (rc == RC::RECORD_INVISIBLE) {
+      continue;
+    } else if (rc == RC::LOCKED_CONCURRENCY_CONFLICT) {
+      LOG_WARN("update conflict: %s", strrc(rc));
+      return rc;
+    }
+
+    char *data_changed = (char *)malloc(table_->table_meta().record_size());
+    memcpy(data_changed, record.data(), table_->table_meta().record_size());
+    Record record_changed(record);
+    record_changed.set_data_owner(data_changed, table_->table_meta().record_size());
+
+    table_->update_record_impl(field_metas_, values_, record_changed);
+
+    rc = trx_->update_record(table_, record_changed);
     if (rc != RC::SUCCESS) {
       LOG_WARN("failed to delete record: %s", strrc(rc));
       return rc;

@@ -167,6 +167,15 @@ SubQueryExpr::~SubQueryExpr() {
   }
 }
 
+RC SubQueryExpr::reset_aggregate() const {
+  if (!select_) return RC::SUCCESS;
+  for (SelectAttr &attr : select_->attributes) {
+    Expression *expr = attr.expr_nodes[0];
+    expr->reset_aggregate();
+  }
+  return RC::SUCCESS;
+}
+
 RC SubQueryExpr::get_value(const Tuple &tuple, Value &value) const {
   RC rc = RC::SUCCESS;
   if (!correlated_) {
@@ -185,6 +194,7 @@ RC SubQueryExpr::get_value(const Tuple &tuple, Value &value) const {
   std::string std_out;
   sql_event_->set_correlated_query(true);
   rc = sub_query_extract(select_, ss_, sql_event_, std_out);
+  reset_aggregate();
   sql_event_->set_correlated_query(false);
   if (rc != RC::SUCCESS) {
     LOG_WARN("error in sub_query_extract %s", strrc(rc));
