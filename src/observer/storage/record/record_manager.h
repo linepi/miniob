@@ -173,6 +173,8 @@ public:
    */
   RC insert_record(const char *data, RID *rid);
 
+  RC insert_text_record(const char *data, RID *rid);
+
   /**
    * @brief 数据库恢复时，在指定位置插入数据
    * 

@@ -407,7 +407,7 @@ RC Table::make_text_value(Value &value)
 {
   RC rc = RC::SUCCESS;
   RID *rid =new RID;
-  size_t MAX_SIZE = 2048;
+  size_t MAX_SIZE = 8000;
   std::string ss = value.text_data();
 
   while (ss.size() > MAX_SIZE) {
@@ -417,8 +417,7 @@ RC Table::make_text_value(Value &value)
 
     RID *new_rid = new RID;
     rc = record_handler_->insert_text_record(chunk.data(), chunk.size(), new_rid);
-    new_rid->over_len = MAX_SIZE;
-    new_rid->init = true;
+
     if (rc != RC::SUCCESS) {
       LOG_ERROR("Insert text chunk failed. table name=%s, rc=%s", table_meta_.name(), strrc(rc));
       return rc;

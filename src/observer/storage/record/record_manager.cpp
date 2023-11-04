@@ -202,6 +202,36 @@ RC RecordPageHandler::insert_record(const char *data, RID *rid)
   if (rid) {
     rid->page_num = get_page_num();
     rid->slot_num = index;
+  }
+
+  // LOG_TRACE("Insert record. rid page_num=%d, slot num=%d", get_page_num(), index);
+  return RC::SUCCESS;
+}
+
+RC RecordPageHandler::insert_text_record(const char *data, RID *rid)
+{
+  ASSERT(readonly_ == false, "cannot insert record into page while the page is readonly");
+
+  if (page_header_->record_num == page_header_->record_capacity) {
+    LOG_WARN("Page is full, page_num %d:%d.", disk_buffer_pool_->file_desc(), frame_->page_num());
+    return RC::RECORD_NOMEM;
+  }
+
+  // 找到空闲位置
+  Bitmap bitmap(bitmap_, page_header_->record_capacity);
+  int    index = bitmap.next_unsetted_bit(0);
+  bitmap.set_bit(index);
+  page_header_->record_num++;
+
+  // assert index < page_header_->record_capacity
+  char *record_data = get_record_data(index);
+  memcpy(record_data, data, page_header_->record_real_size);
+
+  frame_->mark_dirty();
+
+  if (rid) {
+    rid->page_num = get_page_num();
+    rid->slot_num = index;
     rid->init     = true;
     rid->over_len = strlen(data);
   }
@@ -386,7 +416,7 @@ RC RecordFileHandler::insert_text_record(const char *data, int record_size, RID 
   // 找到空闲位置
   free_pages_.erase(free_pages_.begin());
   frame->set_text();
-  RC rc = record_page_handler.insert_record(data, rid);
+  RC rc = record_page_handler.insert_text_record(data, rid);
   return rc;
 }
 
