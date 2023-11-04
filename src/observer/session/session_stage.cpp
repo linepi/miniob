@@ -441,6 +441,8 @@ RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
       select_sql = &sql_event->sql_node()->selection;
     else if (sql_event->sql_node()->flag == SqlCommandFlag::SCF_CREATE_TABLE)
       select_sql = sql_event->sql_node()->create_table.select;
+    else if (sql_event->sql_node()->flag == SqlCommandFlag::SCF_CREATE_VIEW)
+      select_sql = sql_event->sql_node()->create_view.select;
 
     rc = select_pre_process(select_sql);
     if (OB_FAIL(rc)) {

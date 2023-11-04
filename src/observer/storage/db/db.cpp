@@ -125,6 +125,10 @@ RC Db::create_table(const char *table_name, int attribute_count,
   return RC::SUCCESS;
 }
 
+RC Db::create_view(std::string view_name, std::vector<std::string> attr_names, SelectSqlNode *select) {
+  return RC::SUCCESS;
+}
+
 RC Db::drop_table(const char *table_name) {
   RC rc = RC::SUCCESS;
   Table *the_table = find_table(table_name);

@@ -126,6 +126,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
         ASC
         AS
         ROUND
+        VIEW
         LENGTH
         DATE_FORMAT
         GROUP 
@@ -222,6 +223,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 %type <sql_node>            update_stmt
 %type <sql_node>            delete_stmt
 %type <sql_node>            create_table_stmt
+%type <sql_node>            create_view_stmt
 %type <sql_node>            drop_table_stmt
 %type <sql_node>            show_table_stmt
 %type <sql_node>            show_index_stmt
@@ -262,6 +264,7 @@ command_wrapper:
   | update_stmt
   | delete_stmt
   | create_table_stmt
+  | create_view_stmt
   | drop_table_stmt
   | show_table_stmt
   | show_index_stmt
@@ -451,6 +454,42 @@ create_table_stmt:    /*create table 语句的语法解析树*/
       }
     }
     ;
+
+create_view_stmt:    
+    CREATE VIEW ID LBRACE ID id_list RBRACE AS select_stmt
+    {
+      $$ = new ParsedSqlNode(SCF_CREATE_VIEW);
+      CreateViewSqlNode &create_view = $$->create_view;
+      create_view.select = new SelectSqlNode;
+      *(create_view.select) = $9->selection;
+      delete $9;
+
+      if ($6 != nullptr) {
+        $6->emplace_back($5);
+        std::reverse($6->begin(), $6->end());
+        create_view.attr_names.swap(*$6);
+        delete $6;
+      } else {
+        create_view.attr_names.emplace_back($5);
+      }
+
+      create_view.name = $3;
+      free($5);
+      free($3);
+    }
+    | CREATE VIEW ID AS select_stmt
+    {
+      $$ = new ParsedSqlNode(SCF_CREATE_VIEW);
+      CreateViewSqlNode &create_view = $$->create_view;
+      create_view.select = new SelectSqlNode;
+      *(create_view.select) = $5->selection;
+      delete $5;
+
+      create_view.name = $3;
+      free($3);
+    }
+    ;
+
 attr_def_list:
     /* empty */
     {

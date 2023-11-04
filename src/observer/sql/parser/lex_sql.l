@@ -124,6 +124,7 @@ TEXT                                    RETURN_TOKEN(TEXT_T);
 LOAD                                    RETURN_TOKEN(LOAD);
 DATA                                    RETURN_TOKEN(DATA);
 INFILE                                  RETURN_TOKEN(INFILE);
+VIEW                                  RETURN_TOKEN(VIEW);
 EXPLAIN                                 RETURN_TOKEN(EXPLAIN);
 MAX                                     RETURN_TOKEN(MAX);
 MIN                                     RETURN_TOKEN(MIN);

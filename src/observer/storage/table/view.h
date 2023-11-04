@@ -33,11 +33,11 @@ class Trx;
  * @brief 表
  * 
  */
-class Table 
+class View : public Table 
 {
 public:
-  Table() = default;
-  ~Table();
+  View() = default;
+  ~View();
 
   /**
    * 创建一个表
