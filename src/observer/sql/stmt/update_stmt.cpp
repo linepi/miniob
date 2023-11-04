@@ -46,8 +46,12 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update_sql, Stmt *&stmt)
 
   for (const std::pair<std::string, Value> &p : update_sql.av) {
     const std::string &attribute_name = p.first;
-    const Value &value = p.second;
+    Value value = p.second;
     FieldMeta *field_meta = const_cast<FieldMeta *>(table->table_meta().field(attribute_name.c_str()));
+
+    if (field_meta->type() == TEXTS) {
+      value.set_text_f();
+    }
 
     if (nullptr == field_meta) {
       LOG_WARN("no such field. field=%s.%s.%s", db->name(), table->name(), attribute_name.c_str());

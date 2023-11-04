@@ -78,6 +78,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithmeticExpr::Type type,
         STRING_T
         FLOAT_T
         DATE_T
+        TEXT_T
         HELP
         EXIT
         DOT //QUOTE
@@ -438,6 +439,7 @@ attr_def:
       $$->name = $1;
       $$->length = 4;
       if ($$->type == DATES) $$->length = 10;
+      if ($$->type == TEXTS) $$->length = 65535;
       $$->nullable = $3;
       free($1);
     }
@@ -456,6 +458,7 @@ type_meta:
     | STRING_T { $$=CHARS; }
     | FLOAT_T  { $$=FLOATS; }
     | DATE_T   { $$=DATES; }
+    | TEXT_T   { $$=TEXTS; }
     ;
 
 aggregation_func:

@@ -39,6 +39,8 @@ struct RID
   SlotNum slot_num;  // record's slot number
 
   RID    *next_RID = nullptr;
+  bool    init = false;
+  size_t  over_len;
 
   RID() = default;
   RID(const PageNum _page_num, const SlotNum _slot_num) : page_num(_page_num), slot_num(_slot_num) {}
@@ -111,8 +113,10 @@ public:
   ~Record()
   {
     if (owner_ && data_ != nullptr) {
-      free(data_);
-      data_ = nullptr;
+      if (!if_text_){
+        free(data_);
+        data_ = nullptr;
+      }
     }
   }
 
@@ -150,7 +154,7 @@ public:
   void set_data_owner(char *data, int len)
   {
     ASSERT(len != 0, "the len of data should not be 0");
-    this->~Record();
+    // this->~Record();
 
     this->data_  = data;
     this->len_   = len;

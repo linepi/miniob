@@ -54,9 +54,14 @@ RC InsertStmt::create(Db *db, const InsertSqlNode &inserts, Stmt *&stmt)
 
     // check fields type
     const int sys_field_num = table_meta.sys_field_num();
-    for (int i = 0; i < value_num; i++) {
-      FieldMeta *field_meta = const_cast<FieldMeta *>(table_meta.field(i + sys_field_num));
-      bool match = field_meta->match(values[i]);
+    for (int j = 0; j < value_num; j++) {
+      FieldMeta *field_meta = const_cast<FieldMeta *>(table_meta.field(j + sys_field_num));
+      if (field_meta->type() == TEXTS)
+      {
+        values[j].set_text_f();
+        (*inserts.values_list)[i][j].set_text_f();
+      }
+      bool match = field_meta->match(values[j]);
       if (!match) {
         LOG_WARN("field does not match value");
         return RC::SCHEMA_FIELD_TYPE_MISMATCH;

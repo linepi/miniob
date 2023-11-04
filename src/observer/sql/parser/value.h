@@ -62,6 +62,7 @@ public:
   void set_string(const char *s, int len = 0);
   void set_date(const char *s);
   void set_value(const Value &value);
+  void set_text(const char *s, int len = 0);
 
   std::string to_string() const;
 
@@ -83,6 +84,10 @@ public:
 
   std::string text_data() {
     return str_value_;
+  }
+
+  void set_text_f() {
+    attr_type_ = TEXTS;
   }
 
 public:

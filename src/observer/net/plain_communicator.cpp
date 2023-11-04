@@ -210,7 +210,22 @@ static RC not_with_aggregation_func(BufferedWriter *writer_, Tuple *tuple) {
     if (rc != RC::SUCCESS) {
       return rc;
     }
-    if (value.attr_type() == NULL_TYPE)
+
+    if (value.attr_type() == TEXTS)
+    {
+      std::string ss;
+      RID *rid = reinterpret_cast<RID *>(const_cast<char *>(value.data()));
+      while (rid != nullptr && rid->init) {
+        Record rec_new;
+        tuple->get_text_record(rec_new, rid);
+        ss += rec_new.data();
+
+        rid = rid->next_RID;
+      }
+
+      rc = writer_->writen(ss.data(), ss.size());
+    }
+    else if (value.attr_type() == NULL_TYPE)
     {
       std::string cell_str = "null";
       rc = writer_->writen(cell_str.data(), cell_str.size());

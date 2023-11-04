@@ -100,6 +100,10 @@ bool FieldMeta::nullable() const {
 
 bool FieldMeta::match(const Value &value) const {
   if (value.attr_type() == NULL_TYPE && nullable_) return true;
+  if (value.attr_type() == TEXTS) 
+  {
+    return true;
+  }
   if (attr_len_ < value.length() || attr_type_ != value.attr_type()) return false;
   return true;
 }

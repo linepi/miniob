@@ -60,6 +60,12 @@ class Table;
  * 从这个页头描述的信息来看，当前仅支持定长行/记录。如果要支持变长记录，
  * 或者超长（超出一页）的记录，这么做是不合适的。
  */
+
+struct RecordDirectoryEntry {
+  RID location;
+
+};
+
 struct PageHeader
 {
   int32_t record_num;           ///< 当前页面记录的个数
@@ -67,6 +73,7 @@ struct PageHeader
   int32_t record_size;          ///< 每条记录占用实际空间大小(可能对齐)
   int32_t record_capacity;      ///< 最大记录个数
   int32_t first_record_offset;  ///< 第一条记录的偏移量
+  std::map<SlotNum,int> text_length;  ///< 变长数据的长度
 };
 
 /**
@@ -199,6 +206,11 @@ public:
    */
   bool is_full() const;
 
+  
+  bool if_text() const {
+    return frame_->get_text();
+  }
+
 protected:
   /**
    * @details 
@@ -247,6 +259,9 @@ public:
   RecordFileHandler() = default;
   ~RecordFileHandler();
 
+
+  std::map<PageNum, int> overflow_pages;
+
   /**
    * @brief 初始化
    *
@@ -274,6 +289,8 @@ public:
    * @param rid         返回该记录的标识符
    */
   RC insert_record(const char *data, int record_size, RID *rid);
+
+  RC insert_text_record(const char *data, int record_size, RID *rid);
 
    /**
    * @brief 数据库恢复时，在指定文件指定位置插入数据
@@ -369,6 +386,10 @@ private:
    * @brief 获取一个页面内的下一条记录
    */
   RC fetch_next_record_in_page();
+
+  bool if_text() {
+    return record_page_handler_.if_text();
+  }
 
 private:
   // TODO 对于一个纯粹的record遍历器来说，不应该关心表和事务

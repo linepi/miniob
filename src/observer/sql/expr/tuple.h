@@ -102,6 +102,8 @@ public:
    */
   virtual RC cell_at(int index, Value &cell) const = 0;
 
+  virtual RC get_text_record(Record &rec,RID *rid) = 0;
+
   /**
    * @brief 根据cell的描述，获取cell的值
    * 
@@ -241,6 +243,11 @@ public:
     return *record_;
   }
 
+  RC get_text_record(Record &rec,RID *rid) override {
+    RC rc = table_->get_record(*rid, rec);
+    return rc;
+  }
+
 private:
   Record *record_ = nullptr;
   const Table *table_ = nullptr;
@@ -308,6 +315,12 @@ public:
     return tuple_->find_cell(spec, cell);
   }
 
+  RC get_text_record(Record &rec,RID *rid) override {
+    static_cast<RowTuple *>(tuple_)->get_text_record(rec, rid);
+    RC rc = RC::SUCCESS;
+    return rc;
+  }
+
 #if 0
   RC cell_spec_at(int index, const TupleCellSpec *&spec) const override
   {
@@ -360,6 +373,11 @@ public:
     return RC::NOTFOUND;
   }
 
+  RC get_text_record(Record &rec,RID *rid) override {
+    RC rc = RC::SUCCESS;
+    return rc;
+  }
+
 
 private:
   const std::vector<std::unique_ptr<Expression>> &expressions_;
@@ -398,6 +416,11 @@ public:
   virtual RC find_cell(const TupleCellSpec &spec, Value &cell) const override
   {
     return RC::INTERNAL;
+  }
+
+  RC get_text_record(Record &rec,RID *rid) override {
+    RC rc = RC::SUCCESS;
+    return rc;
   }
 
 private:
@@ -451,6 +474,11 @@ public:
     }
 
     return right_->find_cell(spec, value);
+  }
+
+  RC get_text_record(Record &rec,RID *rid) override {
+    RC rc = RC::SUCCESS;
+    return rc;
   }
 
 private:

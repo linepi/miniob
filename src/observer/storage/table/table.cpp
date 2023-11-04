@@ -339,6 +339,30 @@ RC Table::get_record(const RID &rid, Record &record)
   return rc;
 }
 
+RC Table::get_record(const RID &rid, Record &record) const
+{
+  size_t record_size = table_meta_.record_size();
+  if (rid.init == true) {
+    record_size = rid.over_len;
+  }
+  char *record_data = (char *)malloc(record_size);
+  ASSERT(nullptr != record_data, "failed to malloc memory. record data size=%d", record_size);
+
+  auto copier = [&record, record_data, record_size](Record &record_src) {
+    memcpy(record_data, record_src.data(), record_size);
+    record.set_rid(record_src.rid());
+  };
+  RC rc = record_handler_->visit_record(rid, true/*readonly*/, copier);
+  if (rc != RC::SUCCESS) {
+    free(record_data);
+    LOG_WARN("failed to visit record. rid=%s, table=%s, rc=%s", rid.to_string().c_str(), name(), strrc(rc));
+    return rc;
+  }
+
+  record.set_data_owner(record_data, record_size);
+  return rc;
+}
+
 RC Table::recover_insert_record(Record &record)
 {
   RC rc = RC::SUCCESS;
@@ -382,8 +406,8 @@ const char * Table::table_dir()
 RC Table::make_text_value(Value &value) 
 {
   RC rc = RC::SUCCESS;
-  RID *rid = nullptr;
-  size_t MAX_SIZE = 8000;
+  RID *rid =new RID;
+  size_t MAX_SIZE = 2048;
   std::string ss = value.text_data();
 
   while (ss.size() > MAX_SIZE) {
@@ -391,30 +415,31 @@ RC Table::make_text_value(Value &value)
     std::string chunk = ss.substr(len - MAX_SIZE); 
     ss = ss.substr(0, len - MAX_SIZE); 
 
-    RID *new_rid = nullptr;
-    rc = record_handler_->insert_record(chunk.data(), chunk.size(), new_rid);
-
+    RID *new_rid = new RID;
+    rc = record_handler_->insert_text_record(chunk.data(), chunk.size(), new_rid);
+    new_rid->over_len = MAX_SIZE;
+    new_rid->init = true;
     if (rc != RC::SUCCESS) {
       LOG_ERROR("Insert text chunk failed. table name=%s, rc=%s", table_meta_.name(), strrc(rc));
       return rc;
     }
 
-    if (rid) {
+    if (rid->init == true) {
       new_rid->next_RID = rid;
     }
     rid = new_rid;
   }
 
-  RID *new_rid = nullptr;
-  rc = record_handler_->insert_record(ss.data(), ss.size(), new_rid);
-  if (rid == nullptr) {
-    printf("insert text error!\n");
-  }
-  if (rid) {
+  RID *new_rid = new RID;
+  rc = record_handler_->insert_text_record(ss.data(), ss.size(), new_rid);
+
+  if (rid->init == true) {
     new_rid->next_RID = rid;
   }
   rid = new_rid;
-  value.set_data(reinterpret_cast<char *>(rid),sizeof(rid));
+  value.set_data(reinterpret_cast<char *>(rid),sizeof(RID));
+
+  return rc;
 }
 
 RC Table::make_record(int value_num, const Value *values, Record &record)
@@ -429,11 +454,6 @@ RC Table::make_record(int value_num, const Value *values, Record &record)
   for (int i = 0; i < value_num; i++) {
     const FieldMeta *field = table_meta_.field(i + normal_field_start_index);
     Value value = values[i];
-
-    if (value.attr_type() == TEXTS) {
-      make_text_value(value);
-      record.add_offset_text(field->offset());
-    }
 
     if (!field->match(value)) {
       LOG_ERROR("Invalid value type. table name=%s, field name=%s, type=%d, but given=%d",
@@ -453,13 +473,22 @@ RC Table::make_record(int value_num, const Value *values, Record &record)
 
   for (int i = 0; i < value_num; i++) {
     const FieldMeta *field = table_meta_.field(i + normal_field_start_index);
-    const Value &value = values[i];
+    Value value = values[i];
+
+    if (value.attr_type() == TEXTS) {
+      make_text_value(value);
+      record.add_offset_text(field->offset());
+      record.set_if_text();
+    }
     // 如果是字符串类型，则拷贝字符串的len + 1字节。
     size_t copy_len = field->len();
     if (field->type() == CHARS || field->type() == DATES || field->type() == TEXTS) {
       const size_t data_len = value.length();
       if (copy_len > data_len) {
         copy_len = data_len + 1;
+      }
+      if (field->type() == TEXTS) {
+        copy_len = sizeof(RID);
       }
     }
     int isnotnull = value.attr_type() != NULL_TYPE;
@@ -603,7 +632,7 @@ RC Table::delete_text_rid(RID *rid)
 {
   RC rc = RC::SUCCESS;
   if (rid == nullptr) {
-    return RC::SUCCESS;
+    return rc;
   }
   if (rid->next_RID == nullptr) {
     rc = record_handler_->delete_record(rid);
@@ -622,14 +651,14 @@ RC Table::delete_record(const Record &record)
            "failed to delete entry from index. table name=%s, index name=%s, rid=%s, rc=%s",
            name(), index->index_meta().name(), record.rid().to_string().c_str(), strrc(rc));
   }
-  if (record.get_if_text()) {
-    char *data = const_cast<char*>(record.data());
-    std::vector<size_t>off = record.get_offset_text();
-    for (size_t index : off) {
-      RID *rid = reinterpret_cast<RID *>(data + index);
-      rc = delete_text_rid(rid);
-    }
-  }
+  // if (record.get_if_text()) {
+  //   char *data = const_cast<char*>(record.data());
+  //   std::vector<size_t>off = record.get_offset_text();
+  //   for (size_t index : off) {
+  //     RID *rid = reinterpret_cast<RID *>(data + index);
+  //     rc = delete_text_rid(rid);
+  //   }
+  // }
   rc = record_handler_->delete_record(&record.rid());
   return rc;
 }

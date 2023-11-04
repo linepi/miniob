@@ -202,6 +202,8 @@ RC RecordPageHandler::insert_record(const char *data, RID *rid)
   if (rid) {
     rid->page_num = get_page_num();
     rid->slot_num = index;
+    rid->init     = true;
+    rid->over_len = strlen(data);
   }
 
   // LOG_TRACE("Insert record. rid page_num=%d, slot num=%d", get_page_num(), index);
@@ -343,6 +345,51 @@ RC RecordFileHandler::init_free_pages()
   return rc;
 }
 
+RC RecordFileHandler::insert_text_record(const char *data, int record_size, RID *rid)
+{
+  RC ret = RC::SUCCESS;
+
+  RecordPageHandler record_page_handler;
+  PageNum           current_page_num = 0;
+
+  // 当前要访问free_pages对象，所以需要加锁。在非并发编译模式下，不需要考虑这个锁
+  lock_.lock();
+
+  // 找不到就分配一个新的页面
+  Frame *frame = nullptr;
+  if ((ret = disk_buffer_pool_->allocate_page(&frame)) != RC::SUCCESS) {
+      LOG_ERROR("Failed to allocate page while inserting record. ret:%d", ret);
+      return ret;
+  }
+
+  current_page_num = frame->page_num();
+
+  ret = record_page_handler.init_empty_page(*disk_buffer_pool_, current_page_num, record_size);
+  if (ret != RC::SUCCESS) {
+      frame->unpin();
+      LOG_ERROR("Failed to init empty page. ret:%d", ret);
+      // this is for allocate_page
+      return ret;
+  }
+
+    // frame 在allocate_page的时候，是有一个pin的，在init_empty_page时又会增加一个，所以这里手动释放一个
+  frame->unpin();
+
+    // 这里的加锁顺序看起来与上面是相反的，但是不会出现死锁
+    // 上面的逻辑是先加lock锁，然后加页面写锁，这里是先加上
+    // 了页面写锁，然后加lock的锁，但是不会引起死锁。
+    // 为什么？
+  lock_.lock();
+  free_pages_.insert(current_page_num);
+  lock_.unlock();
+
+  // 找到空闲位置
+  free_pages_.erase(free_pages_.begin());
+  frame->set_text();
+  RC rc = record_page_handler.insert_record(data, rid);
+  return rc;
+}
+
 RC RecordFileHandler::insert_record(const char *data, int record_size, RID *rid)
 {
   RC ret = RC::SUCCESS;
@@ -426,6 +473,10 @@ RC RecordFileHandler::recover_insert_record(const char *data, int record_size, c
 RC RecordFileHandler::delete_record(const RID *rid)
 {
   RC rc = RC::SUCCESS;
+
+  if (rid->next_RID != nullptr) {
+    rc = delete_record(rid->next_RID);
+  }
 
   RecordPageHandler page_handler;
   if ((rc = page_handler.init(*disk_buffer_pool_, rid->page_num, false /*readonly*/)) != RC::SUCCESS) {
@@ -523,7 +574,7 @@ RC RecordFileScanner::open_scan(
 RC RecordFileScanner::fetch_next_record()
 {
   RC rc = RC::SUCCESS;
-  if (record_page_iterator_.is_valid()) {
+  if (record_page_iterator_.is_valid() && !if_text()) {
     // 当前页面还是有效的，尝试看一下是否有有效记录
     rc = fetch_next_record_in_page();
     if (rc == RC::SUCCESS || rc != RC::RECORD_EOF) {
@@ -539,6 +590,7 @@ RC RecordFileScanner::fetch_next_record()
     PageNum page_num = bp_iterator_.next();
     record_page_handler_.cleanup();
     rc = record_page_handler_.init(*disk_buffer_pool_, page_num, readonly_);
+    if (record_page_handler_.if_text()) continue;
     if (OB_FAIL(rc)) {
       LOG_WARN("failed to init record page handler. page_num=%d, rc=%s", page_num, strrc(rc));
       return rc;
@@ -566,6 +618,7 @@ RC RecordFileScanner::fetch_next_record()
 RC RecordFileScanner::fetch_next_record_in_page()
 {
   RC rc = RC::SUCCESS;
+
   while (record_page_iterator_.has_next()) {
     rc = record_page_iterator_.next(next_record_);
     if (rc != RC::SUCCESS) {
