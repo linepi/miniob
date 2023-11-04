@@ -251,8 +251,12 @@ RC Table::update_record_impl(std::vector<const FieldMeta *> &field_metas, std::v
     const FieldMeta *field_meta = field_metas[i];
 
     if (value->attr_type() == TEXTS) {
-      int len = min(value->length() + 1, field_meta->len());
-      delete_text_rid(reinterpret_cast<RID *>(record.data() + field_meta->offset()));
+      int len = field_meta->len();
+      RC rc = record_handler_->delete_record((reinterpret_cast<RID *>(record.data() + field_meta->offset())));
+      if (rc != RC::SUCCESS) {
+        printf("update failure!\n");
+        return rc;
+      }
       make_text_value(*value);
       memcpy(record.data() + field_meta->offset(), value->data(), len);
     }

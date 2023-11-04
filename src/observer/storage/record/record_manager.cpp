@@ -225,7 +225,7 @@ RC RecordPageHandler::insert_text_record(const char *data, RID *rid)
 
   // assert index < page_header_->record_capacity
   char *record_data = get_record_data(index);
-  memcpy(record_data, data, page_header_->record_real_size);
+  memcpy(record_data, data, strlen(data));
 
   frame_->mark_dirty();
 
@@ -380,12 +380,39 @@ RC RecordFileHandler::insert_text_record(const char *data, int record_size, RID 
   RC ret = RC::SUCCESS;
 
   RecordPageHandler record_page_handler;
+  bool              page_found       = false;
   PageNum           current_page_num = 0;
 
   // 当前要访问free_pages对象，所以需要加锁。在非并发编译模式下，不需要考虑这个锁
   lock_.lock();
 
+    // 当前要访问free_pages对象，所以需要加锁。在非并发编译模式下，不需要考虑这个锁
+  lock_.lock();
+
+  // 找到没有填满的页面
+  while (!free_pages_.empty()) {
+    current_page_num = *free_pages_.begin();
+
+    ret = record_page_handler.init(*disk_buffer_pool_, current_page_num, false /*readonly*/);
+    if (ret != RC::SUCCESS) {
+      lock_.unlock();
+      LOG_WARN("failed to init record page handler. page num=%d, rc=%d:%s", current_page_num, ret, strrc(ret));
+      return ret;
+    }
+
+    if (!record_page_handler.is_full() && record_page_handler.if_text()) {
+      page_found = true;
+      record_page_handler.cleanup();
+      free_pages_.erase(free_pages_.begin());
+      break;
+    }
+    record_page_handler.cleanup();
+    free_pages_.erase(free_pages_.begin());
+  }
+  lock_.unlock();  // 如果找到了一个有效的页面，那么此时已经拿到了页面的写锁
+
   // 找不到就分配一个新的页面
+  if (!page_found) {
   Frame *frame = nullptr;
   if ((ret = disk_buffer_pool_->allocate_page(&frame)) != RC::SUCCESS) {
       LOG_ERROR("Failed to allocate page while inserting record. ret:%d", ret);
@@ -416,6 +443,7 @@ RC RecordFileHandler::insert_text_record(const char *data, int record_size, RID 
   // 找到空闲位置
   free_pages_.erase(free_pages_.begin());
   frame->set_text();
+  }
   RC rc = record_page_handler.insert_text_record(data, rid);
   return rc;
 }
