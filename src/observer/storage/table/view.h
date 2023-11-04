@@ -79,5 +79,5 @@ public:
   const TableMeta &table_meta() const override;
   const char * table_dir() override;
   RC sync() override;
-  SelectSqlNode *select_;
+  SelectSqlNode *select_ = nullptr;
 };

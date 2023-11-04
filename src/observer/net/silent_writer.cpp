@@ -24,7 +24,8 @@ RC SilentWriter::accept(std::vector<Value> &vs) {
 		AttrInfoSqlNode &attr_info = attr_infos_[i];
 		if ((size_t)v.length() > attr_info.length)
 			attr_info.length = v.length();
-		attr_info.type = v.attr_type();
+		if (v.attr_type() != NULL_TYPE)
+			attr_info.type = v.attr_type();
 	}
 	return RC::SUCCESS;
 }

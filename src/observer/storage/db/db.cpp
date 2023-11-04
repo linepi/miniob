@@ -134,7 +134,9 @@ RC Db::create_view(std::string view_name, std::vector<AttrInfoSqlNode> attrs, Se
     return RC::SCHEMA_TABLE_EXIST;
   }
 
-  std::string view_file_path = table_meta_file(path_.c_str(), view_name.c_str());
+  std::string view_file_path = view_meta_file(path_.c_str(), view_name.c_str());
+
+
   View *view = new View();
   view->select_ = select;
   int32_t table_id = next_table_id_++;
@@ -221,7 +223,11 @@ RC Db::open_all_tables()
 
   RC rc = RC::SUCCESS;
   for (const std::string &filename : table_meta_files) {
-    Table *table = new PhysicalTable();
+    Table *table;
+    if (filename.find("__view", 0) == std::string::npos)
+      table = new PhysicalTable();
+    else
+      table = new View();
     rc = table->open(filename.c_str(), path_.c_str());
     if (rc != RC::SUCCESS) {
       delete table;

@@ -60,7 +60,7 @@ ELSEIF(UNIX)
 ELSE()
 ENDIF(WIN32)
 
-SET(CMAKE_COMMON_FLAGS "${CMAKE_COMMON_FLAGS} -Wall -Werror -Wno-unused-variable")
+SET(CMAKE_COMMON_FLAGS "${CMAKE_COMMON_FLAGS} -Wall -Werror -Wno-unused-variable -Wno-sign-compare")
 IF(DEBUG)
     SET(CMAKE_COMMON_FLAGS "${CMAKE_COMMON_FLAGS}  -O0 -g -DDEBUG ")
     ADD_DEFINITIONS(-DENABLE_DEBUG)
@@ -106,7 +106,7 @@ MESSAGE(STATUS "${Yellow}CMAKE_CXX_FLAGS: ${ColourReset}" ${CMAKE_CXX_FLAGS})
 
 # ADD_SUBDIRECTORY(src bin)  bin 为目标目录， 可以省略
 ADD_SUBDIRECTORY(deps)
-ADD_SUBDIRECTORY(src/obclient)
+# ADD_SUBDIRECTORY(src/obclient)
 ADD_SUBDIRECTORY(src/observer)
 # ADD_SUBDIRECTORY(test/perf)
 # ADD_SUBDIRECTORY(benchmark)

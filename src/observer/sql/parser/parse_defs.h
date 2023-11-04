@@ -106,10 +106,9 @@ struct SelectSqlNode
 {
   std::vector<SelectAttr>         attributes;    ///< attributes in select clause
   std::vector<std::string>        relations;     ///< 查询的表
-  Expression                     *condition = nullptr;
   std::vector<std::string>        table_alias;
-  std::vector<ConditionSqlNode>   conditions;    ///< 查询条件，使用AND串联起来多个条件
   std::vector<JoinNode>           joins;
+  Expression                     *condition = nullptr;
   std::vector<SortNode>           sort;
   std::vector<Expression *>       groupby;
   Expression                     *having = nullptr;
@@ -190,6 +189,7 @@ struct CreateTableSqlNode
   std::vector<std::vector<Value>> *values_list = nullptr;
   std::vector<std::string> *names = nullptr;
   std::vector<AttrInfoSqlNode> *select_attr_infos = nullptr;
+  bool                         build_for_view = false;
 };
 
 struct CreateViewSqlNode

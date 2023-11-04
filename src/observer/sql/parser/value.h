@@ -101,6 +101,7 @@ public:
   }
 
   std::vector<Value> *list() const { return list_; }
+  void set_length(int len) { length_ = len; }
 
 public:
   /**

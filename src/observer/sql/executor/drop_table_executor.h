@@ -27,6 +27,8 @@ public:
     DropTableStmt *drop_table_stmt = static_cast<DropTableStmt *>(stmt);
     const char *table_name = drop_table_stmt->table_name().c_str();
     RC rc = session->get_current_db()->drop_table(table_name);
+    if (rc == RC::SCHEMA_TABLE_NOT_EXIST) 
+      rc = RC::SUCCESS;
     return rc;
   }
 };

@@ -17,6 +17,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/expr/tuple.h"
 #include "sql/expr/aggregation_func.h"
 #include "sql/operator/project_physical_operator.h"
+#include "sql/operator/groupby_physical_operator.h"
 #include "event/session_event.h"
 #include "session/session.h"
 #include "common/io/io.h"
@@ -188,6 +189,22 @@ RC PlainCommunicator::write_tuple(SqlResult *sql_result) {
   if (oper->type() == PhysicalOperatorType::PROJECT) {
     pj = &static_cast<ProjectPhysicalOperator *>(oper.get())->project_tuple();
     pj->get_aggregate(aggregate);
+    std::vector<Expression *> &exprs = pj->exprs();
+    std::vector<Value> v_for_type;
+    for (Expression *expr : exprs) {
+      if (expr->type() == ExprType::STAR) {
+        StarExpr *star_expr = static_cast<StarExpr *>(expr);
+        for (Field &f : star_expr->field()) {
+          Value v;
+          v.set_type(f.attr_type());
+          v.set_length(f.attr_len());
+          v_for_type.push_back(v);
+        }
+      } else {
+        v_for_type.push_back(Value(expr->value_type()));
+      }
+    }
+    writer_->accept(v_for_type);
   }
 
   while (RC::SUCCESS == (rc = sql_result->next_tuple(tuple))) {

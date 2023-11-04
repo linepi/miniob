@@ -187,8 +187,7 @@ class ValueExpr : public Expression
 {
 public:
   ValueExpr() = default;
-  explicit ValueExpr(const Value &value) 
-  { 
+  explicit ValueExpr(const Value &value) { 
     value_ = value;
   }
 

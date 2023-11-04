@@ -259,7 +259,9 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
         const TableMeta &table_meta = table->table_meta();
         const int field_num = table_meta.field_num();
         for (int i = table_meta.sys_field_num(); i < field_num; i++) {
-          star_expr->add_field(Field(table, table_meta.field(i)));
+          Field f(table, table_meta.field(i));
+          if (std::find(star_expr->field().begin(), star_expr->field().end(), f) == star_expr->field().end())
+            star_expr->add_field(f);
         }
       }
     }

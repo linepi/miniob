@@ -31,6 +31,9 @@ public:
   {}
   Field(const Field &) = default;
 
+  bool operator==(const Field &other) const { 
+    return this->field_ == other.field_ && this->table_ == other.table_; }
+
   const Table *table() const;
   const FieldMeta *meta() const;
 

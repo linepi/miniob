@@ -155,12 +155,14 @@ void SessionStage::handle_request(StageEvent *event)
   for (std::string &sql : sqls) {
     SQLStageEvent sql_event(sev, sql);
     
-    (void)handle_sql(this, &sql_event, true);
+    RC rc = handle_sql(this, &sql_event, true);
+    if (rc == RC::HANDLE_SQL_END) 
+      continue;
     Communicator *communicator = sev->get_communicator();
     communicator->session()->set_sql_debug(true);
 
     bool need_disconnect = false;
-    RC rc = communicator->write_result(sev, need_disconnect);
+    rc = communicator->write_result(sev, need_disconnect);
     LOG_INFO("write result return %s", strrc(rc));
     if (need_disconnect) {
       Server::close_connection(communicator);
@@ -202,15 +204,15 @@ RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query)
     return rc;
   }
 
-  rc = ss->resolve_stage_.handle_view(ss, sql_event, main_query);
-  if (OB_FAIL(rc)) {
-    LOG_TRACE("failed to handle view. rc=%s", strrc(rc));
-    return rc;
-  }
-
   rc = ss->resolve_stage_.handle_alias(ss, sql_event, main_query);
   if (OB_FAIL(rc)) {
     LOG_TRACE("failed to handle alias. rc=%s", strrc(rc));
+    return rc;
+  }
+
+  rc = ss->resolve_stage_.handle_view(ss, sql_event, main_query);
+  if (OB_FAIL(rc)) {
+    LOG_TRACE("failed to handle view. rc=%s", strrc(rc));
     return rc;
   }
 

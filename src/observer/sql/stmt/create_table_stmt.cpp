@@ -18,7 +18,9 @@ See the Mulan PSL v2 for more details. */
 
 RC CreateTableStmt::create(Db *db, const CreateTableSqlNode &create_table, Stmt *&stmt)
 {
-  if (create_table.select) {
+  if (create_table.build_for_view) {
+    delete create_table.names;
+  } else if (create_table.select) {
     for (size_t i = 0; i < create_table.names->size(); i++) {
       std::string &name = create_table.names->at(i);
       AttrInfoSqlNode &attr_info = create_table.select_attr_infos->at(i);

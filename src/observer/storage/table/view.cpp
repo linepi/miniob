@@ -138,7 +138,7 @@ RC View::open(const char *meta_file, const char *base_dir) {
 
 RC View::drop() {
 	RC rc = RC::SUCCESS;
-  std::string view_meta_path = table_meta_file(base_dir_.c_str(), table_meta_.name());
+  std::string view_meta_path = view_meta_file(base_dir_.c_str(), table_meta_.name());
   if (::remove(view_meta_path.c_str()) != 0) {
     LOG_ERROR("%s", strerror(errno));
     rc = RC::FILE_REMOVE;

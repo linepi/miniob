@@ -1073,7 +1073,7 @@ select_stmt:        /*  select 语句的语法解析树*/
           $$->selection.attributes.swap(*$2);
           delete $2;
         }
-        $$->selection.select_string = sql_string;
+        $$->selection.select_string = token_name(sql_string, &@$);
       } else {
         $$ = new ParsedSqlNode(SCF_CALC);
         std::reverse($2->begin(), $2->end());

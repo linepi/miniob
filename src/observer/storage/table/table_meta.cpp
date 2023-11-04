@@ -298,6 +298,7 @@ int TableMeta::deserialize(std::istream &is)
     ParsedSqlResult parsed_sql_result;
     parse(select_sql.c_str(), &parsed_sql_result);
     select_ = new SelectSqlNode(parsed_sql_result.sql_nodes()[0]->selection);
+    select_->select_string = select_sql;
   }
 
   const Json::Value &fields_value = table_value[FIELD_FIELDS];

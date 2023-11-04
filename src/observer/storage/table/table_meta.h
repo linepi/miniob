@@ -71,6 +71,7 @@ public:
   void to_string(std::string &output) const override;
   void desc(std::ostream &os) const;
 
+  SelectSqlNode *select_ = nullptr;
 protected:
   int32_t     table_id_ = -1;
   std::string name_;
@@ -78,6 +79,4 @@ protected:
   std::vector<IndexMeta> indexes_;
 
   int record_size_ = 0;
-  
-  SelectSqlNode *select_ = nullptr;
 };
