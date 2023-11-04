@@ -411,7 +411,7 @@ RC Table::make_text_value(Value &value)
 {
   RC rc = RC::SUCCESS;
   RID *rid =new RID;
-  size_t MAX_SIZE = 8000;
+  size_t MAX_SIZE = 2048;
   std::string ss = value.text_data();
 
   while (ss.size() > MAX_SIZE) {
