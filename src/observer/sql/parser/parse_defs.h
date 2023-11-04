@@ -113,6 +113,7 @@ struct SelectSqlNode
   std::vector<SortNode>           sort;
   std::vector<Expression *>       groupby;
   Expression                     *having = nullptr;
+  std::string                     select_string;
 };
 
 

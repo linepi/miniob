@@ -19,6 +19,7 @@ See the Mulan PSL v2 for more details. */
 #include "json/json.h"
 #include "common/log/log.h"
 #include "storage/trx/trx.h"
+#include "sql/parser/parse.h"
 
 using namespace std;
 
@@ -26,6 +27,7 @@ static const Json::StaticString FIELD_TABLE_ID("table_id");
 static const Json::StaticString FIELD_TABLE_NAME("table_name");
 static const Json::StaticString FIELD_FIELDS("fields");
 static const Json::StaticString FIELD_INDEXES("indexes");
+static const Json::StaticString FIELD_VIEW_SELECT("select");
 
 TableMeta::TableMeta(const TableMeta &other)
     : table_id_(other.table_id_),
@@ -229,6 +231,8 @@ int TableMeta::serialize(std::ostream &ss) const
   Json::Value table_value;
   table_value[FIELD_TABLE_ID]   = table_id_;
   table_value[FIELD_TABLE_NAME] = name_;
+  if (select_)
+    table_value[FIELD_VIEW_SELECT] = select_->select_string;
 
   Json::Value fields_value;
   for (const FieldMeta &field : fields_) {
@@ -275,7 +279,6 @@ int TableMeta::deserialize(std::istream &is)
     LOG_ERROR("Invalid table id. json value=%s", table_id_value.toStyledString().c_str());
     return -1;
   }
-
   int32_t table_id = table_id_value.asInt();
 
   const Json::Value &table_name_value = table_value[FIELD_TABLE_NAME];
@@ -283,8 +286,19 @@ int TableMeta::deserialize(std::istream &is)
     LOG_ERROR("Invalid table name. json value=%s", table_name_value.toStyledString().c_str());
     return -1;
   }
-
   std::string table_name = table_name_value.asString();
+
+  const Json::Value &select_string = table_value[FIELD_VIEW_SELECT];
+  if (!select_string.empty()) {
+    if (!select_string.isString()) {
+      LOG_ERROR("Invalid select string. json value=%s", select_string.toStyledString().c_str());
+      return -1;
+    }
+    std::string select_sql = select_string.asString();
+    ParsedSqlResult parsed_sql_result;
+    parse(select_sql.c_str(), &parsed_sql_result);
+    select_ = new SelectSqlNode(parsed_sql_result.sql_nodes()[0]->selection);
+  }
 
   const Json::Value &fields_value = table_value[FIELD_FIELDS];
   if (!fields_value.isArray() || fields_value.size() <= 0) {
