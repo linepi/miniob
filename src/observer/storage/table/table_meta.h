@@ -36,7 +36,7 @@ public:
 
   void swap(TableMeta &other) noexcept;
 
-  RC init(int32_t table_id, const char *name, int field_num, const AttrInfoSqlNode attributes[]);
+  RC init(int32_t table_id, const char *name, int field_num, const AttrInfoSqlNode attributes[], SelectSqlNode *select = nullptr);
 
   RC add_index(const IndexMeta &index);
 
@@ -78,4 +78,6 @@ protected:
   std::vector<IndexMeta> indexes_;
 
   int record_size_ = 0;
+  
+  SelectSqlNode *select_ = nullptr;
 };

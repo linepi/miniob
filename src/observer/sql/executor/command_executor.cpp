@@ -47,7 +47,7 @@ RC CommandExecutor::execute(SQLStageEvent *sql_event)
     case StmtType::CREATE_VIEW: {
       CreateViewStmt *viewstmt = static_cast<CreateViewStmt *>(stmt);
       Session *session = sql_event->session_event()->session();
-      return session->get_current_db()->create_view(viewstmt->name_, viewstmt->attr_names_, viewstmt->select);
+      return session->get_current_db()->create_view(viewstmt->view_name_, viewstmt->attrs_, viewstmt->select);
     } break;
 
     case StmtType::DESC_TABLE: {

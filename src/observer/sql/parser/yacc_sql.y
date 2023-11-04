@@ -473,7 +473,7 @@ create_view_stmt:
         create_view.attr_names.emplace_back($5);
       }
 
-      create_view.name = $3;
+      create_view.view_name = $3;
       free($5);
       free($3);
     }
@@ -485,7 +485,7 @@ create_view_stmt:
       *(create_view.select) = $5->selection;
       delete $5;
 
-      create_view.name = $3;
+      create_view.view_name = $3;
       free($3);
     }
     ;

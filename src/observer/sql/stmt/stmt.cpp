@@ -69,10 +69,28 @@ RC Stmt::create_stmt(Db *db, ParsedSqlNode &sql_node, Stmt *&stmt)
 
     case SCF_CREATE_VIEW: {
       CreateViewStmt *viewstmt = new CreateViewStmt();
-      viewstmt->attr_names_.swap(sql_node.create_view.attr_names);
-      viewstmt->select = sql_node.create_view.select;
-      viewstmt->name_ = sql_node.create_view.name;
+      CreateViewSqlNode &node = sql_node.create_view;
+
+      for (size_t i = 0; i < node.select_attr_names->size(); i++) {
+        std::string &name = node.select_attr_names->at(i);
+        AttrInfoSqlNode &attr_info = node.select_attr_infos->at(i);
+        attr_info.name = name;
+        attr_info.nullable = true;
+      }
+      if (node.attr_names.size() != 0) {
+        size_t nr_changed_name = std::min(node.attr_names.size(), node.select_attr_infos->size());
+        for (size_t i = 0; i < nr_changed_name; i++) {
+          AttrInfoSqlNode &attr = node.select_attr_infos->at(i);
+          attr.name = node.attr_names[i];
+        }
+      }
+
+      viewstmt->attrs_.swap(*node.select_attr_infos);
+      viewstmt->select = node.select;
+      viewstmt->view_name_ = node.view_name;
       stmt = viewstmt;
+      delete node.select_attr_infos;
+      delete node.select_attr_names;
       return RC::SUCCESS;
     }
 

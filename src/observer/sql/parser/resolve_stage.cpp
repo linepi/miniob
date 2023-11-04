@@ -20,6 +20,7 @@ See the Mulan PSL v2 for more details. */
 
 #include "resolve_stage.h"
 #include "storage/db/db.h"
+#include "storage/table/view.h"
 #include "common/conf/ini.h"
 #include "common/io/io.h"
 #include "common/lang/string.h"
@@ -100,7 +101,58 @@ std::vector<std::string> split_str(std::string s, std::string delimiter) {
   return res;
 }
 
-RC create_select_extract(
+RC create_view_select_extract(
+    CreateViewSqlNode &cvs, SessionStage *ss, SQLStageEvent *sql_event)
+{
+  RC rc = RC::SUCCESS;
+
+  std::string std_out;
+  cvs.select_attr_infos = new std::vector<AttrInfoSqlNode>;
+  rc = sub_query_extract(cvs.select, ss, sql_event, std_out, cvs.select_attr_infos);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("error in create select extract's sub query extrace");
+    delete cvs.select_attr_infos;
+    return rc;
+  }
+  cvs.select_attr_names = new std::vector<std::string>;
+
+  while (std_out.back() == '\0') {
+    std_out = std_out.substr(0, std_out.size() - 1);
+  }
+
+  std::vector<std::string> lines;
+  common::split_string(std_out, "\n", lines);
+
+  std::string &line = lines[0];
+  if (line.find("FALIURE", 0) != std::string::npos) {
+    return RC::SUB_QUERY_FAILURE;
+  }
+  std::vector<std::string> tokens = split_str(line, " | ");
+  for (std::string &token : tokens) {
+    std::regex rx("^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$"); 
+
+    std::ptrdiff_t number_of_matches = std::distance(  // Count the number of matches inside the iterator
+    std::sregex_iterator(token.begin(), token.end(), rx),
+    std::sregex_iterator());
+
+    std::string to_add;
+    if (number_of_matches == 0) {
+      to_add = token;
+    } else {
+      size_t dotindex = token.find('.', 0);
+      to_add = token.substr(dotindex + 1);
+    }
+    if (std::find(cvs.select_attr_names->begin(), cvs.select_attr_names->end(), to_add) != cvs.select_attr_names->end()) {
+      return RC::INVALID_ARGUMENT;
+    } else {
+      cvs.select_attr_names->push_back(to_add);
+    }
+  }
+
+  return rc;
+}
+
+RC create_table_select_extract(
     CreateTableSqlNode &cts, SessionStage *ss, SQLStageEvent *sql_event)
 {
   if (cts.select == nullptr)
@@ -394,9 +446,17 @@ RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionSt
       break;
     }
     case SCF_CREATE_TABLE: {
-      rc = create_select_extract(node->create_table, ss, sql_event);
+      rc = create_table_select_extract(node->create_table, ss, sql_event);
       if (rc != RC::SUCCESS) {
         LOG_WARN("create_table value extract error");
+        goto deal_rc;
+      }
+      break;
+    }
+    case SCF_CREATE_VIEW: {
+      rc = create_view_select_extract(node->create_view, ss, sql_event);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("create_view attr extract error");
         goto deal_rc;
       }
       break;
@@ -469,5 +529,294 @@ RC ResolveStage::handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool
 
   sql_event->set_stmt(stmt);
 
+  return rc;
+}
+
+RC ResolveStage::handle_view(SessionStage *ss, SQLStageEvent *sql_event, bool main_query) {
+  Db *db = sql_event->session_event()->session()->get_current_db();
+  switch (sql_event->sql_node()->flag) {
+    case SCF_INSERT: {
+      InsertSqlNode &node = sql_event->sql_node()->insertion;
+      Table *table = db->find_table(node.relation_name.c_str());
+      if (!table || table->type() != Table::VIEW) return RC::SUCCESS;
+
+      View *view = static_cast<View *>(table);
+      assert(view->select_);
+    } 
+    case SCF_DELETE: {
+      DeleteSqlNode &node = sql_event->sql_node()->deletion;
+      Table *table = db->find_table(node.relation_name.c_str());
+      if (!table || table->type() != Table::VIEW) return RC::SUCCESS;
+
+      View *view = static_cast<View *>(table);
+      assert(view->select_);
+    }
+    case SCF_UPDATE: {
+      UpdateSqlNode &node = sql_event->sql_node()->update;
+      Table *table = db->find_table(node.relation_name.c_str());
+      if (!table || table->type() != Table::VIEW) return RC::SUCCESS;
+
+      View *view = static_cast<View *>(table);
+      assert(view->select_);
+    }
+    case SCF_SELECT: {
+      SelectSqlNode &node = sql_event->sql_node()->selection;
+
+    }
+    default: {
+
+    } break;
+  }
+  return RC::SUCCESS;
+}
+
+RC ResolveStage::alias_pre_process(SelectSqlNode *select_sql)
+{
+  if (!select_sql) return RC::SUCCESS;
+
+  if (select_sql->attributes.size() == 0) {
+    LOG_WARN("select attribute size is zero");
+    return RC::INVALID_ARGUMENT;
+  }
+  for (const SelectAttr &select_attr : select_sql->attributes) {
+    if (select_attr.expr_nodes.size() == 0) {
+      LOG_WARN("select attribute expr is empty");
+      return RC::INVALID_ARGUMENT;
+    }
+  }
+
+  RC rc = RC::SUCCESS; 
+  std::map<std::string, std::string> table2alias_map_tmp; ///< alias-->table_name
+  std::map<std::string, int> alias_exist_tmp;  
+
+  for (size_t i= 0; i< select_sql->relations.size(); i++)
+  {
+    if (select_sql->table_alias[i].empty()){
+      if (!alias_exist_tmp[select_sql->relations[i]]){
+        if (!alias_exis[select_sql->relations[i]]) continue;
+      }
+      if (alias_exist_tmp[select_sql->relations[i]]){
+        select_sql->relations[i] = table2alias_map_tmp[select_sql->relations[i]]; 
+        continue;
+      }
+      if (alias_exis[select_sql->relations[i]]){
+        select_sql->relations[i] = table2alias_mp[select_sql->relations[i]]; 
+        continue;
+      }
+    }
+    if (alias_exist_tmp[select_sql->table_alias[i]]){
+      return RC::SAME_ALIAS;
+    }
+    table2alias_map_tmp[select_sql->table_alias[i]] = select_sql->relations[i];
+    alias_exist_tmp[select_sql->table_alias[i]] = 1;
+
+    if (alias_exis[select_sql->table_alias[i]])continue;
+    
+    table2alias_mp[select_sql->table_alias[i]] = select_sql->relations[i];
+    alias_exis[select_sql->table_alias[i]] = 1;
+  }
+
+  for (JoinNode &node : select_sql->joins)
+  {
+    if (node.table_alias.empty()){
+      if (!alias_exist_tmp[node.relation_name] && !alias_exis[node.relation_name]){
+        continue;
+      }
+      if (alias_exist_tmp[node.relation_name]){
+        node.relation_name = table2alias_map_tmp[node.relation_name]; 
+        continue;
+      }
+      if (alias_exis[node.relation_name]){
+        node.relation_name = table2alias_mp[node.relation_name]; 
+        continue;
+      }
+    }
+    if (alias_exist_tmp[node.table_alias]){
+      return RC::SAME_ALIAS;
+    }
+    table2alias_map_tmp[node.table_alias] = node.relation_name;
+    alias_exist_tmp[node.table_alias] = 1;
+
+    if (alias_exis[node.table_alias])continue;
+    
+    table2alias_mp[node.table_alias] = node.relation_name;
+    alias_exis[node.table_alias] = 1;
+  }
+
+  for (SelectAttr &select_node : select_sql->attributes)
+  {
+    if(select_node.expr_nodes.empty())continue;
+    Expression *attr_expr = select_node.expr_nodes[0];
+
+    if (attr_expr->type() != ExprType::FIELD && attr_expr->type() != ExprType::STAR){
+      auto field_visitor = [&](std::unique_ptr<Expression> &f) {
+        FieldExpr *field_expr = static_cast<FieldExpr *>(f.get());
+        RelAttrSqlNode &node = field_expr->rel_attr();
+        if (alias_exist_tmp[node.relation_name]){
+          node.relation_name = table2alias_map_tmp[node.relation_name];
+        }
+        else if (alias_exis[node.relation_name]){
+          node.relation_name = table2alias_mp[node.relation_name];
+        }
+        if (field_exis[node.attribute_name]){
+          node.attribute_name = field2alias_mp[node.attribute_name];
+        }
+        return RC::SUCCESS;
+      };
+      rc = attr_expr->visit_field_expr(field_visitor, true);
+      if (rc != RC::SUCCESS) {
+        return rc;
+      }
+    } else if (attr_expr->type() == ExprType::FIELD) {
+      bool is_agg;
+      RC rc = attr_expr->is_aggregate(is_agg);
+      if(!is_agg)
+      {
+        FieldExpr *field_expr = static_cast<FieldExpr *>(attr_expr);         
+        RelAttrSqlNode &node = field_expr->rel_attr();
+        if (!field_exis[node.alias] && !node.alias.empty() && node.attribute_name != "*"){
+          field2alias_mp[node.alias] = node.attribute_name;
+          field_exis[node.alias] = 1;
+        }
+        if (alias_exist_tmp[node.relation_name]){
+          node.relation_name = table2alias_map_tmp[node.relation_name];
+          continue;
+        }
+        if (alias_exis[node.relation_name]){
+          node.relation_name = table2alias_mp[node.relation_name];
+        }
+      }
+      else
+      {
+        FieldExpr *field_expr = static_cast<FieldExpr *>(attr_expr); 
+        RelAttrSqlNode &node = field_expr->rel_attr();
+        node.alias = "";
+        if (alias_exist_tmp[node.relation_name]){
+          node.relation_name = table2alias_map_tmp[node.relation_name]; 
+          continue;
+        }
+        if (alias_exis[node.relation_name]){
+          node.relation_name = table2alias_mp[node.relation_name];
+        }
+      }
+    } else {
+      StarExpr *star_expr = static_cast<StarExpr *>(attr_expr);
+      bool is_agg;
+      RC rc = star_expr->is_aggregate(is_agg);
+      if(!star_expr->alias().empty() && is_agg == false)
+        return RC::SAME_ALIAS;
+      else {
+        if (!alias_exist_tmp[star_expr->relation()]){
+          if (!alias_exis[star_expr->relation()]) continue;
+        }
+        if (alias_exist_tmp[star_expr->relation()]){
+          star_expr->set_relation(table2alias_map_tmp[star_expr->relation()]); 
+          continue;
+        }
+        if (alias_exis[star_expr->relation()]){
+          star_expr->set_relation(table2alias_mp[star_expr->relation()]); 
+          continue;
+        }
+      }  
+    }
+  }
+
+  for (SortNode &sort_node : select_sql->sort)
+  {
+    RelAttrSqlNode &node = sort_node.field;
+    if (!field_exis[node.alias]){
+      field2alias_mp[node.alias] = node.attribute_name;
+      field_exis[node.alias] = 1;
+    }
+    if (alias_exist_tmp[node.relation_name]){
+      node.relation_name = table2alias_map_tmp[node.relation_name];
+    }
+    if (alias_exis[node.relation_name]){
+      node.relation_name = table2alias_mp[node.relation_name];
+    }
+  }
+
+  std::vector<Expression *> conditions;
+  if (select_sql->condition)
+    conditions.push_back(select_sql->condition);
+  for (const JoinNode &jnode : select_sql->joins) {
+    const char *table_name = jnode.relation_name.c_str();
+    if (jnode.condition)
+      conditions.push_back(jnode.condition);
+  }
+
+  for (Expression *con : conditions)
+  {
+    if (!con) continue;
+    if(!con->is_condition()) {
+      LOG_WARN("not a valid condition");
+      return RC::INVALID_ARGUMENT;
+    }
+
+    auto visitor = [&](std::unique_ptr<Expression> &f) {
+      FieldExpr *field_expr = static_cast<FieldExpr *>(f.get());
+      RelAttrSqlNode &node = field_expr->rel_attr();
+      if (field_exis[node.attribute_name]){
+        return RC::SAME_ALIAS;
+      }
+      if (alias_exist_tmp[node.relation_name]){
+        node.relation_name = table2alias_map_tmp[node.relation_name];
+      }
+      else if (alias_exis[node.relation_name]){
+        node.relation_name = table2alias_mp[node.relation_name];
+      }
+      return RC::SUCCESS;
+    };
+    rc = con->visit_field_expr(visitor, true);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("visit_field_expr failed: %s", strrc(rc));
+      return rc;
+    }
+
+    std::vector<SubQueryExpr *> sub_querys;
+    rc = con->get_subquery_expr(sub_querys);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("get_subquery_expr failed: %s", strrc(rc));
+      return rc;
+    }
+
+    for (SubQueryExpr * sub_query : sub_querys) {
+      rc = alias_pre_process(sub_query->select());
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("check_correlated_query failed");
+        return rc;
+      }
+    }
+  }
+  return RC::SUCCESS;
+}
+
+RC ResolveStage::handle_alias(SessionStage *ss, SQLStageEvent *sql_event, bool main_query) {
+  RC rc = RC::SUCCESS;
+  if (main_query) {
+    field2alias_mp.clear();
+    field_exis.clear();
+    alias_exis.clear();
+    table2alias_mp.clear();
+  }
+  if (sql_event->sql_node() && main_query) { 
+    SessionEvent *session_event = sql_event->session_event();
+    SqlResult    *sql_result    = session_event->sql_result();
+    SelectSqlNode* select_sql = nullptr;
+    
+    if (sql_event->sql_node()->flag == SqlCommandFlag::SCF_SELECT)
+      select_sql = &sql_event->sql_node()->selection;
+    else if (sql_event->sql_node()->flag == SqlCommandFlag::SCF_CREATE_TABLE)
+      select_sql = sql_event->sql_node()->create_table.select;
+    else if (sql_event->sql_node()->flag == SqlCommandFlag::SCF_CREATE_VIEW)
+      select_sql = sql_event->sql_node()->create_view.select;
+
+    rc = alias_pre_process(select_sql);
+    if (OB_FAIL(rc)) {
+      LOG_TRACE("failed to do select pre-process. rc=%s", strrc(rc));
+      sql_result->set_return_code(rc);
+      return rc;
+    }
+  }
   return rc;
 }

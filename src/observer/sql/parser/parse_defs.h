@@ -193,9 +193,11 @@ struct CreateTableSqlNode
 
 struct CreateViewSqlNode
 {
-  std::string                   name;
+  std::string                   view_name;
   std::vector<std::string>      attr_names;         ///< Relation name
   SelectSqlNode                *select = nullptr;
+  std::vector<std::string>     *select_attr_names = nullptr;
+  std::vector<AttrInfoSqlNode> *select_attr_infos = nullptr;
 };
 
 /**

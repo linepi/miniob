@@ -23,6 +23,8 @@ See the Mulan PSL v2 for more details. */
 #include "common/lang/string.h"
 #include "storage/table/table_meta.h"
 #include "storage/table/table.h"
+#include "storage/table/physical_table.h"
+#include "storage/table/view.h"
 #include "storage/common/meta_util.h"
 #include "storage/trx/trx.h"
 #include "storage/clog/clog.h"
@@ -92,7 +94,7 @@ RC Db::create_table(const char *table_name, int attribute_count,
 
   // 文件路径可以移到Table模块
   std::string table_file_path = table_meta_file(path_.c_str(), table_name);
-  Table *table = new Table();
+  Table *table = new PhysicalTable();
   int32_t table_id = next_table_id_++;
   rc = table->create(table_id, table_file_path.c_str(), table_name, path_.c_str(), attribute_count, attributes);
   if (rc != RC::SUCCESS) {
@@ -125,7 +127,26 @@ RC Db::create_table(const char *table_name, int attribute_count,
   return RC::SUCCESS;
 }
 
-RC Db::create_view(std::string view_name, std::vector<std::string> attr_names, SelectSqlNode *select) {
+RC Db::create_view(std::string view_name, std::vector<AttrInfoSqlNode> attrs, SelectSqlNode *select) {
+  RC rc = RC::SUCCESS;
+  if (opened_tables_.count(view_name) != 0) {
+    LOG_WARN("%s has been opened before.", view_name);
+    return RC::SCHEMA_TABLE_EXIST;
+  }
+
+  std::string view_file_path = table_meta_file(path_.c_str(), view_name.c_str());
+  View *view = new View();
+  view->select_ = select;
+  int32_t table_id = next_table_id_++;
+  rc = view->create(table_id, view_file_path.c_str(), view_name.c_str(), path_.c_str(), attrs.size(), attrs.data());
+  if (rc != RC::SUCCESS) {
+    LOG_ERROR("Failed to create view %s.", view_name.c_str());
+    delete view;
+    return rc;
+  }
+
+  opened_tables_[view_name] = view;
+  LOG_INFO("Create view success. view name=%s, id:%d", view_name.c_str(), table_id);
   return RC::SUCCESS;
 }
 
@@ -200,7 +221,7 @@ RC Db::open_all_tables()
 
   RC rc = RC::SUCCESS;
   for (const std::string &filename : table_meta_files) {
-    Table *table = new Table();
+    Table *table = new PhysicalTable();
     rc = table->open(filename.c_str(), path_.c_str());
     if (rc != RC::SUCCESS) {
       delete table;

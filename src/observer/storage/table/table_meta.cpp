@@ -43,7 +43,7 @@ void TableMeta::swap(TableMeta &other) noexcept
   std::swap(record_size_, other.record_size_);
 }
 
-RC TableMeta::init(int32_t table_id, const char *name, int field_num, const AttrInfoSqlNode attributes[])
+RC TableMeta::init(int32_t table_id, const char *name, int field_num, const AttrInfoSqlNode attributes[], SelectSqlNode *select)
 {
   if (common::is_blank(name)) {
     LOG_ERROR("Name cannot be empty");
@@ -90,6 +90,7 @@ RC TableMeta::init(int32_t table_id, const char *name, int field_num, const Attr
 
   table_id_ = table_id;
   name_     = name;
+  select_ = select;
   LOG_INFO("Sussessfully initialized table meta. table id=%d, name=%s", table_id, name);
   return RC::SUCCESS;
 }
@@ -225,7 +226,6 @@ int TableMeta::record_size() const
 
 int TableMeta::serialize(std::ostream &ss) const
 {
-
   Json::Value table_value;
   table_value[FIELD_TABLE_ID]   = table_id_;
   table_value[FIELD_TABLE_NAME] = name_;
