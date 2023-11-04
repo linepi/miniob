@@ -41,6 +41,7 @@ struct RID
   RID    *next_RID = nullptr;
   bool    init = false;
   size_t  over_len;
+  size_t  text_value = 0;
 
   RID() = default;
   RID(const PageNum _page_num, const SlotNum _slot_num) : page_num(_page_num), slot_num(_slot_num) {}

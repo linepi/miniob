@@ -324,7 +324,10 @@ RC Table::visit_record(const RID &rid, bool readonly, std::function<void(Record 
 
 RC Table::get_record(const RID &rid, Record &record)
 {
-  const int record_size = table_meta_.record_size();
+  int record_size = table_meta_.record_size();
+  if (rid.init == true) {
+    record_size = rid.over_len;
+  }
   char *record_data = (char *)malloc(record_size);
   ASSERT(nullptr != record_data, "failed to malloc memory. record data size=%d", record_size);
 
@@ -411,7 +414,7 @@ RC Table::make_text_value(Value &value)
 {
   RC rc = RC::SUCCESS;
   RID *rid =new RID;
-  size_t MAX_SIZE = 2048;
+  size_t MAX_SIZE = 8000;
   std::string ss = value.text_data();
 
   while (ss.size() > MAX_SIZE) {
@@ -440,6 +443,7 @@ RC Table::make_text_value(Value &value)
     new_rid->next_RID = rid;
   }
   rid = new_rid;
+  rid->text_value = value.text_data().length();
   value.set_data(reinterpret_cast<char *>(rid),sizeof(RID));
 
   return rc;
