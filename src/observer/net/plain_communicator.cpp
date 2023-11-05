@@ -213,21 +213,19 @@ static RC not_with_aggregation_func(BufferedWriter *writer_, Tuple *tuple) {
 
     if (value.attr_type() == TEXTS)
     {
-      std::string ss;
       RID *rid = reinterpret_cast<RID *>(const_cast<char *>(value.data()));
       size_t len = rid->text_value;
+      char *ss = new char[len + 1];
+      char *p = ss;
       while (rid != nullptr && rid->init) {
         Record rec_new;
         tuple->get_text_record(rec_new, rid);
-        ss += rec_new.data();
-
+        memcpy(p, rec_new.data(), rec_new.len());
+        p += rec_new.len();
         rid = rid->next_RID;
       }
-      if (len > 0 && len != ss.length()) {
-        ss.resize(len);
-      }
 
-      rc = writer_->writen(ss.data(), ss.size());
+      rc = writer_->writen(ss, len);
     }
     else if (value.attr_type() == NULL_TYPE)
     {

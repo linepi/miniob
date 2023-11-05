@@ -413,17 +413,15 @@ const char * Table::table_dir()
 RC Table::make_text_value(Value &value) 
 {
   RC rc = RC::SUCCESS;
-  RID *rid =new RID;
-  size_t MAX_SIZE = 8000;
-  std::string ss = value.text_data();
+  RID *rid = new RID;
+  int MAX_SIZE = 8000;
+  char *ss = new char[value.text_data().length() + 1];
+  strcpy(ss, value.text_data().c_str());
+  const char *end = ss + value.text_data().length();
 
-  while (ss.size() > MAX_SIZE) {
-    size_t len = ss.size();
-    std::string chunk = ss.substr(len - MAX_SIZE); 
-    ss = ss.substr(0, len - MAX_SIZE); 
-
+  while (end - ss > MAX_SIZE) {
     RID *new_rid = new RID;
-    rc = record_handler_->insert_text_record(chunk.data(), chunk.size(), new_rid);
+    rc = record_handler_->insert_text_record(end - MAX_SIZE, MAX_SIZE, new_rid);
 
     if (rc != RC::SUCCESS) {
       LOG_ERROR("Insert text chunk failed. table name=%s, rc=%s", table_meta_.name(), strrc(rc));
@@ -434,18 +432,21 @@ RC Table::make_text_value(Value &value)
       new_rid->next_RID = rid;
     }
     rid = new_rid;
+
+    end -= MAX_SIZE;
   }
 
-  RID *new_rid = new RID;
-  rc = record_handler_->insert_text_record(ss.data(), ss.size(), new_rid);
+  RID *rid_last = new RID;
+  rc = record_handler_->insert_text_record(ss, end - ss, rid_last);
 
   if (rid->init == true) {
-    new_rid->next_RID = rid;
+    rid_last->next_RID = rid;
   }
-  rid = new_rid;
+  rid = rid_last;
   rid->text_value = value.text_data().length();
   value.set_data(reinterpret_cast<char *>(rid),sizeof(RID));
 
+  delete ss;
   return rc;
 }
 
@@ -483,6 +484,9 @@ RC Table::make_record(int value_num, const Value *values, Record &record)
     Value value = values[i];
 
     if (value.attr_type() == TEXTS) {
+      if (value.get_string().length() > 65535) {
+        return RC::RECORD_NOT_EXIST;
+      }
       make_text_value(value);
       record.add_offset_text(field->offset());
       record.set_if_text();

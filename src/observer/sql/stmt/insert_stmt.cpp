@@ -38,7 +38,7 @@ RC InsertStmt::create(Db *db, const InsertSqlNode &inserts, Stmt *&stmt)
   }
 
   for (size_t i = 0; i < inserts.values_list->size(); i++) {
-    std::vector<Value> values = (*inserts.values_list)[i];
+    std::vector<Value> &values = (*inserts.values_list)[i];
     if (values.empty()) {
       LOG_WARN("invalid argument. %dth values: db=%p, table_name=%p, value_num=%d",
           i + 1, db, table_name, static_cast<int>(values.size()));
@@ -59,7 +59,7 @@ RC InsertStmt::create(Db *db, const InsertSqlNode &inserts, Stmt *&stmt)
       if (field_meta->type() == TEXTS)
       {
         values[j].set_text_f();
-        (*inserts.values_list)[i][j].set_text_f();
+//        (*inserts.values_list)[i][j].set_text_f();
       }
       bool match = field_meta->match(values[j]);
       if (!match) {
