@@ -484,7 +484,7 @@ RC Table::make_record(int value_num, const Value *values, Record &record)
     Value value = values[i];
 
     if (value.attr_type() == TEXTS) {
-      if (value.get_string().length() > 65535) {
+      if (value.get_string().length() > 4096) {
         return RC::RECORD_NOT_EXIST;
       }
       make_text_value(value);
