@@ -586,187 +586,322 @@ RC ResolveStage::handle_view_select(SessionStage *ss, SQLStageEvent *sql_event, 
   return rc;
 }
 
-static bool valid_for_view_dml(SelectSqlNode *view_select) {
+RC ResolveStage::handle_view_insert(SessionStage *ss, SQLStageEvent *sql_event, bool main_query) {
+  RC rc = RC::SUCCESS;
+  Db *db = sql_event->session_event()->session()->get_current_db();
+  Table *table = nullptr;
+
+  InsertSqlNode &node = sql_event->sql_node()->insertion;
+  table = db->find_table(node.relation_name.c_str());
+  if (!table || table->type() != Table::VIEW) return RC::SUCCESS;
+  View *view = static_cast<View *>(table);
+
+  SelectSqlNode *view_select = view->table_meta().select_;
+  assert(view_select);
+
+  if (node.values_list->at(0).size() != view->table_meta().field_num() - view->table_meta().sys_field_num()) {
+    LOG_WARN("size of insert value and attr mismatch");
+    sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_ARGUMENT);
+    return RC::INVALID_ARGUMENT;
+  } 
   for (SelectAttr &attr : view_select->attributes) {
-    if (!attr.expr_nodes[0]) return false;
+    if (!attr.expr_nodes[0]) return RC::INVALID_VIEW_DML;
     bool agg;
     attr.expr_nodes[0]->is_aggregate(agg);
     if (agg) 
-      return false;
+      return RC::INVALID_VIEW_DML;
+    // 假设不要求支持指定字段的插入，那么所有的必须都为非表达式
     if (attr.expr_nodes[0]->type() != ExprType::FIELD &&
         attr.expr_nodes[0]->type() != ExprType::STAR  &&
         attr.expr_nodes[0]->type() != ExprType::VALUE) {
       LOG_WARN("view's special attribute is not allowed to insert");
-      return false;
+      sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_VIEW_DML);
+      return RC::INVALID_VIEW_DML;
     }
   }
-  return true;
+
+  if (view_select->groupby.size() != 0 || view_select->relations.size() > 1 ||
+      view_select->joins.size() != 0) {
+    LOG_WARN("groupby and join view not allowed to insert");
+    sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_ARGUMENT);
+    return RC::INVALID_ARGUMENT;
+  }
+
+  std::unordered_map<int, int> site_map;
+  Table *real_table = db->find_table(view_select->relations[0].c_str());
+  for (int j = 0; j < real_table->table_meta().field_num() - real_table->table_meta().sys_field_num(); j++) {
+    std::string field_name = real_table->table_meta().field_metas()->at(real_table->table_meta().sys_field_num() + j).name();
+    size_t i;
+    for (i = 0; i < view_select->attributes.size(); i++) {
+      std::string &attr_name = static_cast<FieldExpr *>(view_select->attributes[i].expr_nodes[0])->rel_attr().attribute_name;
+      if (attr_name == field_name) {
+        site_map[j] = i;
+        break;
+      }
+    }
+    if (i == view_select->attributes.size()) {
+      site_map[j] = -1;
+    }
+  }
+  
+  std::vector<std::vector<Expression *>> values_list;
+  if (view_select->attributes[0].expr_nodes[0]->type() == ExprType::STAR) {
+    node.relation_name = view_select->relations[0];
+    return rc;
+  }
+
+  for (std::vector<Expression *> &values : *node.values_list) {
+    size_t idx = 0;
+    std::vector<Expression *> new_values;
+    for (int j = 0; j < real_table->table_meta().field_num() - real_table->table_meta().sys_field_num(); j++) {
+      if (site_map[j] != -1) {
+        new_values.push_back(values[idx++]);
+      } else {
+        new_values.push_back(new ValueExpr(Value(NULL_TYPE)));
+      }
+    }
+    values_list.push_back(new_values);
+  }
+  node.values_list->swap(values_list);      
+  node.relation_name = view_select->relations[0];
+  return rc;
+}
+
+RC ResolveStage::handle_view_update(SessionStage *ss, SQLStageEvent *sql_event, bool main_query) {
+  RC rc = RC::SUCCESS;
+  Db *db = sql_event->session_event()->session()->get_current_db();
+  Table *table = nullptr;
+
+  UpdateSqlNode &node = sql_event->sql_node()->update;
+  table = db->find_table(node.relation_name.c_str());
+  if (!table || table->type() != Table::VIEW) return RC::SUCCESS;
+  View *view = static_cast<View *>(table);
+
+  SelectSqlNode *view_select = view->table_meta().select_;
+  assert(view_select);
+
+  for (SelectAttr &attr : view_select->attributes) {
+    if (!attr.expr_nodes[0]) return RC::INVALID_VIEW_DML;
+    bool agg;
+    attr.expr_nodes[0]->is_aggregate(agg);
+    if (agg) {
+      sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_VIEW_DML);
+      return RC::INVALID_VIEW_DML;
+    }
+  }
+
+  if (view_select->groupby.size() != 0) {
+    LOG_WARN("groupby view not allowed to update");
+    sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_VIEW_DML);
+    return RC::INVALID_VIEW_DML;
+  }
+
+  std::vector<Table *> tables;
+  for (std::string &n : view_select->relations) {
+    Table *t;
+    if ((t = (db->find_table(n.c_str()))) != nullptr) {
+      tables.push_back(t);
+    } else {
+      LOG_WARN("-");
+      sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_VIEW_DML);
+      return RC::INVALID_VIEW_DML;
+    }
+  }
+  for (JoinNode &j : view_select->joins) {
+    Table *t;
+    if ((t = db->find_table(j.relation_name.c_str())) != nullptr) {
+      tables.push_back(t);
+    } else {
+      LOG_WARN("-");
+      sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_VIEW_DML);
+      return RC::INVALID_VIEW_DML;
+    }
+  }
+
+  // 首先获取表达式映射
+  std::unordered_map<std::string, Expression *> expr_map; 
+  for (size_t i = 0; i < view->table_meta().field_metas()->size(); i++) {
+    const FieldMeta &meta = view->table_meta().field_metas()->at(i);
+    if (view_select->attributes[0].expr_nodes[0]->type() == ExprType::STAR) {
+      StarExpr *star_expr = static_cast<StarExpr *>(view_select->attributes[0].expr_nodes[0]);
+      Table *view_select_table = db->find_table(view_select->relations[0].c_str());
+      assert(view_select_table);
+      const FieldMeta &field = view_select_table->table_meta().field_metas()->at(i);
+      RelAttrSqlNode attr("", field.name(), "");
+      FieldExpr *field_expr = new FieldExpr(attr);
+      expr_map[meta.name()] = field_expr;
+    } else {
+      expr_map[meta.name()] = view_select->attributes[i].expr_nodes[0];
+    }
+  }
+
+  // 排除对表达式的更新
+  for (std::pair<std::string, Expression *> &av_elem : node.av) {
+    std::string &view_attr_name = av_elem.first;
+    if (expr_map.find(view_attr_name) != expr_map.end()) {
+      Expression *expr = expr_map[view_attr_name];
+      if (expr->type() != ExprType::FIELD) {
+        LOG_WARN("view's special attribute is not allowed to update");
+        sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_VIEW_DML);
+        return RC::INVALID_VIEW_DML;
+      }
+    } else {
+      LOG_WARN("-");
+      sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_ARGUMENT);
+      return RC::INVALID_ARGUMENT;
+    }
+  }
+
+  /*
+    对于update的set，假设set了表A的字段
+    update condition涉及表:
+      // 1.A；直接对A进行更新，条件就是这个条件。
+      // 3.B表：直接对这个表进行更新，无更新条件。
+      // 2.A, B都有：
+    view select condition:
+      // 1.A：直接拿进来
+      // 3.B：直接不要
+      // 2.两个表都有：用另一个表的属性的值填充表达式中那个表的字段，每填充一次，生成一个新的表达式，用or连接，最终生成一个表达式。
+  */
+  if (tables.size() == 1) {
+    for (std::pair<std::string, Expression *> &av_elem : node.av) {
+      if (expr_map.find(av_elem.first) != expr_map.end()) {
+        Expression *expr = expr_map[av_elem.first];
+        assert(expr->type() == ExprType::FIELD);
+        FieldExpr *field_expr = static_cast<FieldExpr *>(expr);
+        av_elem.first = field_expr->rel_attr().attribute_name;
+      } else {
+        LOG_WARN("-");
+        sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_ARGUMENT);
+        return RC::INVALID_ARGUMENT;
+      }
+    }
+
+    auto substitutor = [&](std::unique_ptr<Expression> &e) {
+      FieldExpr *field_expr = static_cast<FieldExpr *>(e.get());
+      if (expr_map.find(field_expr->rel_attr().attribute_name) != expr_map.end()) {
+        e.reset(expr_map[field_expr->rel_attr().attribute_name]);
+      } else {
+        return RC::INVALID_ARGUMENT;
+      }
+      return RC::SUCCESS;
+    };
+    rc = node.condition->visit_field_expr(substitutor, false);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("-");
+      sql_event->session_event()->sql_result()->set_return_code(rc);
+      return rc;
+    }
+
+    if (node.condition && view_select->condition) {
+      ConjunctionExpr *new_expr = new ConjunctionExpr(CONJ_AND, node.condition, view_select->condition);
+      node.condition = new_expr;
+    } else {
+      if (view_select->condition) {
+        node.condition = view_select->condition;
+      }
+    }
+    node.relation_name = view_select->relations[0];
+  } else {
+    LOG_WARN("do not support join view update");
+    sql_event->session_event()->sql_result()->set_return_code(RC::UNIMPLENMENT);
+    return RC::UNIMPLENMENT;
+  }
+
+  return rc;
+}
+
+RC ResolveStage::handle_view_delete(SessionStage *ss, SQLStageEvent *sql_event, bool main_query) {
+  RC rc = RC::SUCCESS;
+  Db *db = sql_event->session_event()->session()->get_current_db();
+  Table *table = nullptr;
+
+  DeleteSqlNode &node = sql_event->sql_node()->deletion;
+  table = db->find_table(node.relation_name.c_str());
+  if (!table || table->type() != Table::VIEW) return RC::SUCCESS;
+  View *view = static_cast<View *>(table);
+
+  SelectSqlNode *view_select = view->table_meta().select_;
+  assert(view_select);
+
+  for (SelectAttr &attr : view_select->attributes) {
+    if (!attr.expr_nodes[0]) return RC::INVALID_VIEW_DML;
+    bool agg;
+    attr.expr_nodes[0]->is_aggregate(agg);
+    if (agg) {
+      sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_VIEW_DML);
+      return RC::INVALID_VIEW_DML;
+    }
+  }
+  if (view_select->groupby.size() != 0 || view_select->relations.size() > 1 ||
+      view_select->joins.size() != 0) {
+    LOG_WARN("groupby and join view not allowed to delete");
+    sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_ARGUMENT);
+    return RC::INVALID_ARGUMENT;
+  }
+
+  // 生成表达式map
+  std::unordered_map<std::string, Expression *> expr_map; 
+  for (size_t i = 0; i < view->table_meta().field_metas()->size(); i++) {
+    const FieldMeta &meta = view->table_meta().field_metas()->at(i);
+    if (view_select->attributes[0].expr_nodes[0]->type() == ExprType::STAR) {
+      Table *view_select_table = db->find_table(view_select->relations[0].c_str());
+      assert(view_select_table);
+      const FieldMeta &field = view_select_table->table_meta().field_metas()->at(i);
+      RelAttrSqlNode attr("", field.name(), "");
+      FieldExpr *field_expr = new FieldExpr(attr);
+      expr_map[meta.name()] = field_expr;
+    } else {
+      expr_map[meta.name()] = view_select->attributes[i].expr_nodes[0];
+    }
+  }
+  // 将delete中的条件表达式替换为对原表的表达式
+  auto substitutor = [&](std::unique_ptr<Expression> &e) {
+    FieldExpr *field_expr = static_cast<FieldExpr *>(e.get());
+    if (expr_map.find(field_expr->rel_attr().attribute_name) != expr_map.end()) {
+      e.reset(expr_map[field_expr->rel_attr().attribute_name]);
+    } else {
+      return RC::INVALID_ARGUMENT;
+    }
+    return RC::SUCCESS;
+  };
+  rc = node.condition->visit_field_expr(substitutor, false);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("-");
+    sql_event->session_event()->sql_result()->set_return_code(rc);
+    return rc;
+  }
+  // 然后将此表达式与原表进行与运算生成一个新的where
+  if (node.condition && view_select->condition) {
+    ConjunctionExpr *new_expr = new ConjunctionExpr(CONJ_AND, node.condition, view_select->condition);
+    node.condition = new_expr;
+  } else {
+    if (view_select->condition) {
+      node.condition = view_select->condition;
+    }
+  }
+  node.relation_name = view_select->relations[0];
+  return rc;
 }
 
 RC ResolveStage::handle_view(SessionStage *ss, SQLStageEvent *sql_event, bool main_query) {
-  RC rc = RC::SUCCESS;
-
-  Db *db = sql_event->session_event()->session()->get_current_db();
-  Table *table = nullptr;
   switch (sql_event->sql_node()->flag) {
     case SCF_INSERT: {
-      InsertSqlNode &node = sql_event->sql_node()->insertion;
-      table = db->find_table(node.relation_name.c_str());
-      if (!table || table->type() != Table::VIEW) return RC::SUCCESS;
-      View *view = static_cast<View *>(table);
-
-      SelectSqlNode *view_select = view->table_meta().select_;
-      assert(view_select);
-
-      if (node.values_list->at(0).size() != view->table_meta().field_num() - view->table_meta().sys_field_num()) {
-        LOG_WARN("size of insert value and attr mismatch");
-        return RC::INVALID_ARGUMENT;
-      } 
-      if (!valid_for_view_dml(view_select)) {
-        return RC::INVALID_ARGUMENT;
-      }
-      if (view_select->groupby.size() != 0 || view_select->relations.size() > 1 ||
-          view_select->joins.size() != 0) {
-        LOG_WARN("groupby and join view not allowed to insert");
-        return RC::INVALID_ARGUMENT;
-      }
-
-      std::unordered_map<int, int> site_map;
-      Table *real_table = db->find_table(view_select->relations[0].c_str());
-      for (int j = 0; j < real_table->table_meta().field_num() - real_table->table_meta().sys_field_num(); j++) {
-        std::string field_name = real_table->table_meta().field_metas()->at(real_table->table_meta().sys_field_num() + j).name();
-        size_t i;
-        for (i = 0; i < view_select->attributes.size(); i++) {
-          std::string &attr_name = static_cast<FieldExpr *>(view_select->attributes[i].expr_nodes[0])->rel_attr().attribute_name;
-          if (attr_name == field_name) {
-            site_map[j] = i;
-            break;
-          }
-        }
-        if (i == view_select->attributes.size()) {
-          site_map[j] = -1;
-        }
-      }
-      
-      std::vector<std::vector<Expression *>> values_list;
-      if (view_select->attributes[0].expr_nodes[0]->type() == ExprType::STAR) {
-        node.relation_name = view_select->relations[0];
-        return rc;
-      }
-
-      for (std::vector<Expression *> &values : *node.values_list) {
-        size_t idx = 0;
-        std::vector<Expression *> new_values;
-        for (int j = 0; j < real_table->table_meta().field_num() - real_table->table_meta().sys_field_num(); j++) {
-          if (site_map[j] != -1) {
-            new_values.push_back(values[idx++]);
-          } else {
-            new_values.push_back(new ValueExpr(Value(NULL_TYPE)));
-          }
-        }
-        values_list.push_back(new_values);
-      }
-      node.values_list->swap(values_list);      
-      node.relation_name = view_select->relations[0];
+      return handle_view_insert(ss, sql_event, main_query);
     } break;
     case SCF_DELETE: {
-      DeleteSqlNode &node = sql_event->sql_node()->deletion;
-      table = db->find_table(node.relation_name.c_str());
-      if (!table || table->type() != Table::VIEW) return RC::SUCCESS;
-      View *view = static_cast<View *>(table);
-
-      SelectSqlNode *view_select = view->table_meta().select_;
-      assert(view_select);
-
-      if (!valid_for_view_dml(view_select)) {
-        return RC::INVALID_ARGUMENT;
-      }
-      if (view_select->groupby.size() != 0 || view_select->relations.size() > 1 ||
-          view_select->joins.size() != 0) {
-        LOG_WARN("groupby and join view not allowed to delete");
-        return RC::INVALID_ARGUMENT;
-      }
-      
-      std::unordered_map<std::string, std::string> attr_map;
-      if (view_select->attributes[0].expr_nodes[0]->type() == ExprType::STAR) {
-        Table *t = db->find_table(view->table_meta().select_->relations[0].c_str());
-        for (size_t i = 0; i < view->table_meta().field_metas()->size(); i++) {
-          const FieldMeta &meta = view->table_meta().field_metas()->at(i);
-          attr_map[meta.name()] = t->table_meta().field_metas()->at(i).name();
-        }
-      } else {
-        for (size_t i = 0; i < view_select->attributes.size(); i++) {
-          const FieldMeta &meta = view->table_meta().field_metas()->at(i);
-          SelectAttr &attr = view_select->attributes[i];
-          attr_map[meta.name()] = static_cast<FieldExpr *>(attr.expr_nodes[0])->rel_attr().attribute_name;
-        }
-      }
-      auto visitor = [&](std::unique_ptr<Expression> &e) {
-        FieldExpr *f = static_cast<FieldExpr *>(e.get());
-        f->rel_attr().attribute_name = attr_map[f->rel_attr().attribute_name];
-        return RC::SUCCESS;
-      };
-      rc = node.condition->visit_field_expr(visitor, true);
-      if (rc != RC::SUCCESS) {
-        LOG_WARN("-");
-        return rc;
-      }
-      node.relation_name = view_select->relations[0];
+      return handle_view_delete(ss, sql_event, main_query);
     } break;
     case SCF_UPDATE: {
-      UpdateSqlNode &node = sql_event->sql_node()->update;
-      table = db->find_table(node.relation_name.c_str());
-      if (!table || table->type() != Table::VIEW) return RC::SUCCESS;
-      View *view = static_cast<View *>(table);
-
-      SelectSqlNode *view_select = view->table_meta().select_;
-      assert(view_select);
-
-      if (!valid_for_view_dml(view_select)) {
-        return RC::INVALID_ARGUMENT;
-      }
-      if (view_select->groupby.size() != 0 || view_select->relations.size() > 1 ||
-          view_select->joins.size() != 0) {
-        LOG_WARN("groupby and join view not allowed to delete");
-        return RC::INVALID_ARGUMENT;
-      }
-
-      std::unordered_map<std::string, std::string> attr_map;
-      if (view_select->attributes[0].expr_nodes[0]->type() == ExprType::STAR) {
-        Table *t = db->find_table(view->table_meta().select_->relations[0].c_str());
-        for (size_t i = 0; i < view->table_meta().field_metas()->size(); i++) {
-          const FieldMeta &meta = view->table_meta().field_metas()->at(i);
-          attr_map[meta.name()] = t->table_meta().field_metas()->at(i).name();
-        }
-      } else {
-        for (size_t i = 0; i < view_select->attributes.size(); i++) {
-          const FieldMeta &meta = view->table_meta().field_metas()->at(i);
-          SelectAttr &attr = view_select->attributes[i];
-          attr_map[meta.name()] = static_cast<FieldExpr *>(attr.expr_nodes[0])->rel_attr().attribute_name;
-        }
-      }
-      auto visitor = [&](std::unique_ptr<Expression> &e) {
-        FieldExpr *f = static_cast<FieldExpr *>(e.get());
-        f->rel_attr().attribute_name = attr_map[f->rel_attr().attribute_name];
-        return RC::SUCCESS;
-      };
-      rc = node.condition->visit_field_expr(visitor, true);
-      if (rc != RC::SUCCESS) {
-        LOG_WARN("-");
-        return rc;
-      }
-      for (std::pair<std::string, Expression *> &av_elem : node.av) {
-        av_elem.first = attr_map[av_elem.first];
-      }
-      node.relation_name = view_select->relations[0];
+      return handle_view_update(ss, sql_event, main_query);
     } break;
     case SCF_SELECT: {
       return handle_view_select(ss, sql_event, main_query);
     } break;
     default: {
+      return RC::SUCCESS;
     } break;
   }
-  return rc;
 }
 
 RC ResolveStage::alias_pre_process(SelectSqlNode *select_sql)

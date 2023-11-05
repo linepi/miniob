@@ -23,6 +23,7 @@ See the Mulan PSL v2 for more details. */
   DEFINE_RC(SUCCESS)                        \
   DEFINE_RC(AGGREGATE)                        \
   DEFINE_RC(INVALID_ARGUMENT)               \
+  DEFINE_RC(INVALID_VIEW_DML)               \
   DEFINE_RC(UNIMPLENMENT)                   \
   DEFINE_RC(SQL_SYNTAX)                     \
   DEFINE_RC(INTERNAL)                       \

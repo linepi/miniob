@@ -32,6 +32,9 @@ public:
   RC handle_request(SessionStage *ss, SQLStageEvent *sql_event, bool);
   RC handle_view(SessionStage *ss, SQLStageEvent *sql_event, bool);
   RC handle_view_select(SessionStage *ss, SQLStageEvent *sql_event, bool);
+  RC handle_view_update(SessionStage *ss, SQLStageEvent *sql_event, bool);
+  RC handle_view_delete(SessionStage *ss, SQLStageEvent *sql_event, bool);
+  RC handle_view_insert(SessionStage *ss, SQLStageEvent *sql_event, bool);
   RC handle_alias(SessionStage *ss, SQLStageEvent *sql_event, bool);
 private:
   RC extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionStage *ss, SQLStageEvent *sql_event);
