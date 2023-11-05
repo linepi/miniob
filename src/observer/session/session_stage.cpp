@@ -91,9 +91,36 @@ void SessionStage::handle_event(StageEvent *event)
 RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query);
 
 static void clean_garbage(SessionStage *ss, SQLStageEvent *sql_event) {
+  Db *db = sql_event->session_event()->session()->get_current_db();
+  // clean tmp table
+  std::vector<std::string> all_table;
+  db->all_tables(all_table);
+  for (std::string &t_name : all_table) {
+    Table *t = db->find_table(t_name.c_str());
+    if (!t) continue;
+    if (t->type() == Table::VIEW) {
+      std::string physical_tmp_table = t_name + "--phyview";
+      if (db->find_table(physical_tmp_table.c_str())) {
+        DropTableSqlNode dnode;
+        dnode.relation_name = physical_tmp_table;
+        ParsedSqlNode *node = new ParsedSqlNode();
+        node->flag          = SCF_DROP_TABLE;
+        node->drop_table    = dnode;
+        SQLStageEvent stack_sql_event(*sql_event, false);
+        stack_sql_event.set_sql_node(std::unique_ptr<ParsedSqlNode>(node));
+        assert(handle_sql(ss, &stack_sql_event, false) == RC::SUCCESS);
+      }
+
+      std::string select_sql = t->table_meta().select_->select_string;
+      ParsedSqlResult parsed_sql_result;
+      parse(select_sql.c_str(), &parsed_sql_result);
+      delete t->table_meta().select_;
+      const_cast<TableMeta &>(t->table_meta()).select_ = new SelectSqlNode(parsed_sql_result.sql_nodes()[0]->selection);
+    }
+  }
+
   ParsedSqlNode *node = sql_event->sql_node().get();
   if (!node) return;
-
   // clean expr
   std::vector<Expression *> all_expr;
   switch (node->flag) {
@@ -132,34 +159,6 @@ static void clean_garbage(SessionStage *ss, SQLStageEvent *sql_event) {
     if (!expr) continue;
     delete expr;
     expr = nullptr;
-  }
-
-  Db *db = sql_event->session_event()->session()->get_current_db();
-  // clean tmp table
-  std::vector<std::string> all_table;
-  db->all_tables(all_table);
-  for (std::string &t_name : all_table) {
-    Table *t = db->find_table(t_name.c_str());
-    if (!t) continue;
-    if (t->type() == Table::VIEW) {
-      std::string physical_tmp_table = t_name + "--phyview";
-      if (db->find_table(physical_tmp_table.c_str())) {
-        DropTableSqlNode dnode;
-        dnode.relation_name = physical_tmp_table;
-        ParsedSqlNode *node = new ParsedSqlNode();
-        node->flag          = SCF_DROP_TABLE;
-        node->drop_table    = dnode;
-        SQLStageEvent stack_sql_event(*sql_event, false);
-        stack_sql_event.set_sql_node(std::unique_ptr<ParsedSqlNode>(node));
-        assert(handle_sql(ss, &stack_sql_event, false) == RC::SUCCESS);
-      }
-
-      std::string select_sql = t->table_meta().select_->select_string;
-      ParsedSqlResult parsed_sql_result;
-      parse(select_sql.c_str(), &parsed_sql_result);
-      delete t->table_meta().select_;
-      const_cast<TableMeta &>(t->table_meta()).select_ = new SelectSqlNode(parsed_sql_result.sql_nodes()[0]->selection);
-    }
   }
 }
 

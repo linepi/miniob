@@ -201,7 +201,12 @@ RC PlainCommunicator::write_tuple(SqlResult *sql_result) {
           v_for_type.push_back(v);
         }
       } else {
-        v_for_type.push_back(Value(expr->value_type()));
+        Value v(expr->value_type());
+        if (v.attr_type() == DATES)
+          v.set_length(10);
+        else
+          v.set_length(4);
+        v_for_type.push_back(v);
       }
     }
     writer_->accept(v_for_type);

@@ -553,6 +553,11 @@ RC ResolveStage::handle_view_select(SessionStage *ss, SQLStageEvent *sql_event, 
   for (View *v : views) {
     CreateTableSqlNode cnode;
     cnode.select = v->table_meta().select_;
+    rc = alias_pre_process(v->table_meta().select_);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("view select alias preprocess failed. rc=%s", strrc(rc));
+      return rc;
+    }
     cnode.relation_name = v->name() + std::string("--phyview");
     view2physical.insert(v->name());
     cnode.select_attr_infos = new std::vector<AttrInfoSqlNode>;
@@ -573,7 +578,6 @@ RC ResolveStage::handle_view_select(SessionStage *ss, SQLStageEvent *sql_event, 
     }
   }
 
-  // actual select
   rc = convert_view_to_physical(sql_event->sql_node()->selection, view2physical);
   if (rc != RC::SUCCESS) {
     LOG_WARN("error while convert view to physical %s", strrc(rc));
