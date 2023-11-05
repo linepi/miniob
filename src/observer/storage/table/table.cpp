@@ -257,6 +257,9 @@ RC Table::update_record_impl(std::vector<const FieldMeta *> &field_metas, std::v
         printf("update failure!\n");
         return rc;
       }
+      if (value->get_string().length() > 4096) {
+        value->resize_text();
+      }
       make_text_value(*value);
       memcpy(record.data() + field_meta->offset(), value->data(), len);
     }
