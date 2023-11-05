@@ -401,7 +401,7 @@ RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionSt
       for (std::string &relation_name : node->selection.relations) {
         t = db->find_table(relation_name.c_str());
         if (!t) {
-          LOG_WARN("no such table");
+          LOG_WARN("no such table %s", relation_name.c_str());
           rc = RC::SCHEMA_TABLE_NOT_EXIST;
           goto deal_rc;
         }
@@ -433,7 +433,7 @@ RC ResolveStage::extract_values(std::unique_ptr<ParsedSqlNode> &node_, SessionSt
     case SCF_DELETE: {
       t = db->find_table(node->deletion.relation_name.c_str());
       if (!t) {
-        LOG_WARN("no such table");
+        LOG_WARN("no such table %s", node->deletion.relation_name.c_str());
         rc = RC::SCHEMA_TABLE_NOT_EXIST;
         goto deal_rc;
       }
@@ -553,7 +553,7 @@ RC ResolveStage::handle_view_select(SessionStage *ss, SQLStageEvent *sql_event, 
   for (View *v : views) {
     CreateTableSqlNode cnode;
     cnode.select = v->table_meta().select_;
-    cnode.relation_name = v->name() + std::string("-view");
+    cnode.relation_name = v->name() + std::string("--phyview");
     view2physical.insert(v->name());
     cnode.select_attr_infos = new std::vector<AttrInfoSqlNode>;
     cnode.build_for_view = true;
@@ -574,50 +574,12 @@ RC ResolveStage::handle_view_select(SessionStage *ss, SQLStageEvent *sql_event, 
   }
 
   // actual select
-  ParsedSqlNode *parsed_sql_node = new ParsedSqlNode();
-  parsed_sql_node->flag          = SCF_SELECT;
-  parsed_sql_node->selection     = select_node;
-  rc = convert_view_to_physical(parsed_sql_node->selection, view2physical);
+  rc = convert_view_to_physical(sql_event->sql_node()->selection, view2physical);
   if (rc != RC::SUCCESS) {
     LOG_WARN("error while convert view to physical %s", strrc(rc));
-    delete parsed_sql_node;
-    goto end_drop;
+    return rc;
   }
-{
-  SQLStageEvent stack_sql_event(*sql_event, false);
-  stack_sql_event.set_sql_node(std::unique_ptr<ParsedSqlNode>(parsed_sql_node));
-  rc = handle_sql(ss, &stack_sql_event, false);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("sub create table failed. rc=%s", strrc(rc));
-    goto end_drop;
-  }
-  Communicator *communicator = stack_sql_event.session_event()->get_communicator();
-  bool need_disconnect = false;
-  rc                   = communicator->write_result(stack_sql_event.session_event(), need_disconnect);
-  if ((rc = stack_sql_event.session_event()->sql_result()->return_code()) != RC::SUCCESS) {
-    LOG_WARN("sub query failed. rc=%s", strrc(rc));
-    goto end_drop;
-  }
-}
-
-end_drop:
-  // delete tables
-  for (View *v : views) {
-    DropTableSqlNode dnode;
-    dnode.relation_name = v->name() + std::string("-view");
-    ParsedSqlNode *node = new ParsedSqlNode();
-    node->flag          = SCF_DROP_TABLE;
-    node->drop_table    = dnode;
-    SQLStageEvent stack_sql_event(*sql_event, false);
-    stack_sql_event.set_sql_node(std::unique_ptr<ParsedSqlNode>(node));
-    RC subrc = handle_sql(ss, &stack_sql_event, false);
-    if (subrc != RC::SUCCESS) {
-      LOG_WARN("sub create table failed. rc=%s", strrc(subrc));
-      return subrc;
-    }
-  }
-  sql_event->session_event()->sql_result()->set_return_code(rc);
-  return rc == RC::SUCCESS ? RC::HANDLE_SQL_END : rc;
+  return rc;
 }
 
 static bool valid_for_view_dml(SelectSqlNode *view_select) {
@@ -722,10 +684,18 @@ RC ResolveStage::handle_view(SessionStage *ss, SQLStageEvent *sql_event, bool ma
       }
       
       std::unordered_map<std::string, std::string> attr_map;
-      for (size_t i = 0; i < view_select->attributes.size(); i++) {
-        const FieldMeta &meta = view->table_meta().field_metas()->at(i);
-        SelectAttr &attr = view_select->attributes[i];
-        attr_map[meta.name()] = static_cast<FieldExpr *>(attr.expr_nodes[0])->rel_attr().attribute_name;
+      if (view_select->attributes[0].expr_nodes[0]->type() == ExprType::STAR) {
+        Table *t = db->find_table(view->table_meta().select_->relations[0].c_str());
+        for (size_t i = 0; i < view->table_meta().field_metas()->size(); i++) {
+          const FieldMeta &meta = view->table_meta().field_metas()->at(i);
+          attr_map[meta.name()] = t->table_meta().field_metas()->at(i).name();
+        }
+      } else {
+        for (size_t i = 0; i < view_select->attributes.size(); i++) {
+          const FieldMeta &meta = view->table_meta().field_metas()->at(i);
+          SelectAttr &attr = view_select->attributes[i];
+          attr_map[meta.name()] = static_cast<FieldExpr *>(attr.expr_nodes[0])->rel_attr().attribute_name;
+        }
       }
       auto visitor = [&](std::unique_ptr<Expression> &e) {
         FieldExpr *f = static_cast<FieldExpr *>(e.get());
@@ -1070,7 +1040,7 @@ RC convert_view_to_physical(SelectSqlNode &select_node, std::unordered_set<std::
 
   for (std::string *rel : relations) {
     if (view2physical.find(*rel) != view2physical.end()) {
-      *rel += "-view";
+      *rel += "--phyview";
     }
   }
   for (Expression *e : exprs) {
@@ -1080,7 +1050,7 @@ RC convert_view_to_physical(SelectSqlNode &select_node, std::unordered_set<std::
     auto visitor = [&](std::unique_ptr<Expression> &f) {
       FieldExpr *field_expr = static_cast<FieldExpr *>(f.get());
       if (view2physical.find(field_expr->rel_attr().relation_name) != view2physical.end()) {
-        field_expr->rel_attr().relation_name += "-view";
+        field_expr->rel_attr().relation_name += "--phyview";
       }
       return RC::SUCCESS;
     };

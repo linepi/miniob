@@ -88,10 +88,14 @@ void SessionStage::handle_event(StageEvent *event)
   return;
 }
 
-static void clean_garbage(ParsedSqlNode *node) {
-  if (!node) return;
-  std::vector<Expression *> all_expr;
+RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query);
 
+static void clean_garbage(SessionStage *ss, SQLStageEvent *sql_event) {
+  ParsedSqlNode *node = sql_event->sql_node().get();
+  if (!node) return;
+
+  // clean expr
+  std::vector<Expression *> all_expr;
   switch (node->flag) {
     case SCF_INSERT: {
       for (std::vector<Expression *> &exprs : *(node->insertion.values_list)) {
@@ -129,9 +133,35 @@ static void clean_garbage(ParsedSqlNode *node) {
     delete expr;
     expr = nullptr;
   }
+
+  Db *db = sql_event->session_event()->session()->get_current_db();
+  // clean tmp table
+  std::vector<std::string> all_table;
+  db->all_tables(all_table);
+  for (std::string &t_name : all_table) {
+    Table *t = db->find_table(t_name.c_str());
+    if (!t) continue;
+    if (t->type() == Table::VIEW) {
+      std::string physical_tmp_table = t_name + "--phyview";
+      if (db->find_table(physical_tmp_table.c_str())) {
+        DropTableSqlNode dnode;
+        dnode.relation_name = physical_tmp_table;
+        ParsedSqlNode *node = new ParsedSqlNode();
+        node->flag          = SCF_DROP_TABLE;
+        node->drop_table    = dnode;
+        SQLStageEvent stack_sql_event(*sql_event, false);
+        stack_sql_event.set_sql_node(std::unique_ptr<ParsedSqlNode>(node));
+        assert(handle_sql(ss, &stack_sql_event, false) == RC::SUCCESS);
+      }
+      std::string select_sql = t->table_meta().select_->select_string;
+      ParsedSqlResult parsed_sql_result;
+      parse(select_sql.c_str(), &parsed_sql_result);
+      delete t->table_meta().select_;
+      const_cast<TableMeta &>(t->table_meta()).select_ = new SelectSqlNode(parsed_sql_result.sql_nodes()[0]->selection);
+    }
+  }
 }
 
-RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query);
 
 void SessionStage::handle_request(StageEvent *event)
 {
@@ -155,20 +185,18 @@ void SessionStage::handle_request(StageEvent *event)
   for (std::string &sql : sqls) {
     SQLStageEvent sql_event(sev, sql);
     
-    RC rc = handle_sql(this, &sql_event, true);
-    if (rc == RC::HANDLE_SQL_END) 
-      continue;
+    (void)handle_sql(this, &sql_event, true);
     Communicator *communicator = sev->get_communicator();
     communicator->session()->set_sql_debug(true);
 
     bool need_disconnect = false;
-    rc = communicator->write_result(sev, need_disconnect);
+    RC rc = communicator->write_result(sev, need_disconnect);
     LOG_INFO("write result return %s", strrc(rc));
+    clean_garbage(this, &sql_event);
+
     if (need_disconnect) {
       Server::close_connection(communicator);
     }
-    clean_garbage(sql_event.sql_node().get());
-
     if (sev->sql_result()->return_code() != RC::SUCCESS) 
       break;
   }

@@ -130,7 +130,7 @@ RC Db::create_table(const char *table_name, int attribute_count,
 RC Db::create_view(std::string view_name, std::vector<AttrInfoSqlNode> attrs, SelectSqlNode *select) {
   RC rc = RC::SUCCESS;
   if (opened_tables_.count(view_name) != 0) {
-    LOG_WARN("%s has been opened before.", view_name);
+    LOG_WARN("%s has been opened before.", view_name.c_str());
     return RC::SCHEMA_TABLE_EXIST;
   }
 

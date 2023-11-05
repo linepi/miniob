@@ -253,6 +253,7 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
     
     if (select_expr->type() == ExprType::STAR) {
       StarExpr *star_expr = static_cast<StarExpr *>(select_expr);
+      star_expr->field().clear();
       for (Table *table : tables) {
         if (!star_expr->relation().empty() && star_expr->relation() != table->name())
           continue;
