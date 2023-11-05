@@ -485,7 +485,7 @@ RC Table::make_record(int value_num, const Value *values, Record &record)
 
     if (value.attr_type() == TEXTS) {
       if (value.get_string().length() > 4096) {
-        return RC::RECORD_NOT_EXIST;
+        value.resize_text();
       }
       make_text_value(value);
       record.add_offset_text(field->offset());

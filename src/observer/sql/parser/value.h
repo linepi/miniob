@@ -90,6 +90,10 @@ public:
     attr_type_ = TEXTS;
   }
 
+  void resize_text() {
+    str_value_.resize(4096);
+  }
+
 public:
   /**
    * 获取对应的值
