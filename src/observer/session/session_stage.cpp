@@ -153,6 +153,7 @@ static void clean_garbage(SessionStage *ss, SQLStageEvent *sql_event) {
         stack_sql_event.set_sql_node(std::unique_ptr<ParsedSqlNode>(node));
         assert(handle_sql(ss, &stack_sql_event, false) == RC::SUCCESS);
       }
+
       std::string select_sql = t->table_meta().select_->select_string;
       ParsedSqlResult parsed_sql_result;
       parse(select_sql.c_str(), &parsed_sql_result);

@@ -31,10 +31,6 @@ public:
       : table_(table), readonly_(readonly)
   {}
 
-  ~TableScanPhysicalOperator() {
-    tuple_.clean();
-  }
-
   std::string param() const override;
 
   PhysicalOperatorType type() const override

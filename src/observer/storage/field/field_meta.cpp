@@ -131,13 +131,19 @@ bool FieldMeta::match(Value &value) const {
     value.set_string(value.to_string().c_str());
     return true;
   }
+  if (attr_type_ == TEXTS) {
+    if (value.get_string().size() > 65535) 
+      return false;
+    value.set_text_f();
+    return true;
+  }
   if (value.attr_type() == CHARS) {
     if (!is_float(value.to_string())) return false;
     if (attr_type_ == INTS) {
       value.set_int(std::stoi(value.to_string()));
     } else if (attr_type_ == FLOATS) {
       value.set_int(std::stof(value.to_string()));
-    }
+    } 
     return true;
   }
   if (attr_len_ < value.length() || attr_type_ != value.attr_type()) return false;

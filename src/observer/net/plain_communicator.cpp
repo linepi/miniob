@@ -41,7 +41,7 @@ RC PlainCommunicator::read_event(SessionEvent *&event)
   int data_len = 0;
   int read_len = 0;
 
-  const int max_packet_size = 8192;
+  const int max_packet_size = 81920;
   std::vector<char> buf(max_packet_size);
 
   // 持续接收消息，直到遇到'\0'。将'\0'遇到的后续数据直接丢弃没有处理，因为目前仅支持一收一发的模式
@@ -227,9 +227,27 @@ RC PlainCommunicator::write_tuple(SqlResult *sql_result) {
       rc = tuple->cell_at(i, value);
       if (rc != RC::SUCCESS)
         return rc;
-      
-      if (!aggregate)
+
+      if (value.attr_type() == TEXTS)
+      {
+        RID *rid = reinterpret_cast<RID *>(const_cast<char *>(value.data()));
+        size_t len = rid->text_value;
+        char *ss = new char[len + 1];
+        char *p = ss;
+        while (rid != nullptr && rid->init) {
+          Record rec_new;
+          tuple->get_text_record(rec_new, rid);
+          memcpy(p, rec_new.data(), rec_new.len());
+          p += rec_new.len();
+          rid = rid->next_RID;
+        }
+        writer_->writen(ss, len);
+        delete ss;
+      }
+      if (!aggregate && value.attr_type() != TEXTS) {
         writer_->writen(value.to_string().c_str(), value.to_string().size());
+      }
+
       if (last_values.size() == (size_t)cell_num)
         last_values[i] = value;
       else

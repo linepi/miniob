@@ -1,14 +1,9 @@
-INITIALIZATION
-create table text_table(id int, info text);
-SUCCESS
 
-1. INSERT
+drop table text_table;
+create table text_table(id int, info text);
 insert into text_table values (1,'this is a very very long string');
-SUCCESS
 insert into text_table values (2,'this is a very very long string2');
-SUCCESS
 insert into text_table values (3,'this is a very very long string3');
-SUCCESS
 select * from text_table;
 1 | THIS IS A VERY VERY LONG STRING
 2 | THIS IS A VERY VERY LONG STRING2

@@ -35,6 +35,7 @@ RC TableScanPhysicalOperator::next()
   }
 
   RC rc = RC::SUCCESS;
+
   bool filter_result = false;
   while (record_scanner_.has_next()) {
     rc = record_scanner_.next(current_record_);

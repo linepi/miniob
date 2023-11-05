@@ -951,7 +951,7 @@ RC ResolveStage::alias_pre_process(SelectSqlNode *select_sql)
     auto visitor = [&](std::unique_ptr<Expression> &f) {
       FieldExpr *field_expr = static_cast<FieldExpr *>(f.get());
       RelAttrSqlNode &node = field_expr->rel_attr();
-      if (field_exis[node.attribute_name]){
+      if (field_exis[node.attribute_name] && node.relation_name.empty()){
         return RC::SAME_ALIAS;
       }
       if (alias_exist_tmp[node.relation_name]){

@@ -77,6 +77,7 @@ public:
   void set_date(const char *s);
   void set_value(const Value &value);
   void set_list(std::vector<Value> *values);
+  void set_text(const char *s, int len = 0);
 
   std::string to_string() const;
   std::string beauty_string() const;
@@ -102,6 +103,13 @@ public:
 
   std::vector<Value> *list() const { return list_; }
   void set_length(int len) { length_ = len; }
+  std::string text_data() {
+    return str_value_;
+  }
+
+  void set_text_f() {
+    attr_type_ = TEXTS;
+  }
 
 public:
   /**

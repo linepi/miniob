@@ -31,6 +31,8 @@ See the Mulan PSL v2 for more details. */
 #include "storage/trx/trx.h"
 #include "event/sql_debug.h"
 
+RC make_text_value(RecordFileHandler *record_handler, Value &value);
+
 PhysicalTable::PhysicalTable() {}
 
 PhysicalTable::~PhysicalTable()
@@ -244,15 +246,27 @@ RC PhysicalTable::update_record_impl(std::vector<const FieldMeta *> &field_metas
   for (size_t i = 0; i < field_metas.size(); i++) {
     Value *value = &values[i];
     const FieldMeta *field_meta = field_metas[i];
+
     if (value->attr_type() != NULL_TYPE) {
       int len;
-      if (value->attr_type() == CHARS) {
-        len = min(value->length() + 1, field_meta->len());
-      } else {
-        len = min(value->length(), field_meta->len());
+      if (value->attr_type() == TEXTS) {
+        len = field_meta->len();
+        RC rc = record_handler_->delete_record(reinterpret_cast<RID *>(record.data() + field_meta->offset()));
+        if (rc != RC::SUCCESS) {
+          LOG_WARN("");
+          return rc;
+        }
+        make_text_value(record_handler_, *value);
+      } else { 
+        if (value->attr_type() == CHARS) {
+          len = min(value->length() + 1, field_meta->len());
+        } else {
+          len = min(value->length(), field_meta->len());
+        }
       }
       memcpy(record.data() + field_meta->offset(), value->data(), len);
-    } 
+    }
+
     if (value->attr_type() == NULL_TYPE) {
       record.set_null(field_metas[i]->name(), this);
     } else {
@@ -346,7 +360,10 @@ RC PhysicalTable::visit_record(const RID &rid, bool readonly, std::function<void
 
 RC PhysicalTable::get_record(const RID &rid, Record &record)
 {
-  const int record_size = table_meta_.record_size();
+  int record_size = table_meta_.record_size();
+  if (rid.init) {
+    record_size = rid.over_len; 
+  }
   char *record_data = (char *)malloc(record_size);
   ASSERT(nullptr != record_data, "failed to malloc memory. record data size=%d", record_size);
 
@@ -435,13 +452,25 @@ RC PhysicalTable::make_record(int value_num, const Value *values, Record &record
 
   for (int i = 0; i < value_num; i++) {
     const FieldMeta *field = table_meta_.field(i + normal_field_start_index);
-    const Value &value = values[i];
+    Value &value = const_cast<Value &>(values[i]);
     // 如果是字符串类型，则拷贝字符串的len + 1字节。
+    if (value.attr_type() == TEXTS) {
+      if (value.get_string().length() > 65535) {
+        return RC::TEXT_OVERFLOW;
+      }
+      make_text_value(record_handler_, value);
+      record.add_offset_text(field->offset());
+      record.set_if_text();
+    }
+
     size_t copy_len = field->len();
     if (field->type() == CHARS || field->type() == DATES) {
       const size_t data_len = value.length();
       if (copy_len > data_len) {
         copy_len = data_len + 1;
+      }
+      if (field->type() == TEXTS) {
+        copy_len = sizeof(RID);
       }
     }
     int isnotnull = value.attr_type() != NULL_TYPE;
@@ -668,5 +697,45 @@ RC PhysicalTable::sync()
     }
   }
   LOG_INFO("Sync table over. table=%s", name());
+  return rc;
+}
+
+RC make_text_value(RecordFileHandler *record_handler, Value &value) 
+{
+  RC rc = RC::SUCCESS;
+  RID *rid = new RID;
+  int MAX_SIZE = 8000;
+  char *ss = new char[value.text_data().length() + 1];
+  strcpy(ss, value.text_data().c_str());
+  const char *end = ss + value.text_data().length();
+
+  while (end - ss > MAX_SIZE) {
+    RID *new_rid = new RID;
+    rc = record_handler->insert_text_record(end - MAX_SIZE, MAX_SIZE, new_rid);
+
+    if (rc != RC::SUCCESS) {
+      LOG_ERROR("Insert text chunk failed: %s", strrc(rc));
+      return rc;
+    }
+
+    if (rid->init == true) {
+      new_rid->next_RID = rid;
+    }
+    rid = new_rid;
+
+    end -= MAX_SIZE;
+  }
+
+  RID *rid_last = new RID;
+  rc = record_handler->insert_text_record(ss, end - ss, rid_last);
+
+  if (rid->init == true) {
+    rid_last->next_RID = rid;
+  }
+  rid = rid_last;
+  rid->text_value = value.text_data().length();
+  value.set_data(reinterpret_cast<char *>(rid),sizeof(RID));
+
+  delete ss;
   return rc;
 }

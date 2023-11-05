@@ -64,9 +64,9 @@ enum AttrType
   FLOATS,         ///< 浮点数类型(4字节)
   DATES,          ///< 日期类型
   BOOLEANS,       ///< boolean类型，当前不是由parser解析出来的，是程序内部使用的
+  TEXTS,
   NULL_TYPE,
   LIST_TYPE,
-  TEXTS,
   EMPTY_TYPE,
 };
 

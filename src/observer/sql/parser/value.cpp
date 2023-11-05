@@ -23,7 +23,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/expr/expression.h"
 #include <regex>
 
-const char *ATTR_TYPE_NAME[] = {"undefined", "chars", "ints", "floats", "dates", "booleans", "null_type", "texts", "empty_type"};
+const char *ATTR_TYPE_NAME[] = {"undefined", "chars", "ints", "floats", "dates", "booleans", "texts", "null_type", "empty_type"};
 
 const char *attr_type_to_string(AttrType type)
 {
@@ -111,6 +111,10 @@ void Value::set_data(char *data, int length)
       set_date(data);
       length_ = length;
     } break;
+    case TEXTS: {
+      set_text(data,length);
+      length_ = length;
+    }break;
     case NULL_TYPE: {
     } break;
     default: {
@@ -148,6 +152,15 @@ void Value::set_string(const char *s, int len /*= 0*/)
   }
   length_ = str_value_.length();
 }
+
+void Value::set_text(const char *s, int len /*= 0*/)
+{
+  attr_type_ = TEXTS;
+  str_value_.assign(s, len);
+  length_ = str_value_.length();
+}
+
+
 void Value::set_date(const char *s)
 {
   std::string str(s);
@@ -220,6 +233,7 @@ void Value::set_value(const Value &value)
       *this = value;
     } break;
     case TEXTS: {
+      set_text(value.get_string().c_str());
     } break;
     case UNDEFINED: {
       ASSERT(false, "got an invalid value type");
@@ -230,7 +244,7 @@ void Value::set_value(const Value &value)
 const char *Value::data() const
 {
   switch (attr_type_) {
-    case CHARS: case DATES: {
+    case CHARS: case DATES: case TEXTS:{
       return str_value_.c_str();
     } break;
     default: {
@@ -364,7 +378,7 @@ std::string Value::to_string() const
     case BOOLEANS: {
       os << num_value_.bool_value_;
     } break;
-    case CHARS: case DATES: {
+    case CHARS: case DATES: case TEXTS: {
       os << str_value_;
     } break;
     case NULL_TYPE: {
