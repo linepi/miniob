@@ -286,11 +286,11 @@ RC Expression::visit_comp_expr(std::function<RC (Expression *)> visitor) {
 }
 
 RC Expression::visit(std::function<RC (Expression *)> visitor) {
-  RC rc = RC::SUCCESS;
-  if (this->type() == ExprType::VALUE) return visitor(this);
-  if (this->type() == ExprType::STAR) return visitor(this);
-  if (this->type() == ExprType::FIELD) return visitor(this);
-  if (this->type() == ExprType::SUB_QUERY) return visitor(this);  
+  RC rc = visitor(this);
+  if (this->type() == ExprType::VALUE) return rc;
+  if (this->type() == ExprType::STAR) return rc;
+  if (this->type() == ExprType::FIELD) return rc;
+  if (this->type() == ExprType::SUB_QUERY) return rc;
 
   Expression *left, *right;
   if (type() == ExprType::ARITHMETIC) {

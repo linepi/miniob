@@ -44,6 +44,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
   return expr;
 }
 
+
 %}
 
 %define api.pure full
@@ -161,6 +162,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
   AggType                           agg;
   FunctionType                      func;
   char *                            string;
+  const char *                      constchar;
   int                               number;
   float                             floats;
 }
@@ -173,6 +175,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 //非终结符
 
 /** type 定义了各种解析后的结果输出的是什么类型。类型对应了 union 中的定义的成员变量名称 **/
+%type <constchar>           all_token
 %type <number>              type_meta
 %type <number>              type_note
 %type <func>                function_1
@@ -681,28 +684,32 @@ expression_alias:
     }
     $$ = $1;
     $$->set_alias($2);
+    free($2);
   } 
   | expression AS ID {
     if ($1->type() == ExprType::FIELD) {
       FieldExpr *f = static_cast<FieldExpr *>($1);
       f->rel_attr().alias = $3;
     }
+    $$ = $1;
     $$->set_alias($3);
+    free($3);
   } 
-  | expression aggregation_func {
+  | expression all_token {
     if ($1->type() == ExprType::FIELD) {
       FieldExpr *f = static_cast<FieldExpr *>($1);
-      f->rel_attr().alias = AGG_TYPE_NAME[$2];
+      f->rel_attr().alias = $2;
     }
     $$ = $1;
-    $$->set_alias(AGG_TYPE_NAME[$2]);
+    $$->set_alias($2);
   } 
-  | expression AS aggregation_func {
+  | expression AS all_token {
     if ($1->type() == ExprType::FIELD) {
       FieldExpr *f = static_cast<FieldExpr *>($1);
-      f->rel_attr().alias = AGG_TYPE_NAME[$3];
+      f->rel_attr().alias = $3;
     }
-    $$->set_alias(AGG_TYPE_NAME[$3]);
+    $$ = $1;
+    $$->set_alias($3);
   }
   ;
 
@@ -840,12 +847,33 @@ expression_elem:
     $$->set_name(token_name(sql_string, &@$));
     free($1);
   }
+  | all_token {
+    RelAttrSqlNode rel_attr("", $1, "");
+    $$ = new FieldExpr(rel_attr);
+    $$->set_name(token_name(sql_string, &@$));
+  }
   | ID DOT ID {
     RelAttrSqlNode rel_attr($1, $3, "");
     $$ = new FieldExpr(rel_attr);
     $$->set_name(token_name(sql_string, &@$));
     free($1);
     free($3);
+  }
+  | ID DOT all_token {
+    RelAttrSqlNode rel_attr($1, $3, "");
+    $$ = new FieldExpr(rel_attr);
+    $$->set_name(token_name(sql_string, &@$));
+    free($1);
+  }
+  | all_token DOT all_token {
+    RelAttrSqlNode rel_attr($1, $3, "");
+    $$ = new FieldExpr(rel_attr);
+    $$->set_name(token_name(sql_string, &@$));
+  }
+  | all_token DOT ID {
+    RelAttrSqlNode rel_attr($1, $3, "");
+    $$ = new FieldExpr(rel_attr);
+    $$->set_name(token_name(sql_string, &@$));
   }
   | value {
     $$ = new ValueExpr(*$1);
@@ -1251,6 +1279,18 @@ alias_id:
       free($1);
       free($2);      
     }
+    | ID AS all_token {
+      $$ = new std::pair<std::string, std::string>;
+      $$->first = $1;
+      $$->second = $3;
+      free($1);
+    }
+    | ID all_token {
+      $$ = new std::pair<std::string, std::string>;
+      $$->first = $1;
+      $$->second = $2;
+      free($1);
+    }
     ;
 
 alias_id_list:
@@ -1330,6 +1370,28 @@ set_variable_stmt:
       delete $4;
     }
     ;
+
+all_token:  
+  INDEX                     { $$ =   "index"; }        
+  | INT_T                     { $$ =   "int"; }        
+  | STRING_T                  { $$ =   "string"; }           
+  | FLOAT_T                   { $$ =   "float"; }          
+  | DATE_T                    { $$ =   "date"; }         
+  | TEXT_T                    { $$ =   "text"; }         
+  | INTO                      { $$ =   "into"; }       
+  | VALUES                    { $$ =   "values"; }         
+  | DATA                      { $$ =   "data"; }       
+  | EXPLAIN                   { $$ =   "explain"; }          
+  | MIN                       { $$ =   "min"; }      
+  | MAX                       { $$ =   "max"; }      
+  | AVG                       { $$ =   "avg"; }      
+  | COUNT                     { $$ =   "count"; }        
+  | SUM                       { $$ =   "sum"; }      
+  | UNIQUE                    { $$ =   "unique"; }         
+  | ROUND                     { $$ =   "round"; }        
+  | VIEW                      { $$ =   "view"; }       
+  | LENGTH                    { $$ =   "length"; }         
+  | DATE_FORMAT               { $$ =   "date_format"; }              
 
 %%
 //_____________________________________________________________________
