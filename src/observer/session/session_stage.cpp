@@ -185,12 +185,14 @@ void SessionStage::handle_request(StageEvent *event)
   for (std::string &sql : sqls) {
     SQLStageEvent sql_event(sev, sql);
     
-    (void)handle_sql(this, &sql_event, true);
+    RC rc = handle_sql(this, &sql_event, true);
+    if (rc == RC::HANDLE_SQL_END) 
+      continue;
     Communicator *communicator = sev->get_communicator();
     communicator->session()->set_sql_debug(true);
 
     bool need_disconnect = false;
-    RC rc = communicator->write_result(sev, need_disconnect);
+    rc = communicator->write_result(sev, need_disconnect);
     LOG_INFO("write result return %s", strrc(rc));
     clean_garbage(this, &sql_event);
 

@@ -209,6 +209,7 @@ ArithmeticExpr *create_arithmetic_expression(ArithType type,
 
 %type <alias_id_list>       alias_id_list
 %type <relation_list>       id_list
+%type <relation_list>       id_list_full
 
 %type <expression>          expression
 %type <expression>          expression_alias
@@ -574,6 +575,24 @@ insert_stmt:        /*insert   语句的语法解析树*/
       }
       delete $5;
       free($3);
+    }
+    | INSERT INTO ID LBRACE id_list_full RBRACE VALUES insert_data insert_data_list
+    {
+      $$ = new ParsedSqlNode(SCF_INSERT);
+      $$->insertion.relation_name = $3;
+      if ($9 != nullptr) {
+        $9->emplace_back(*$8);
+        std::reverse($9->begin(), $9->end());
+        $$->insertion.values_list = $9;
+      } else {
+        $$->insertion.values_list = new std::vector<vector<Expression *>>;
+        $$->insertion.values_list->emplace_back(*$8);
+      }
+      delete $8;
+      free($3);
+
+      $$->insertion.attr_names.swap(*$5);
+      delete $5;
     }
     ;
 
@@ -1323,7 +1342,36 @@ id_list:
       $$->push_back($2);
       free($2);
     }
+    | COMMA all_token id_list {
+      if ($3 != nullptr) {
+        $$ = $3;
+      } else {
+        $$ = new std::vector<std::string>;
+      }
+      $$->push_back($2);
+    }
     ;
+
+id_list_full:
+  ID id_list {
+    if ($2 != nullptr) {
+      $$ = $2;
+    } else {
+      $$ = new std::vector<std::string>;
+    }
+    $$->push_back($1);
+    std::reverse($$->begin(), $$->end());
+  }
+  | all_token id_list {
+    if ($2 != nullptr) {
+      $$ = $2;
+    } else {
+      $$ = new std::vector<std::string>;
+    }
+    $$->push_back($1);
+    std::reverse($$->begin(), $$->end());
+  }
+  ;
 
 where:
   {
