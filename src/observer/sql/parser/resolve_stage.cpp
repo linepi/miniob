@@ -44,7 +44,7 @@ RC handle_sql(SessionStage *ss, SQLStageEvent *sql_event, bool main_query);
 RC sub_query_extract(SelectSqlNode *select, SessionStage *ss, SQLStageEvent *sql_event, std::string &std_out, std::vector<AttrInfoSqlNode> *attr_infos = nullptr);
 RC check_correlated_query(SubQueryExpr *expr, std::vector<std::string> *father_tables, bool &result); 
 RC convert_view_to_physical(SelectSqlNode &select_node, std::unordered_set<std::string> &view2physical);
-RC deal_with_view_update_condition(Table *t, std::vector<Table *> &ts, Expression *expr, bool &emit);
+RC deal_with_view_update_condition(Table *t, std::vector<Table *> &ts, Expression *&expr, bool &emit);
 
 void get_relation_from_select(SelectSqlNode *select, std::unordered_set<std::string> &relations);
 void get_relation_from_update(UpdateSqlNode *update, std::unordered_set<std::string> &relations);
@@ -553,8 +553,8 @@ RC ResolveStage::handle_view_select(SessionStage *ss, SQLStageEvent *sql_event, 
   std::unordered_set<std::string> view2physical;
   for (View *v : views) {
     CreateTableSqlNode cnode;
-    cnode.select = v->table_meta().select_;
-    rc = alias_pre_process(v->table_meta().select_);
+    cnode.select = v->select(true);
+    rc = alias_pre_process(cnode.select);
     if (rc != RC::SUCCESS) {
       LOG_WARN("view select alias preprocess failed. rc=%s", strrc(rc));
       return rc;
@@ -597,7 +597,7 @@ RC ResolveStage::handle_view_insert(SessionStage *ss, SQLStageEvent *sql_event, 
   if (!table || table->type() != Table::VIEW) return RC::SUCCESS;
   View *view = static_cast<View *>(table);
 
-  SelectSqlNode *view_select = view->table_meta().select_;
+  SelectSqlNode *view_select = view->select(true);
   assert(view_select);
   rc = alias_pre_process(view_select);
   if (rc != RC::SUCCESS) {
@@ -610,8 +610,15 @@ RC ResolveStage::handle_view_insert(SessionStage *ss, SQLStageEvent *sql_event, 
     if (!attr.expr_nodes[0]) return RC::INVALID_VIEW_DML;
     bool agg;
     attr.expr_nodes[0]->is_aggregate(agg);
-    if (agg) 
+    if (agg || attr.expr_nodes[0]->has_function()) {
+      sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_ARGUMENT);
       return RC::INVALID_VIEW_DML;
+    }
+    if (attr.expr_nodes[0]->type() != ExprType::FIELD && 
+        attr.expr_nodes[0]->type() != ExprType::STAR) {
+      sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_ARGUMENT);
+      return RC::INVALID_ARGUMENT;
+    }
   }
   if (view_select->groupby.size() != 0) {
     LOG_WARN("groupby view not allowed to insert");
@@ -644,8 +651,12 @@ RC ResolveStage::handle_view_insert(SessionStage *ss, SQLStageEvent *sql_event, 
 
   // 生成表达式map，将字段map到表达式上
   std::unordered_map<std::string, Expression *> expr_map; 
+  bool make_attr_names = node.attr_names.size() == 0;
   for (size_t i = 0; i < view->table_meta().field_metas()->size(); i++) {
     const FieldMeta &meta = view->table_meta().field_metas()->at(i);
+    if (make_attr_names) {
+      node.attr_names.push_back(meta.name());
+    }
     if (view_select->attributes[0].expr_nodes[0]->type() == ExprType::STAR) {
       StarExpr *star_expr = static_cast<StarExpr *>(view_select->attributes[0].expr_nodes[0]);
       Table *view_select_table = db->find_table(view_select->relations[0].c_str());
@@ -675,12 +686,6 @@ RC ResolveStage::handle_view_insert(SessionStage *ss, SQLStageEvent *sql_event, 
 
   if (tables.size() == 1) {
     Table *real_table = db->find_table(view_select->relations[0].c_str());
-
-    if (node.attr_names.empty()) {
-      for (const FieldMeta &meta : *(view->table_meta().field_metas())) {
-        node.attr_names.push_back(meta.name());
-      }
-    }
 
     std::unordered_map<int, int> site_map;
     for (int j = 0; j < real_table->table_meta().field_num() - real_table->table_meta().sys_field_num(); j++) {
@@ -738,7 +743,7 @@ RC ResolveStage::handle_view_update(SessionStage *ss, SQLStageEvent *sql_event, 
   if (!table || table->type() != Table::VIEW) return RC::SUCCESS;
   View *view = static_cast<View *>(table);
 
-  SelectSqlNode *view_select = view->table_meta().select_;
+  SelectSqlNode *view_select = view->select(true);
   assert(view_select);
   rc = alias_pre_process(view_select);
   if (rc != RC::SUCCESS) {
@@ -808,7 +813,7 @@ RC ResolveStage::handle_view_update(SessionStage *ss, SQLStageEvent *sql_event, 
     std::string &view_attr_name = av_elem.first;
     if (expr_map.find(view_attr_name) != expr_map.end()) {
       Expression *expr = expr_map[view_attr_name];
-      if (expr->type() != ExprType::FIELD) {
+      if (expr->type() != ExprType::FIELD || expr->has_function()) {
         LOG_WARN("view's special attribute is not allowed to update");
         sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_VIEW_DML);
         return RC::INVALID_VIEW_DML;
@@ -895,13 +900,16 @@ RC ResolveStage::handle_view_update(SessionStage *ss, SQLStageEvent *sql_event, 
       std::string &set_attr = set_attrs[i];
       Expression *set_expr = set_exprs[i];
 
+      Expression *node_condition_bak = node.condition ? node.condition->deepcopy() : nullptr;
+      Expression *view_condition_bak = view_select->condition ? view_select->condition->deepcopy() : nullptr;
+
       bool emit1 = false, emit2 = false;
       rc = deal_with_view_update_condition(set_table, set_tables, node.condition, emit1);
       if (rc != RC::SUCCESS) {
         sql_event->session_event()->sql_result()->set_return_code(rc);
         return rc;
       }
-      rc = deal_with_view_update_condition(set_table, set_tables, view->table_meta().select_->condition, emit2);
+      rc = deal_with_view_update_condition(set_table, set_tables, view_select->condition, emit2);
       if (rc != RC::SUCCESS) {
         sql_event->session_event()->sql_result()->set_return_code(rc);
         return rc;
@@ -912,13 +920,13 @@ RC ResolveStage::handle_view_update(SessionStage *ss, SQLStageEvent *sql_event, 
       pnode->update.relation_name = set_table->name();
       pnode->update.av.push_back(std::pair<std::string, Expression *>(set_attr, set_expr));
       if (!emit1 && !emit2) {
-        ConjunctionExpr *conj = new ConjunctionExpr(CONJ_AND, node.condition, view->table_meta().select_->condition);
+        ConjunctionExpr *conj = new ConjunctionExpr(CONJ_AND, node.condition, view_select->condition);
         pnode->update.condition = conj;
       } else if (emit1 && emit2) {
         pnode->update.condition = nullptr;
       } else {
         if (!emit1) pnode->update.condition = node.condition;
-        else pnode->update.condition = view->table_meta().select_->condition;
+        else pnode->update.condition = view_select->condition;
       }
       sql_event->set_correlated_query(true);
       SQLStageEvent stack_sql_event(*sql_event, false);
@@ -938,6 +946,17 @@ RC ResolveStage::handle_view_update(SessionStage *ss, SQLStageEvent *sql_event, 
       communicator->write_result(stack_sql_event.session_event(), need_disconnect);
       communicator->set_writer(writer_bak);
       delete thesw;
+
+      if (node_condition_bak) {
+        if (node.condition) 
+          delete node.condition;
+        node.condition = node_condition_bak;
+      }
+      if (view_condition_bak) {
+        if (view_select->condition)
+          delete view_select->condition;
+        view_select->condition = view_condition_bak;
+      }
     }
     Communicator *communicator = sql_event->session_event()->get_communicator();
     bool need_disconnect = false;
@@ -958,7 +977,7 @@ RC ResolveStage::handle_view_delete(SessionStage *ss, SQLStageEvent *sql_event, 
   if (!table || table->type() != Table::VIEW) return RC::SUCCESS;
   View *view = static_cast<View *>(table);
 
-  SelectSqlNode *view_select = view->table_meta().select_;
+  SelectSqlNode *view_select = view->select(true);
   assert(view_select);
   rc = alias_pre_process(view_select);
   if (rc != RC::SUCCESS) {
@@ -1227,7 +1246,7 @@ RC ResolveStage::alias_pre_process(SelectSqlNode *select_sql)
   for (Expression *con : conditions)
   {
     if (!con) continue;
-    if(!con->is_condition()) {
+    if (!con->is_condition()) {
       LOG_WARN("not a valid condition");
       return RC::INVALID_ARGUMENT;
     }
@@ -1350,7 +1369,7 @@ RC convert_view_to_physical(SelectSqlNode &select_node, std::unordered_set<std::
   return RC::SUCCESS;
 }
 
-RC deal_with_view_update_condition(Table *t, std::vector<Table *> &ts, Expression *expr, bool &emit) {
+RC deal_with_view_update_condition(Table *t, std::vector<Table *> &ts, Expression *&expr, bool &emit) {
   RC rc = RC::SUCCESS;
   (void)ts;
 
@@ -1378,11 +1397,11 @@ RC deal_with_view_update_condition(Table *t, std::vector<Table *> &ts, Expressio
       }
     }
 
-    if (!tmp_has_my_attr) has_other_attr = true;
-    else has_my_attr = true;
-
-    if (has_my_attr && has_other_attr) return RC::UNIMPLENMENT;
-    else return RC::SUCCESS;
+    if (!tmp_has_my_attr) 
+      has_other_attr = true;
+    else 
+      has_my_attr = true;
+    return RC::SUCCESS;
   };
   rc = expr->visit_field_expr(visitor, false);
   if (rc != RC::SUCCESS) {
@@ -1390,7 +1409,16 @@ RC deal_with_view_update_condition(Table *t, std::vector<Table *> &ts, Expressio
     return rc;
   }
 
-  if (!has_my_attr && has_other_attr) 
-    emit = true;
+  if (has_my_attr && has_other_attr) {
+    // 将其他表的字段替换为字段值
+  }
+  else if (!has_my_attr && has_other_attr) {
+    Value v;
+    if (expr->try_get_value(v) != RC::SUCCESS)
+      emit = true;
+  }
+  else {
+    emit = false;
+  }
   return rc;
 }

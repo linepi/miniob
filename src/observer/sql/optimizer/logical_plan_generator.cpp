@@ -96,7 +96,6 @@ RC LogicalPlanGenerator::create_plan(
   const std::vector<Table *> &tables = select_stmt->tables();
   const std::vector<Expression *> &all_exprs = select_stmt->query_exprs();
 
-
   for (Table *table : tables) {
     std::vector<Field> fields;
     if (all_exprs[0]->type() == ExprType::STAR) {
@@ -122,10 +121,12 @@ RC LogicalPlanGenerator::create_plan(
     if (table_oper == nullptr) {
       table_oper = std::move(table_get_oper);
     } else {
-      JoinLogicalOperator *join_oper = new JoinLogicalOperator;
-      join_oper->add_child(std::move(table_oper));
-      join_oper->add_child(std::move(table_get_oper));
-      table_oper = unique_ptr<LogicalOperator>(join_oper);
+      if (tables[0] != tables[1]) {
+        JoinLogicalOperator *join_oper = new JoinLogicalOperator;
+        join_oper->add_child(std::move(table_oper));
+        join_oper->add_child(std::move(table_get_oper));
+        table_oper = unique_ptr<LogicalOperator>(join_oper);
+      }
     }
   }
 

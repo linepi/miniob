@@ -97,6 +97,7 @@ public:
   bool is_condition() const;
   RC is_aggregate(bool &result);
   RC get_aggregate(AggType &result);
+  bool has_function();
   void toggle_aggregate(bool on);
   void reset_aggregate();
   RC visit_field_expr(std::function<RC (std::unique_ptr<Expression> &)> visitor, bool deepinto);

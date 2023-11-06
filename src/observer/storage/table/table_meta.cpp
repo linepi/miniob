@@ -381,3 +381,15 @@ void TableMeta::desc(std::ostream &os) const
   }
   os << ')' << std::endl;
 }
+
+SelectSqlNode *TableMeta::select(bool rebuild) {
+  if (!select_) return nullptr;
+  if (!rebuild) return select_;
+  std::string select_sql = select_->select_string;
+  assert(!select_sql.empty());
+  ParsedSqlResult parsed_sql_result;
+  parse(select_sql.c_str(), &parsed_sql_result);
+  delete select_;
+  select_ = new SelectSqlNode(parsed_sql_result.sql_nodes()[0]->selection);
+  return select_;
+}

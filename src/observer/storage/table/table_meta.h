@@ -61,8 +61,8 @@ public:
   const IndexMeta *find_index_by_field(const char *field) const;
   const IndexMeta *index(int i) const;
   int index_num() const;
-
   int record_size() const;
+  SelectSqlNode *select(bool rebuild) ;
 
 public:
   int serialize(std::ostream &os) const override;

@@ -66,6 +66,22 @@ RC Expression::is_aggregate(bool &result) {
   return RC::SUCCESS;
 }
 
+bool Expression::has_function() {
+  bool result = false;
+  auto visitor = [&result](Expression *expr) {
+    std::vector<ExprFunc *> &funcs = expr->funcs();
+    for (ExprFunc *func : funcs) {
+      if (func->type() == ExprFunc::COMMON) {
+        result = true;
+        break;
+      }
+    }
+    return RC::SUCCESS;
+  };
+  this->visit(visitor);
+  return result;
+}
+
 void Expression::toggle_aggregate(bool on) {
   auto visitor = [&](Expression *e) {
     e->agg_on_ = on;
@@ -726,22 +742,31 @@ RC ConjunctionExpr::try_get_value(Value &value) const
   RC rc = RC::SUCCESS;
 
   Value lv, rv;
-  rc = left_->try_get_value(lv);
-  if (rc != RC::SUCCESS) {
-    LOG_INFO("try get value failed. rc=%s", strrc(rc));
-    return rc;
-  }
-  rc = right_->try_get_value(rv);
-  if (rc != RC::SUCCESS) {
-    LOG_INFO("try get value failed. rc=%s", strrc(rc));
-    return rc;
-  }
-  bool lb = lv.get_boolean(), rb = rv.get_boolean();
+  RC rc1 = left_->try_get_value(lv);
+  RC rc2 = right_->try_get_value(rv);
 
-  if (conjunction_type_ == CONJ_AND)
-    value.set_boolean(lb && rb);
-  else
-    value.set_boolean(lb || rb);
+  if (rc1 != RC::SUCCESS && rc2 != RC::SUCCESS) {
+    return RC::UNIMPLENMENT;
+  } else if (rc1 != RC::SUCCESS || rc2 != RC::SUCCESS) {
+    Value v;
+    if (rc1 == RC::SUCCESS) 
+      v = lv;
+    if (rc2 == RC::SUCCESS) 
+      v = rv;
+    if (conjunction_type_ == CONJ_AND) {
+      if (v.get_boolean() == false) value.set_boolean(false);
+      else return RC::UNIMPLENMENT;
+    } else {
+      if (v.get_boolean() == true) value.set_boolean(true);
+      else return RC::UNIMPLENMENT;
+    }
+  } else {
+    bool lb = lv.get_boolean(), rb = rv.get_boolean();
+    if (conjunction_type_ == CONJ_AND)
+      value.set_boolean(lb && rb);
+    else
+      value.set_boolean(lb || rb);
+  }
   
   return func_impl(value);
 }

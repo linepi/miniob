@@ -50,6 +50,10 @@ const TableMeta &View::table_meta() const
   return table_meta_;
 }
 
+SelectSqlNode *View::select(bool rebuild) {
+  return table_meta_.select(rebuild);
+}
+
 const char * View::table_dir()
 {
   return base_dir_.c_str();

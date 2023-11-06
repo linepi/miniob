@@ -77,6 +77,7 @@ public:
   int32_t table_id() const override;
   const char *name() const override;
   const TableMeta &table_meta() const override;
+  SelectSqlNode *select(bool rebuild);
   const char * table_dir() override;
   RC sync() override;
   SelectSqlNode *select_ = nullptr;
