@@ -107,6 +107,8 @@ public:
   RC get_field_relations(std::unordered_set<std::string> &relations);
   std::string dump_tree(int indent = 0);
 
+  Expression *deepcopy();
+
 private:
   std::string name_;
   std::string alias_;
@@ -128,6 +130,11 @@ public:
   {}
   FieldExpr(RelAttrSqlNode &rel_attr) : rel_attr_(rel_attr)
   {}
+  FieldExpr(FieldExpr &other) {
+    rel_attr_ = other.rel_attr_;
+    field_ = other.field_;
+  }
+  
 
   virtual ~FieldExpr() = default;
 
@@ -160,6 +167,10 @@ class StarExpr : public Expression
 public:
   StarExpr() = default;
   StarExpr(std::string relation) : relation_(relation) {}
+  StarExpr(StarExpr &other) {
+    relation_ = other.relation_;
+    fields_ = other.fields_;
+  }
   virtual ~StarExpr() = default;
 
   ExprType type() const override { return ExprType::STAR; }
@@ -189,6 +200,9 @@ public:
   ValueExpr() = default;
   explicit ValueExpr(const Value &value) { 
     value_ = value;
+  }
+  ValueExpr(ValueExpr &other) {
+    value_ = other.value_;
   }
 
   virtual ~ValueExpr() = default;

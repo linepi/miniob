@@ -186,8 +186,10 @@ void SessionStage::handle_request(StageEvent *event)
     SQLStageEvent sql_event(sev, sql);
     
     RC rc = handle_sql(this, &sql_event, true);
-    if (rc == RC::HANDLE_SQL_END) 
+    if (rc == RC::HANDLE_SQL_END) { 
+      clean_garbage(this, &sql_event);
       continue;
+    }
     Communicator *communicator = sev->get_communicator();
     communicator->session()->set_sql_debug(true);
 

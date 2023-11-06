@@ -599,6 +599,12 @@ RC ResolveStage::handle_view_insert(SessionStage *ss, SQLStageEvent *sql_event, 
 
   SelectSqlNode *view_select = view->table_meta().select_;
   assert(view_select);
+  rc = alias_pre_process(view_select);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("-");
+    sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_ARGUMENT);
+    return rc;
+  }
 
   for (SelectAttr &attr : view_select->attributes) {
     if (!attr.expr_nodes[0]) return RC::INVALID_VIEW_DML;
@@ -734,6 +740,12 @@ RC ResolveStage::handle_view_update(SessionStage *ss, SQLStageEvent *sql_event, 
 
   SelectSqlNode *view_select = view->table_meta().select_;
   assert(view_select);
+  rc = alias_pre_process(view_select);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("-");
+    sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_ARGUMENT);
+    return rc;
+  }
 
   for (SelectAttr &attr : view_select->attributes) {
     if (!attr.expr_nodes[0]) return RC::INVALID_VIEW_DML;
@@ -813,7 +825,7 @@ RC ResolveStage::handle_view_update(SessionStage *ss, SQLStageEvent *sql_event, 
     auto substitutor = [&](std::unique_ptr<Expression> &e) {
       FieldExpr *field_expr = static_cast<FieldExpr *>(e.get());
       if (expr_map.find(field_expr->rel_attr().attribute_name) != expr_map.end()) {
-        e.reset(expr_map[field_expr->rel_attr().attribute_name]);
+        e.reset(expr_map[field_expr->rel_attr().attribute_name]->deepcopy());
       } else {
         return RC::INVALID_ARGUMENT;
       }
@@ -882,6 +894,7 @@ RC ResolveStage::handle_view_update(SessionStage *ss, SQLStageEvent *sql_event, 
       Table *set_table = set_tables[i];
       std::string &set_attr = set_attrs[i];
       Expression *set_expr = set_exprs[i];
+
       bool emit1 = false, emit2 = false;
       rc = deal_with_view_update_condition(set_table, set_tables, node.condition, emit1);
       if (rc != RC::SUCCESS) {
@@ -893,6 +906,7 @@ RC ResolveStage::handle_view_update(SessionStage *ss, SQLStageEvent *sql_event, 
         sql_event->session_event()->sql_result()->set_return_code(rc);
         return rc;
       }
+
       ParsedSqlNode *pnode = new ParsedSqlNode();
       pnode->flag          = SCF_UPDATE;
       pnode->update.relation_name = set_table->name();
@@ -915,6 +929,7 @@ RC ResolveStage::handle_view_update(SessionStage *ss, SQLStageEvent *sql_event, 
         sql_event->session_event()->sql_result()->set_return_code(rc);
         return rc;
       }
+
       Writer       *thesw        = new SilentWriter();
       Communicator *communicator = stack_sql_event.session_event()->get_communicator();
       Writer       *writer_bak   = communicator->writer();
@@ -945,6 +960,12 @@ RC ResolveStage::handle_view_delete(SessionStage *ss, SQLStageEvent *sql_event, 
 
   SelectSqlNode *view_select = view->table_meta().select_;
   assert(view_select);
+  rc = alias_pre_process(view_select);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("-");
+    sql_event->session_event()->sql_result()->set_return_code(RC::INVALID_ARGUMENT);
+    return rc;
+  }
 
   for (SelectAttr &attr : view_select->attributes) {
     if (!attr.expr_nodes[0]) return RC::INVALID_VIEW_DML;
@@ -982,7 +1003,7 @@ RC ResolveStage::handle_view_delete(SessionStage *ss, SQLStageEvent *sql_event, 
     auto substitutor = [&](std::unique_ptr<Expression> &e) {
       FieldExpr *field_expr = static_cast<FieldExpr *>(e.get());
       if (expr_map.find(field_expr->rel_attr().attribute_name) != expr_map.end()) {
-        e.reset(expr_map[field_expr->rel_attr().attribute_name]);
+        e.reset(expr_map[field_expr->rel_attr().attribute_name]->deepcopy());
       } else {
         return RC::INVALID_ARGUMENT;
       }

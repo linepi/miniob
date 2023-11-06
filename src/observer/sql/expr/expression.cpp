@@ -33,6 +33,7 @@ Expression::~Expression() {
   }
 }
 
+
 void Expression::add_func(AggType agg_type) { 
   funcs_.push_back(new AggregationFunc(agg_type)); 
 }
@@ -141,6 +142,34 @@ RC Expression::func_impl(Value &value) const {
   }
   value = v;
   return RC::SUCCESS;
+}
+
+Expression *Expression::deepcopy() {
+  if (this->type() == ExprType::VALUE) {
+    return new ValueExpr(*static_cast<ValueExpr *>(this));
+  }
+  if (this->type() == ExprType::STAR) {
+    return new StarExpr(*static_cast<StarExpr *>(this));
+  }
+  if (this->type() == ExprType::FIELD) {
+    return new FieldExpr(*static_cast<FieldExpr *>(this));
+  }
+
+  if (type() == ExprType::ARITHMETIC) {
+    ArithmeticExpr *expr_ = static_cast<ArithmeticExpr *>(this);
+    return new ArithmeticExpr(expr_->arithmetic_type(), expr_->left()->deepcopy(), expr_->right()->deepcopy());
+  }
+  else if (type() == ExprType::COMPARISON) {
+    ComparisonExpr *expr_ = static_cast<ComparisonExpr *>(this);
+    return new ComparisonExpr(expr_->comp(), expr_->left()->deepcopy(), expr_->right()->deepcopy());
+  }
+  else if (type() == ExprType::CONJUNCTION) {
+    ConjunctionExpr *expr_ = static_cast<ConjunctionExpr *>(this);
+    return new ConjunctionExpr(expr_->conjunction_type(), expr_->left()->deepcopy(), expr_->right()->deepcopy());
+  }
+  else {
+    assert(0);
+  }
 }
 
 // get all field expressions in a expression, not deep into sub query expression
